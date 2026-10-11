@@ -1005,6 +1005,46 @@ function scheduleTokenScan() {
 // Quase em tempo real: so os arquivos que mudaram sao relidos, entao a varredura e leve.
 setInterval(scanTokens, 5000).unref();
 
+// Uso de cada conta direto da Anthropic, com o login que o Claude Code guardou na pasta da conta.
+// E a mesma consulta do /usage: o numero vale na hora, com ou sem sessao aberta.
+// ponytail: so le o login; se ele venceu, espera o Claude Code renova-lo na proxima sessao.
+const USO_URL = 'https://api.anthropic.com/api/oauth/usage';
+async function consultarUso(a) {
+  let k;
+  try {
+    k = JSON.parse(fs.readFileSync(path.join(a.dir, '.credentials.json'), 'utf8')).claudeAiOauth;
+  } catch {
+    return false;
+  }
+  if (!k?.accessToken || (k.expiresAt && k.expiresAt < now())) return false;
+  const r = await fetch(USO_URL, {
+    headers: { Authorization: `Bearer ${k.accessToken}`, 'anthropic-beta': 'oauth-2025-04-20' },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) return false;
+  const j = await r.json();
+  for (const w of WINDOWS) {
+    const x = j?.[w];
+    // Janela sem nenhum uso vem vazia: a contagem recomeca no proximo uso.
+    if (x == null) a.usage[w] = { pct: 0, resetsAt: null, fresh: true };
+    else if (typeof x.utilization === 'number') {
+      a.usage[w] = { pct: Math.max(0, Math.min(100, x.utilization)), resetsAt: Date.parse(x.resets_at) || null };
+    }
+  }
+  a.usage.at = now();
+  return true;
+}
+async function consultarContas() {
+  if (process.env.PAINEL_DEMO === '1') return;
+  const mudou = await Promise.all([...accounts.values()].map((a) => consultarUso(a).catch(() => false)));
+  if (mudou.some(Boolean)) {
+    persistSoon();
+    dirty();
+  }
+}
+setTimeout(consultarContas, 1500).unref();
+setInterval(consultarContas, 60000).unref();
+
 // ---------------------------------------------------------------- http
 
 const MIME = {
