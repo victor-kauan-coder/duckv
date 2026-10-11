@@ -425,6 +425,9 @@ function pushMsgs(inst, items) {
   for (const c of phones) if (c.open === inst.id) send(c, { t: 'msgs', instance: inst.id, items: fresh });
 }
 
+const SEM_CANAL =
+  'A mensagem não chegou: o Claude Code desta conta recusou mensagens do celular (organizações Team/Enterprise costumam desligar os canais). Crie uma sessão pelo celular com esta conta — essas funcionam em qualquer plano.';
+
 function sysMsg(inst, text) {
   pushMsgs(inst, [{ id: `sys:${now()}:${Math.random().toString(36).slice(2, 7)}`, role: 'sys', text, ts: now() }]);
 }
@@ -500,6 +503,7 @@ function onPhoneMessage(c, m) {
       else if (!text) err = 'Mensagem vazia.';
       else if (text.length > 8000) err = 'Mensagem longa demais (máximo de 8000 caracteres).';
       else if (!inst.hosted && (!inst.agent || inst.agent.readyState !== 1)) err = 'Essa sessão não está conectada ao claudeV.';
+      else if (!inst.hosted && inst.semCanal) err = SEM_CANAL;
       else if (inst.hosted) err = textoPerigoso(text);
       if (err) {
         send(c, { t: 'err', ref: m.ref, msg: err });
@@ -511,6 +515,19 @@ function onPhoneMessage(c, m) {
       } else {
         inst.agent.send(JSON.stringify({ t: 'msg', text }));
         pushMsgs(inst, [{ id: `tel:${now()}:${Math.random().toString(36).slice(2, 7)}`, role: 'user', via: 'celular', text, ts: now() }]);
+        // Organizacoes (Team/Enterprise) podem desligar canais: o Claude Code descarta a mensagem calado.
+        // Se ela nao aparecer no historico, avisa em vez de ficar "recebendo" para sempre.
+        if (!inst.canalOk && inst.tail && inst.status === 'idle') {
+          clearTimeout(inst.canalTimer);
+          inst.canalTimer = setTimeout(() => {
+            if (inst.canalOk) return;
+            inst.semCanal = true;
+            if (inst.status === 'working' && inst.activity === 'Recebendo sua mensagem') inst.status = 'idle';
+            inst.activity = '';
+            sysMsg(inst, SEM_CANAL);
+            dirty();
+          }, 30_000);
+        }
       }
       if (inst.status === 'idle' && !text.startsWith('/')) {
         inst.status = 'working';
@@ -955,6 +972,10 @@ function pollInst(inst) {
   const items = [];
   let changed = false;
   for (const e of entries) {
+    if (e.type === 'user' && JSON.stringify(e.message?.content ?? '').includes('<channel source=')) {
+      inst.canalOk = true; // o Claude Code recebeu uma mensagem do celular
+      clearTimeout(inst.canalTimer);
+    }
     const p = parseEntry(e);
     if (p.usage) {
       inst.usageById.set(p.usage.id, p.usage);
