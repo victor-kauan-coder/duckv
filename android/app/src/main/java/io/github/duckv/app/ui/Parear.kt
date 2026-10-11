@@ -1,0 +1,101 @@
+package io.github.duckv.app.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import io.github.duckv.app.Hub
+import io.github.duckv.app.Vigia
+
+@Composable
+fun TelaParear(pato: String) {
+    val c = cores
+    val ctx = LocalContext.current
+    var link by rememberSaveable { mutableStateOf("") }
+    var erro by remember { mutableStateOf<String?>(null) }
+    var ocupado by remember { mutableStateOf(false) }
+    val parear = { l: String ->
+        ocupado = true
+        erro = null
+        Hub.parear(l) { er ->
+            ocupado = false
+            erro = er
+            if (er == null) Vigia.ajustar(ctx)
+        }
+    }
+    val leitor = androidx.activity.compose.rememberLauncherForActivityResult(ScanContract()) { r ->
+        r.contents?.let { parear(it) }
+    }
+
+    Column(
+        Modifier.fillMaxSize().background(c.fundo).statusBarsPadding().navigationBarsPadding().imePadding()
+            .verticalScroll(rememberScrollState()).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Pato(if (ocupado) "trabalha" else "dorme", pato, Laranja, Modifier.widthIn(max = 420.dp).fillMaxWidth().height(150.dp).padding(top = 24.dp))
+        Text("claudeV", style = Texto.marca.copy(fontSize = 40.sp, lineHeight = 42.sp), color = c.texto)
+        Text(
+            "Acompanhe e comande as sessões do Claude Code das suas contas, direto do celular.",
+            style = Texto.corpo, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 420.dp),
+        )
+        Column(Modifier.widthIn(max = 420.dp).fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Para começar", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
+            Text("No computador, abra iniciar-claudev.cmd. Na janela aparece um código QR: escaneie aqui.", style = Texto.apoio, color = c.apoio)
+            Botao(
+                "Escanear código", {
+                    leitor.launch(
+                        ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Aponte para o código na janela do claudeV")
+                            .setBeepEnabled(false).setOrientationLocked(false),
+                    )
+                },
+                Modifier.fillMaxWidth(), Icons.Rounded.QrCodeScanner, Peso.Principal, !ocupado,
+            )
+            Text("Ou cole o link de pareamento que aparece abaixo do código:", style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(top = 8.dp))
+            OutlinedTextField(
+                link, { link = it.trim() }, Modifier.fillMaxWidth(), singleLine = true,
+                placeholder = { Text("https://seu-pc.rede.ts.net/parear?k=…", color = c.apoio) },
+                textStyle = Texto.codigo.copy(color = c.texto), shape = RoundedCornerShape(10.dp), colors = campoCores(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { if (link.isNotBlank()) parear(link) }),
+            )
+            Botao("Conectar", { parear(link) }, Modifier.fillMaxWidth(), Icons.Rounded.Link, habilitado = link.isNotBlank() && !ocupado)
+            erro?.let { Text(it, style = Texto.apoio, color = c.perigo) }
+            if (ocupado) Text("Conectando ao computador…", style = Texto.apoio, color = c.apoio)
+        }
+    }
+}

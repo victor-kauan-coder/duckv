@@ -1,0 +1,5 @@
+node_modules/
+data/
+contas.json
+conta*.cmd
+conta*.sh

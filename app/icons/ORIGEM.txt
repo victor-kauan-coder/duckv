@@ -1,0 +1,1 @@
+Os icones do app (icone-192, icone-512, icone-mascara-512 e selo-96) foram gerados a partir do desenho do pato em pixels que esta em app/app.js, renderizado em um navegador. Nao usam imagens de terceiros.
