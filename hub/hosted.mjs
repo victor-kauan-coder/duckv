@@ -35,6 +35,7 @@ const KEYS = {
   'shift-tab': '\x1b[Z',
   'ctrl-c': '\x03',
   backspace: '\x7f',
+  'ctrl-u': '\x15',
   space: ' ',
 };
 const ARROWS = { up: 'A', down: 'B', right: 'C', left: 'D' };
@@ -227,6 +228,38 @@ export function startHosted(opts) {
     if (alive) proc.write(data);
   };
 
+  // Mensagens do celular esperam a caixa de mensagem do Claude Code aparecer na tela:
+  // uma linha que comeca com o marcador de entrada e nao e opcao numerada de menu.
+  const fila = [];
+  let digitando = false;
+  const CAIXA = /^\s*[❯>][\s ](?!\d[.)]\s)/;
+  const pronto = () => snapshot().lines.some((l) => CAIXA.test(l));
+  function esvaziar() {
+    if (digitando || !fila.length || !alive) return;
+    if (!pronto()) return void setTimeout(esvaziar, 300);
+    digitando = true;
+    const t = fila.shift();
+    // Limpa a caixa antes: depois de Interromper, o Claude Code devolve a ultima mensagem para ela.
+    // ponytail: Ctrl+U apaga so a linha atual; sobra de varias linhas ainda grudaria.
+    write('\x15');
+    if (!t.includes('\n') && t.length <= 400) write(t);
+    else if (term.modes.bracketedPasteMode) write(`\x1b[200~${t}\x1b[201~`);
+    else write(t.replace(/\n/g, ' '));
+    // Enter so depois que o texto aparecer na caixa (ou 2 s, o que vier antes).
+    const inicio = t.replace(/\s+/g, ' ').slice(0, 12);
+    const t0 = Date.now();
+    const enter = () => {
+      const tela = snapshot().lines.join('\n');
+      if (Date.now() - t0 < 2000 && !tela.includes(inicio) && !tela.includes('[Pasted')) return void setTimeout(enter, 100);
+      write('\r');
+      setTimeout(() => {
+        digitando = false;
+        esvaziar();
+      }, 800);
+    };
+    setTimeout(enter, 150);
+  }
+
   return {
     pid: proc.pid,
     alive: () => alive,
@@ -242,18 +275,21 @@ export function startHosted(opts) {
     },
     key(name) {
       if (ARROWS[name]) return write(`\x1b${term.modes.applicationCursorKeysMode ? 'O' : '['}${ARROWS[name]}`), true;
+      // No Windows o terminal (ConPTY) segura um Esc sozinho esperando o resto de uma sequencia;
+      // mandado como tecla do Windows (win32-input-mode: aperta e solta), ele chega na hora.
+      if (name === 'esc' && process.platform === 'win32' && !opts.command) return write('\x1b[27;1;27;1;0;1_\x1b[27;1;27;0;0;1_'), true;
       if (KEYS[name]) return write(KEYS[name]), true;
       if (/^[a-z0-9]$/i.test(name)) return write(name), true;
       return false;
     },
     // Digita um texto e aperta Enter, como o usuario faria no teclado.
+    // Espera a caixa de mensagem existir: logo ao abrir (ou enquanto o Claude Code se atualiza)
+    // o texto digitado se perderia.
     send(text) {
       const t = cleanText(text).trim();
       if (!t) return false;
-      if (!t.includes('\n') && t.length <= 400) write(t);
-      else if (term.modes.bracketedPasteMode) write(`\x1b[200~${t}\x1b[201~`);
-      else write(t.replace(/\n/g, ' '));
-      setTimeout(() => write('\r'), 180);
+      fila.push(t);
+      esvaziar();
       return true;
     },
     kill() {

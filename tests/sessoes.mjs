@@ -64,14 +64,14 @@ ok(/got: "linha um\\nlinha dois"/.test(text()), 'texto com varias linhas e colad
 phone.send(JSON.stringify({ t: 'term', instance: id, on: true, cols: 70, rows: 20 })); await sleep(600);
 ok(/FAKE CLAUDE 70x20/.test(text()), 'terminal redimensiona com a tela do celular');
 // permissao: gancho espera a resposta do celular
-await ask({ t: 'send', instance: id, text: 'perm' }); await sleep(1500);
+await ask({ t: 'send', instance: id, text: 'perm' }); await sleep(3000);
 inst = state.instances.find((i) => i.id === id);
 ok(inst.status === 'waiting' && inst.perms.length === 1 && inst.perms[0].tool === 'Bash' && /rm -rf build/.test(inst.perms[0].preview), 'pedido de permissao da sessao aparece com o comando');
 ok(!/decision:/.test(text()), 'o Claude Code fica esperando a resposta');
 const v = await ask({ t: 'verdict', instance: id, request_id: inst.perms[0].id, behavior: 'deny', note: 'use a pasta dist' }); await sleep(900);
 ok(v.t === 'ack' && /"behavior":"deny"/.test(text().replace(/\n/g, '')) && /PermissionRequest/.test(text().replace(/\n/g, '')), 'recusar no celular devolve a decisao ao Claude Code');
 ok(/use a pasta dist/.test(text().replace(/\n/g, '')), 'o recado da recusa chega ao Claude Code');
-await ask({ t: 'send', instance: id, text: 'perm' }); await sleep(1500);
+await ask({ t: 'send', instance: id, text: 'perm' }); await sleep(3000);
 inst = state.instances.find((i) => i.id === id);
 await ask({ t: 'verdict', instance: id, request_id: inst.perms[0].id, behavior: 'allow' }); await sleep(900);
 ok(/"behavior":"allow"/.test(text().replace(/\n/g, '')), 'aceitar no celular devolve a decisao ao Claude Code');

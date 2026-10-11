@@ -41,6 +41,12 @@ function submit(text) {
 }
 process.stdin.on('data', (d) => {
   if (d === '\x03') process.exit(0);
+  // Ctrl+U apaga a linha, como no Claude Code
+  if (d.includes('\x15')) {
+    line = '';
+    d = d.slice(d.lastIndexOf('\x15') + 1);
+    if (!d) return draw();
+  }
   if (!confia) {
     if (d === '1' || d === '\r') confia = true;
     else if (d === '2' || d === '\x1b') process.exit(0);
