@@ -134,6 +134,14 @@ function usageOf(u) {
   };
 }
 
+// Imagem guardada no historico (colada por voce, aberta pelo Claude ou devolvida por uma ferramenta).
+const TIPOS_IMG = /^image\/(png|jpeg|gif|webp)$/;
+function imagem(b) {
+  const s = b?.type === 'image' ? b.source : null;
+  if (s?.type !== 'base64' || !TIPOS_IMG.test(s.media_type) || typeof s.data !== 'string' || s.data.length > 20_000_000) return null;
+  return { media: s.media_type, data: s.data };
+}
+
 // Converte uma linha do historico em itens exibiveis e efeitos colaterais.
 // Retorna { items: [...], usage: {id, ...} | null, tools: [...], results: [...] }
 export function parseEntry(e) {
@@ -180,10 +188,19 @@ export function parseEntry(e) {
         if (b?.type === 'text' && !e.isMeta) {
           const text = cleanUserText(b.text);
           if (text) out.items.push({ id: `${e.uuid}:${idx}`, role: 'user', text: clip(text, 8000), ts });
+        } else if (b?.type === 'image') {
+          const img = imagem(b);
+          if (img) out.items.push({ id: `${e.uuid}:${idx}`, role: 'image', via: 'user', ts, ...img });
         } else if (b?.type === 'tool_result') {
           let text = '';
           if (typeof b.content === 'string') text = b.content;
-          else if (Array.isArray(b.content)) text = b.content.map((x) => x?.text || '').join('\n');
+          else if (Array.isArray(b.content)) {
+            text = b.content.map((x) => x?.text || '').join('\n');
+            b.content.forEach((x, n) => {
+              const img = imagem(x);
+              if (img) out.items.push({ id: `${e.uuid}:${idx}:${n}`, role: 'image', via: 'tool', ts, ...img });
+            });
+          }
           out.results.push({ id: b.tool_use_id, error: !!b.is_error, text: clip(text, 400) });
         }
       });

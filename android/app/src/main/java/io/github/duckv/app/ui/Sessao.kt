@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -75,6 +76,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -98,7 +100,7 @@ import io.github.duckv.app.pasta
 import org.json.JSONObject
 
 @Composable
-fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVoltar: () -> Unit, aoNova: (String) -> Unit) {
+fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVoltar: () -> Unit, aoIrPara: (String) -> Unit = {}, aoNova: (String) -> Unit) {
     val c = cores
     val aviso = LocalAviso.current
     var aba by rememberSaveable(id) { mutableStateOf("conversa") }
@@ -149,7 +151,7 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                     Pedidos(e, listOf(s)) { aba = "terminal" }
                 }
             }
-            if (aba == "conversa") Escrever(e, s, cor)
+            if (aba == "conversa") Escrever(e, s, cor, aoIrPara)
             else Box(Modifier.navigationBarsPadding())
         }
     }
@@ -393,6 +395,7 @@ private fun Mensagem(m: Msg, cor: Color) {
                 style = Texto.apoio, color = c.apoio, maxLines = 3, overflow = TextOverflow.Ellipsis,
             )
         }
+        "image" -> m.img?.let { ImagemDaConversa(it, m.via == "user") }
         "sys" -> Text(m.texto, style = Texto.pequeno, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp))
         "user" -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
             val forma = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
@@ -405,6 +408,38 @@ private fun Mensagem(m: Msg, cor: Color) {
             }
         }
         else -> SelectionContainer { Blocos(m.texto, cor) }
+    }
+}
+
+// Imagem que apareceu na conversa. Um toque abre em tela cheia.
+@Composable
+private fun ImagemDaConversa(id: String, doUsuario: Boolean) {
+    val c = cores
+    val bmp by androidx.compose.runtime.produceState<android.graphics.Bitmap?>(null, id) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Hub.imagem(id) }
+    }
+    var cheia by remember { mutableStateOf(false) }
+    val forma = RoundedCornerShape(12.dp)
+    Box(Modifier.fillMaxWidth(), contentAlignment = if (doUsuario) Alignment.CenterEnd else Alignment.CenterStart) {
+        val b = bmp
+        if (b == null) {
+            Box(Modifier.fillMaxWidth(0.7f).height(160.dp).clip(forma).background(c.elevada).border(1.dp, c.linha, forma), contentAlignment = Alignment.Center) {
+                Text("Carregando imagem", style = Texto.pequeno, color = c.apoio)
+            }
+        } else {
+            androidx.compose.foundation.Image(
+                b.asImageBitmap(), "Imagem da conversa. Toque para ampliar.",
+                Modifier.heightIn(max = 420.dp).fillMaxWidth(0.86f).aspectRatio(b.width.toFloat() / b.height.coerceAtLeast(1)).clip(forma).border(1.dp, c.linha, forma).clickable { cheia = true },
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            )
+            if (cheia) {
+                androidx.compose.ui.window.Dialog({ cheia = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+                    Box(Modifier.fillMaxSize().background(Color.Black).clickable { cheia = false }, contentAlignment = Alignment.Center) {
+                        androidx.compose.foundation.Image(b.asImageBitmap(), "Imagem ampliada. Toque para fechar.", Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -448,7 +483,7 @@ private fun Modifier.wrapIfShort() = this.then(Modifier.width(androidx.compose.f
 // ------------------------------------------------------------ escrever
 
 @Composable
-private fun Escrever(e: Estado, s: Sessao, cor: Color) {
+private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Unit) {
     val c = cores
     val aviso = LocalAviso.current
     var texto by rememberSaveable(s.id) { mutableStateOf("") }
@@ -458,6 +493,10 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color) {
     }
     Column(Modifier.fillMaxWidth().background(c.fundo).navigationBarsPadding()) {
         Divisoria()
+        if (s.desktop) {
+            ContinuarDoDesktop(s, aoIrPara)
+            return@Column
+        }
         if (!s.viva || !s.podeEnviar) {
             Text(
                 if (!s.viva) "Sessão encerrada." else "Esta sessão não recebe mensagens do celular. Abra-a pelo atalho da conta, com o claudeV ligado.",
@@ -500,6 +539,32 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color) {
     }
 }
 
+/** Sessao do Claude desktop: o celular acompanha; para conversar, retoma a mesma conversa por aqui. */
+@Composable
+fun ContinuarDoDesktop(s: Sessao, aoAbriu: (String) -> Unit) {
+    val c = cores
+    val aviso = LocalAviso.current
+    var abrindo by remember { mutableStateOf(false) }
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            if (s.status == "working") "Esta sessão está trabalhando no Claude desktop. Espere ela terminar para continuar por aqui."
+            else "Sessão do Claude desktop. Para mandar mensagens, continue a mesma conversa pelo celular. Feche-a no desktop antes, para as duas não escreverem juntas.",
+            style = Texto.apoio, color = c.apoio,
+        )
+        Botao(
+            if (abrindo) "Abrindo" else "Continuar pelo celular",
+            {
+                abrindo = true
+                Hub.mandar(JSONObject().put("t", "start").put("resume", s.sessaoId).put("cols", 60).put("rows", 32)) { erro, r ->
+                    abrindo = false
+                    if (erro != null) aviso(erro) else r?.optString("instance")?.let(aoAbriu)
+                }
+            },
+            Modifier.fillMaxWidth(), Icons.Rounded.Add, Peso.Principal, habilitado = !abrindo && s.status != "working" && s.sessaoId != null,
+        )
+    }
+}
+
 // ------------------------------------------------------------ controles
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -518,6 +583,11 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
                 Leitura(Icons.Rounded.Shield, "Permissões", nomeDoModo(s.modo), Modifier.weight(1f))
             }
             Column {
+                if (s.desktop) {
+                    TituloSecao("Sessão do Claude desktop")
+                    Text("Daqui você acompanha a conversa. Para comandar, toque em Continuar pelo celular, na aba Conversa: a mesma conversa passa a rodar por aqui.", style = Texto.apoio, color = c.apoio)
+                    return@Column
+                }
                 TituloSecao("Sessão aberta no computador")
                 Text("Daqui você conversa, usa as mensagens rápidas e responde pedidos de permissão. Para trocar modelo, esforço e modo, interromper ou encerrar pelo celular, abra a sessão por aqui.", style = Texto.apoio, color = c.apoio)
                 if (e.host.disponivel) {

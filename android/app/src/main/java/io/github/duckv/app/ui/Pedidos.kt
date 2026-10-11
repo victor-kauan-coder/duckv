@@ -63,6 +63,7 @@ fun oQueFaz(s: Sessao): String = when {
     s.status == "ended" -> "Encerrada"
     s.precisa -> if (s.perms.isNotEmpty()) "Pedindo permissão" else "Pedindo permissão no computador"
     s.status == "working" -> s.atividade.ifBlank { "Trabalhando" }
+    s.desktop -> "No Claude desktop" + (s.ultimoTexto.takeIf { it.isNotBlank() }?.let { ": $it" } ?: "")
     s.status == "error" -> s.atividade.ifBlank { "Parou com erro" }
     else -> s.ultimoTexto.ifBlank { "Esperando sua mensagem" }
 }

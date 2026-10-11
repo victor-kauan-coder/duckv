@@ -152,6 +152,10 @@ export function startHosted(opts) {
   const rows = Math.max(16, Math.min(60, opts.rows || 32));
 
   const args = [];
+  // Retomar uma conversa existente (por exemplo, do Claude desktop) e carregar os ganchos do claudeV
+  // sem mexer nas configuracoes de sempre.
+  if (opts.resume) args.push('--resume', opts.resume);
+  if (opts.settings) args.push('--settings', opts.settings);
   if (opts.model && opts.model !== 'default') args.push('--model', opts.model);
   if (opts.effort) args.push('--effort', opts.effort);
   if (opts.mode) args.push('--permission-mode', opts.mode);

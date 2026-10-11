@@ -650,3 +650,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action
   .pista[data-estado='trabalha'] .trilho,
   .pista[data-estado='festa'] .trilho { transform: translateX(calc(50% - 38px)); }
 }
+
+/* Imagem da conversa */
+.m.imagem { display: block; max-width: 86%; }
+.m.imagem.eu { margin-left: auto; }
+.m.imagem img { display: block; max-width: 100%; max-height: 420px; border: 1px solid var(--linha); }

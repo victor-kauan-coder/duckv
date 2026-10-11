@@ -96,7 +96,10 @@ class MainActivity : ComponentActivity() {
                                         aoOpcoes = { pilha.add(Rota.Opcoes) },
                                         aoVerTela = { pilha.add(Rota.Sessao(it.id)) },
                                     )
-                                    is Rota.Sessao -> TelaSessao(e, rota.id, opcoes.pato, opcoes.ferramentas, { voltar() }) { pilha.add(Rota.Nova(it)) }
+                                    is Rota.Sessao -> TelaSessao(e, rota.id, opcoes.pato, opcoes.ferramentas, { voltar() }, { id ->
+                                        pilha.removeAt(pilha.lastIndex)
+                                        pilha.add(Rota.Sessao(id))
+                                    }) { pilha.add(Rota.Nova(it)) }
                                     is Rota.Nova -> TelaNova(e, rota.conta, { voltar() }) { id ->
                                         pilha.removeAt(pilha.lastIndex)
                                         pilha.add(Rota.Sessao(id))

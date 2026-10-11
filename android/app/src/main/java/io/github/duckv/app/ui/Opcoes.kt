@@ -178,7 +178,7 @@ private fun BlocoConta(e: Estado, conta: Conta, salvar: (JSONObject) -> Unit, po
     val c = cores
     val aviso = LocalAviso.current
     var aberto by rememberSaveable { mutableStateOf(false) }
-    var nome by rememberSaveable(conta.id) { mutableStateOf(conta.nome) }
+    var nome by rememberSaveable(conta.id, conta.nome) { mutableStateOf(conta.nome) }
     var pasta by rememberSaveable(conta.id) { mutableStateOf(conta.padroes.cwd.orEmpty()) }
     val forma = RoundedCornerShape(14.dp)
     val padrao = { p: JSONObject -> salvar(JSONObject().put("op", "conta").put("id", conta.id).put("padroes", p)) }
@@ -186,20 +186,24 @@ private fun BlocoConta(e: Estado, conta: Conta, salvar: (JSONObject) -> Unit, po
         Row(Modifier.fillMaxWidth().clickable { aberto = !aberto }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Marca(Color(conta.cor), tamanho = 14.dp)
             EspacoLargo(12.dp)
-            Text(conta.nome, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text(conta.nome, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
+                if (conta.email != null) Text(conta.email, style = Texto.pequeno, color = c.apoio)
+            }
             Icon(if (aberto) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown, null, tint = c.apoio)
         }
         AnimatedVisibility(aberto) {
             Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        nome, { nome = it.take(30) }, Modifier.weight(1f), label = { Text("Nome") }, singleLine = true,
-                        shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
-                    )
-                    if (nome.trim() != conta.nome && nome.isNotBlank()) {
-                        IconButton({ salvar(JSONObject().put("op", "conta").put("id", conta.id).put("nome", nome.trim())) }) { Icon(Icons.Rounded.Check, "Salvar nome", tint = c.ok) }
-                    }
-                }
+                val mudou = nome.trim() != conta.nome && nome.isNotBlank()
+                val salvarNome = { if (mudou) salvar(JSONObject().put("op", "conta").put("id", conta.id).put("nome", nome.trim())) }
+                OutlinedTextField(
+                    nome, { nome = it.take(30) }, Modifier.fillMaxWidth(), label = { Text("Nome da conta") }, singleLine = true,
+                    supportingText = { Text("Aparece no topo do app e nos avisos.") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { salvarNome() }),
+                    shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
+                )
+                if (mudou) Botao("Salvar nome", salvarNome, Modifier.fillMaxWidth(), Icons.Rounded.Check, Peso.Principal)
                 CabecalhoAjuste("Cor", CORES.firstOrNull { io.github.duckv.app.corDe(it.first) == conta.cor }?.second, Modifier.padding(bottom = 0.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     for ((hex, rotulo) in CORES) {

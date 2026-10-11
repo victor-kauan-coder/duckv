@@ -654,6 +654,10 @@ function blocosDeTexto(texto) {
 function criarMensagem(m) {
   if (m.role === 'tool') return el('div', { class: 'm tool' }, icone('caret-right', 14), el('span', null, el('b', { text: m.tool }), m.text || ''));
   if (m.role === 'sys') return el('div', { class: 'm sys', text: m.text });
+  if (m.role === 'image' && /^[0-9a-f]{24}$/.test(m.img || '')) {
+    const src = `/api/img/${m.img}`;
+    return el('a', { class: `m imagem ${m.via === 'user' ? 'eu' : ''}`, href: src, target: '_blank', rel: 'noopener' }, el('img', { src, alt: 'Imagem da conversa', loading: 'lazy' }));
+  }
   if (m.role === 'user') {
     return el('div', { class: 'm user' }, ...blocosDeTexto(m.text), m.via === 'celular' ? el('span', { class: 'via', text: 'Enviada do celular' }) : null);
   }

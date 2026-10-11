@@ -22,6 +22,7 @@ data class Conta(
     val lidoEm: Long?,
     val tokens: Tokens?,
     val reinicio: Reinicio?,
+    val email: String? = null,
 )
 
 data class Perm(val id: String, val tool: String, val desc: String, val preview: String, val em: Long)
@@ -56,6 +57,8 @@ data class Sessao(
     val modo: String?,
     val podeEnviar: Boolean,
     val ultimoTexto: String,
+    val desktop: Boolean = false,
+    val sessaoId: String? = null,
 ) {
     val viva get() = status != "ended"
     val precisa get() = status == "waiting" || perms.isNotEmpty()
@@ -88,7 +91,7 @@ data class Estado(
     fun vivas(conta: String) = sessoes.filter { it.conta == conta && it.viva }
 }
 
-data class Msg(val id: String, val papel: String, val texto: String, val tool: String?, val doCelular: Boolean)
+data class Msg(val id: String, val papel: String, val texto: String, val tool: String?, val doCelular: Boolean, val img: String? = null, val via: String? = null)
 data class Tela(val linhas: List<String>, val cx: Int, val cy: Int)
 
 fun pasta(p: String?) = p.orEmpty().split('\\', '/').lastOrNull { it.isNotEmpty() }.orEmpty()
@@ -118,6 +121,7 @@ fun lerEstado(m: JSONObject): Estado {
         Conta(
             id = a.optString("id"),
             nome = a.optString("nome"),
+            email = a.s("email"),
             cor = corDe(a.s("cor")),
             padroes = Padroes(p.s("model"), p.s("effort"), p.s("mode"), p.s("cwd")),
             cinco = uso(u?.optJSONObject("five_hour")),
@@ -156,6 +160,8 @@ fun lerEstado(m: JSONObject): Estado {
             effort = i.s("effort"),
             modo = i.s("permMode"),
             podeEnviar = i.optBoolean("canSend"),
+            desktop = i.optBoolean("desktop"),
+            sessaoId = i.s("sessionId"),
             ultimoTexto = i.optString("lastText"),
         )
     }
@@ -184,7 +190,7 @@ fun lerEstado(m: JSONObject): Estado {
 }
 
 fun lerMsgs(a: JSONArray?): List<Msg> = a.mapa {
-    Msg(it.optString("id"), it.optString("role"), it.optString("text"), it.s("tool"), it.optString("via") == "celular")
+    Msg(it.optString("id"), it.optString("role"), it.optString("text"), it.s("tool"), it.optString("via") == "celular", it.s("img"), it.s("via"))
 }
 
 fun lerTela(m: JSONObject) = Tela(m.optJSONArray("lines").strings(), m.optInt("cx"), m.optInt("cy"))

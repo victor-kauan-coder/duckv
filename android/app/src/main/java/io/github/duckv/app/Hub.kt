@@ -123,6 +123,22 @@ object Hub {
         pareado.value = false
     }
 
+    // ------------------------------------------------------------ imagens da conversa
+
+    private val imagens = android.util.LruCache<String, android.graphics.Bitmap>(24)
+
+    /** Baixa uma imagem da conversa (so celulares pareados conseguem). Chame fora da thread principal. */
+    fun imagem(id: String): android.graphics.Bitmap? {
+        imagens.get(id)?.let { return it }
+        val b = base ?: return null
+        val req = Request.Builder().url("$b/api/img/$id").header("Cookie", "painel=$token").build()
+        val bmp = runCatching {
+            cliente.newCall(req).execute().use { r -> if (r.isSuccessful) r.body?.bytes()?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) } else null }
+        }.getOrNull() ?: return null
+        imagens.put(id, bmp)
+        return bmp
+    }
+
     // ------------------------------------------------------------ ligacao
 
     fun ligar() {

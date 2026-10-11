@@ -225,7 +225,7 @@ function getAccount(id) {
 // Nome da conta como aparece no app (as opcoes podem ter trocado o nome).
 const pubAccount = (id) => {
   const a = getAccount(id);
-  return { ...a, nome: prefs.contas[a.id]?.nome || a.nome };
+  return { ...a, nome: nomeDe(a) };
 };
 
 function getInst(id, accountId) {
@@ -314,6 +314,8 @@ function pubInst(i) {
     effort: i.effort,
     permMode: i.permMode,
     canSend: (!!i.agent || !!i.hosted) && i.status !== 'ended',
+    desktop: !!i.desktop,
+    sessionId: i.desktop ? i.sessionId : undefined,
     lastText: i.lastText,
   };
 }
@@ -326,7 +328,8 @@ function snapshot() {
     prefs: { avisos: prefs.avisos, rapidas: prefs.rapidas },
     accounts: [...accounts.values()].map((a) => ({
       id: a.id,
-      nome: prefs.contas[a.id]?.nome || a.nome,
+      nome: nomeDe(a),
+      email: a.email || null,
       cor: prefs.contas[a.id]?.cor || a.cor,
       padroes: prefs.contas[a.id]?.padroes || {},
       usage: a.usage,
@@ -647,9 +650,12 @@ function waitPermission(body, res) {
 
 function startSession(m) {
   if (!hostedAvailable()) return { err: `Este computador não conseguiu carregar o terminal virtual (${hostedError()}).` };
-  const acc = accounts.get(m.account);
+  // Continuar pelo celular uma sessao do Claude desktop: mesma conversa, mesma pasta, login padrao.
+  const desk = m.resume ? [...instances.values()].find((i) => i.desktop && i.sessionId === m.resume) : null;
+  if (m.resume && (!desk || !/^[0-9a-f-]{36}$/.test(m.resume))) return { err: 'Essa sessão do desktop não foi encontrada.' };
+  const acc = accounts.get(desk ? desk.account : m.account);
   if (!acc) return { err: 'Conta não encontrada.' };
-  const cwd = folderAllowed(String(m.cwd || ''), cfg.pastasPermitidas || [], folders);
+  const cwd = folderAllowed(String(desk ? desk.cwd : m.cwd || ''), cfg.pastasPermitidas || [], desk ? [...folders, desk.cwd] : folders);
   if (!cwd) {
     return { err: 'Pasta não encontrada ou fora das pastas permitidas. Abra uma sessão nela pelo computador uma vez, ou inclua a pasta em "pastasPermitidas" no arquivo data/config.json.' };
   }
@@ -670,11 +676,19 @@ function startSession(m) {
   inst.effort = effort;
   if (model !== 'default') inst.model = model;
   const env = { PAINEL_ACCOUNT: acc.id, PAINEL_ACCOUNT_NAME: pubAccount(acc.id).nome, PAINEL_INSTANCE: id, PAINEL_HOSTED: '1', PAINEL_PORT: String(PORT) };
-  if (!acc.padrao && acc.dir) env.CLAUDE_CONFIG_DIR = acc.dir;
+  if (!acc.padrao && acc.dir && !desk) env.CLAUDE_CONFIG_DIR = acc.dir;
+  const ajustes = desk && acc.dir ? path.join(acc.dir, 'settings.json') : null;
+  if (desk) {
+    inst.sessionId = desk.sessionId;
+    inst.name = inst.name || desk.name;
+    instances.delete(desk.id);
+  }
   try {
     inst.hosted = startHosted({
       cwd,
       env,
+      resume: desk?.sessionId,
+      settings: ajustes && fs.existsSync(ajustes) ? ajustes : null,
       model,
       effort,
       mode,
@@ -908,7 +922,8 @@ function pollInst(inst) {
         changed = true;
       }
     }
-    items.push(...p.items);
+    // Imagens ficam na memoria do computador; a conversa leva so o endereco delas.
+    items.push(...p.items.map((it) => (it.role === 'image' ? { id: it.id, role: 'image', via: it.via, ts: it.ts, img: guardarImagem(it) } : it)));
   }
   if (changed) {
     const t = { in: 0, out: 0, cw: 0, cr: 0 };
@@ -988,6 +1003,12 @@ function scanTokens() {
       const r = a.usage.five_hour?.resetsAt;
       const since = r && r > Date.now() ? r - FIVE_H : Date.now() - FIVE_H;
       const total = scanWindowTokens(a.dir, since, a.tokCache);
+      // A conta logada no Claude desktop tambem gasta pelas sessoes de la (pasta padrao).
+      if (a.email && a.email === emailDesktop) {
+        a.tokCacheDesk ||= new Map();
+        const d = scanWindowTokens(path.join(os.homedir(), '.claude'), since, a.tokCacheDesk);
+        for (const k of Object.keys(total)) total[k] += d[k] || 0;
+      }
       const next = { ...total, since };
       if (JSON.stringify(next) !== JSON.stringify(a.tokens)) {
         a.tokens = next;
@@ -1005,11 +1026,126 @@ function scheduleTokenScan() {
 // Quase em tempo real: so os arquivos que mudaram sao relidos, entao a varredura e leve.
 setInterval(scanTokens, 5000).unref();
 
+// Sessoes do Claude desktop (e do claude aberto sem os atalhos): ficam na pasta padrao do Claude Code.
+// O celular acompanha a conversa; para mandar mensagens, continua a sessao por aqui (--resume).
+const PROJETOS_DESKTOP = path.join(os.homedir(), '.claude', 'projects');
+let emailDesktop = null;
+const lerDir = (d) => {
+  try {
+    return fs.readdirSync(d, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+};
+function pastaDaSessao(file) {
+  try {
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(65536);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    const m = /"cwd":"((?:[^"\\]|\\.)*)"/.exec(buf.subarray(0, n).toString('utf8'));
+    return m ? JSON.parse(`"${m[1]}"`) : null;
+  } catch {
+    return null;
+  }
+}
+function sessoesDoDesktop() {
+  let email = null;
+  try {
+    email = emailDesktop = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).oauthAccount?.emailAddress || null;
+  } catch {
+    /* sem login padrao */
+  }
+  const conta = [...accounts.values()].find((a) => a.email && a.email === email) || accounts.values().next().value;
+  if (!conta) return;
+  const desde = now() - 12 * 3600 * 1000;
+  const achadas = [];
+  for (const proj of lerDir(PROJETOS_DESKTOP)) {
+    if (!proj.isDirectory()) continue;
+    for (const f of lerDir(path.join(PROJETOS_DESKTOP, proj.name))) {
+      if (!f.isFile() || !/^[0-9a-f-]{36}\.jsonl$/.test(f.name)) continue;
+      const full = path.join(PROJETOS_DESKTOP, proj.name, f.name);
+      try {
+        const st = fs.statSync(full);
+        if (st.mtimeMs > desde) achadas.push({ full, sid: f.name.slice(0, 36), mtime: st.mtimeMs });
+      } catch {
+        /* sumiu */
+      }
+    }
+  }
+  achadas.sort((a, b) => b.mtime - a.mtime);
+  const vivas = new Set();
+  let mudou = false;
+  for (const a of achadas.slice(0, 12)) {
+    // Ja continuada pelo celular: a sessao do celular mostra tudo.
+    if ([...instances.values()].some((i) => !i.desktop && i.sessionId === a.sid && i.status !== 'ended')) continue;
+    const id = `desk-${a.sid.slice(0, 8)}`;
+    vivas.add(id);
+    let inst = instances.get(id);
+    if (!inst) {
+      inst = getInst(id, conta.id);
+      inst.desktop = true;
+      inst.sessionId = a.sid;
+      inst.cwd = pastaDaSessao(a.full);
+      inst.startedAt = a.mtime;
+      setTranscript(inst, a.full);
+      mudou = true;
+    }
+    if (!inst.name) {
+      const primeira = inst.messages.find((x) => x.role === 'user' && x.text);
+      if (primeira) {
+        inst.name = clip(primeira.text.replace(/\s+/g, ' '), 40);
+        mudou = true;
+      }
+    }
+    const status = now() - a.mtime < 20000 ? 'working' : 'idle';
+    if (inst.status !== status) {
+      inst.status = status;
+      inst.activity = status === 'working' ? 'Trabalhando no Claude desktop' : '';
+      mudou = true;
+    }
+  }
+  for (const inst of [...instances.values()]) {
+    if (inst.desktop && !vivas.has(inst.id)) {
+      instances.delete(inst.id);
+      mudou = true;
+    }
+  }
+  if (mudou) dirty();
+}
+if (process.env.PAINEL_DEMO !== '1' && !process.env.PAINEL_DATA) {
+  setTimeout(sessoesDoDesktop, 2500).unref();
+  setInterval(sessoesDoDesktop, 5000).unref();
+}
+
+// Imagens da conversa, servidas so para celulares pareados. As mais antigas saem primeiro.
+// ponytail: cache em memoria com teto de 60 imagens; reler o historico traz de volta as que sairem.
+const imagens = new Map();
+function guardarImagem(it) {
+  const id = crypto.createHash('sha256').update(it.data).digest('hex').slice(0, 24);
+  imagens.delete(id);
+  imagens.set(id, { media: it.media, buf: Buffer.from(it.data, 'base64') });
+  while (imagens.size > 60) imagens.delete(imagens.keys().next().value);
+  return id;
+}
+
 // Uso de cada conta direto da Anthropic, com o login que o Claude Code guardou na pasta da conta.
 // E a mesma consulta do /usage: o numero vale na hora, com ou sem sessao aberta.
 // ponytail: so le o login; se ele venceu, espera o Claude Code renova-lo na proxima sessao.
 const USO_URL = 'https://api.anthropic.com/api/oauth/usage';
+// E-mail do login da conta, para dar nome as contas que ainda se chamam "Conta 1".
+function lerEmail(a) {
+  const f = a.padrao ? path.join(os.homedir(), '.claude.json') : path.join(a.dir, '.claude.json');
+  try {
+    a.email = JSON.parse(fs.readFileSync(f, 'utf8')).oauthAccount?.emailAddress || null;
+  } catch {
+    a.email = null;
+  }
+}
+const nomeDe = (a) => prefs.contas[a.id]?.nome || (/^Conta \d+$/.test(a.nome) && a.email ? a.email.split('@')[0] : a.nome);
+
 async function consultarUso(a) {
+  lerEmail(a);
   let k;
   try {
     k = JSON.parse(fs.readFileSync(path.join(a.dir, '.credentials.json'), 'utf8')).claudeAiOauth;
@@ -1232,6 +1368,12 @@ const server = http.createServer(async (req, res) => {
       if (!aparelho) return json(res, 401, { erro: 'nao pareado' });
       if (!originOk(req)) return json(res, 403, { erro: 'origem' });
       if (p === '/api/state' && req.method === 'GET') return json(res, 200, snapshot());
+      if (p.startsWith('/api/img/') && req.method === 'GET') {
+        const img = imagens.get(p.slice(9));
+        if (!img) return json(res, 404, { erro: 'imagem' });
+        res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': img.media, 'Cache-Control': 'private, max-age=86400' });
+        return res.end(img.buf);
+      }
       if (p === '/api/push/key' && req.method === 'GET') return json(res, 200, { key: cfg.vapid.publicKey });
       if (p === '/api/push/subscribe' && req.method === 'POST') {
         const sub = await readBody(req);
