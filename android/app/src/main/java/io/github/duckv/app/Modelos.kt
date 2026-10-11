@@ -26,7 +26,7 @@ data class Conta(
 )
 
 data class Perm(val id: String, val tool: String, val desc: String, val preview: String, val em: Long)
-data class Opcao(val tecla: String, val rotulo: String, val confirmar: Boolean = false)
+data class Opcao(val tecla: String, val rotulo: String, val confirmar: Boolean = false, val detalhe: String? = null, val livre: Boolean = false)
 data class Pergunta(val titulo: String, val opcoes: List<Opcao>, val contexto: String = "")
 data class Tarefa(val assunto: String, val status: String)
 data class Contexto(val pct: Double?, val entrada: Long, val tamanho: Long)
@@ -155,7 +155,7 @@ fun lerEstado(m: JSONObject): Estado {
             perms = i.optJSONArray("perms").mapa { Perm(it.optString("id"), it.optString("tool"), it.optString("desc"), it.optString("preview"), it.optLong("at")) },
             pedidoLocal = local?.let { PedidoLocal(it.s("tool"), it.optString("text")) },
             hospedada = i.optBoolean("hosted"),
-            pergunta = perg?.let { p -> Pergunta(p.optString("titulo"), p.optJSONArray("opcoes").mapa { Opcao(it.optString("tecla"), it.optString("rotulo"), it.optBoolean("confirmar")) }, p.optString("contexto")) },
+            pergunta = perg?.let { p -> Pergunta(p.optString("titulo"), p.optJSONArray("opcoes").mapa { Opcao(it.optString("tecla"), it.optString("rotulo"), it.optBoolean("confirmar"), it.s("detalhe"), it.optBoolean("livre")) }, p.optString("contexto")) },
             rodape = i.optString("rodape"),
             effort = i.s("effort"),
             modo = i.s("permMode"),

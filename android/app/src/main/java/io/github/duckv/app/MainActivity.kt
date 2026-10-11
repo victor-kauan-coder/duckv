@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import io.github.duckv.app.ui.Inicio
+import io.github.duckv.app.ui.TelaHistorico
 import io.github.duckv.app.ui.LocalAviso
 import io.github.duckv.app.ui.TelaNova
 import io.github.duckv.app.ui.TelaOpcoes
@@ -48,6 +49,7 @@ sealed interface Rota {
     data class Sessao(val id: String) : Rota
     data class Nova(val conta: String?) : Rota
     data object Opcoes : Rota
+    data class Historico(val conta: String) : Rota
 }
 
 class MainActivity : ComponentActivity() {
@@ -94,6 +96,7 @@ class MainActivity : ComponentActivity() {
                                         aoAbrirSessao = { pilha.add(Rota.Sessao(it)) },
                                         aoNova = { pilha.add(Rota.Nova(it)) },
                                         aoOpcoes = { pilha.add(Rota.Opcoes) },
+                                        aoHistorico = { pilha.add(Rota.Historico(it)) },
                                         aoVerTela = { pilha.add(Rota.Sessao(it.id)) },
                                     )
                                     is Rota.Sessao -> TelaSessao(e, rota.id, opcoes.pato, opcoes.ferramentas, { voltar() }, { id ->
@@ -105,6 +108,7 @@ class MainActivity : ComponentActivity() {
                                         pilha.add(Rota.Sessao(id))
                                     }
                                     Rota.Opcoes -> TelaOpcoes(e) { voltar() }
+                                    is Rota.Historico -> TelaHistorico(e, rota.conta, { voltar() }) { id -> pilha.add(Rota.Sessao(id)) }
                                 }
                             }
                         }

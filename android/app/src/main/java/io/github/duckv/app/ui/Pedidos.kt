@@ -6,6 +6,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -161,36 +168,126 @@ fun CartaoPedido(conta: Conta, s: Sessao, p: Perm) {
     }
 }
 
+/**
+ * Pergunta que o Claude Code mostra no terminal (escolher uma opcao, confiar na pasta, permissao
+ * que caiu no terminal). Cada opcao e uma linha tocavel; "Type something." vira um campo de texto.
+ */
 @Composable
 fun CartaoPergunta(conta: Conta, s: Sessao, aoVerTela: () -> Unit) {
     val c = cores
     val aviso = LocalAviso.current
-    val tecla = { k: String -> Hub.tecla(s.id, k) { erro, _ -> if (erro != null) aviso(erro) } }
     val p = s.pergunta ?: return
-    CartaoInvertido {
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Marca(Color(conta.cor))
-            EspacoLargo(8.dp)
-            Text("O Claude Code pergunta em ${s.titulo}", style = Texto.pequeno, color = c.invApoio)
+    // Um toque por vez: o segundo toque cairia na pergunta seguinte.
+    var ocupado by remember(p) { mutableStateOf(false) }
+    val tecla = { k: String ->
+        if (!ocupado) {
+            ocupado = true
+            Hub.tecla(s.id, k) { erro, _ -> if (erro != null) { ocupado = false; aviso(erro) } }
         }
-        // A tela inteira acima das opcoes: se for um pedido de permissao, o comando aparece completo.
+    }
+    // Pedido de permissao: o comando tem de estar a vista antes de aceitar.
+    val arriscado = Regex("proceed|make this edit|run this|trust|permission|Bash|command", RegexOption.IGNORE_CASE).containsMatchIn(p.titulo + p.contexto)
+    var verTela by remember(p) { mutableStateOf(arriscado) }
+    CartaoInvertido {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PixelArte(BALAO, Modifier.size(28.dp), mapOf('#' to c.invTexto, 'o' to Laranja))
+            EspacoLargo(10.dp)
+            Column(Modifier.weight(1f)) {
+                Text("O Claude pergunta", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.invTexto)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Marca(Color(conta.cor), tamanho = 8.dp)
+                    EspacoLargo(6.dp)
+                    Text("${conta.nome} · ${s.titulo}", style = Texto.pequeno, color = c.invApoio, maxLines = 1)
+                }
+            }
+        }
+        if (p.titulo.isNotBlank()) Text(p.titulo.replace("☐", "").trim(), style = Texto.corpo.copy(fontWeight = FontWeight.SemiBold), color = c.invTexto)
         if (p.contexto.isNotBlank()) {
-            val forma = RoundedCornerShape(10.dp)
             Text(
-                p.contexto, style = Texto.codigo, color = c.invTexto,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(forma)
-                    .border(1.dp, c.invLinha, forma).verticalScroll(rememberScrollState()).padding(12.dp),
+                if (verTela) "Esconder a tela" else "Ver o que está na tela",
+                style = Texto.pequeno, color = c.invApoio, textDecoration = TextDecoration.Underline,
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { verTela = !verTela }.padding(vertical = 4.dp),
             )
-        } else if (p.titulo.isNotBlank()) Text(p.titulo, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.invTexto)
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (o in p.opcoes) {
-                if (o.confirmar) BotaoConfirma("${o.tecla}.  ${o.rotulo}", Icons.Rounded.Check, { tecla(o.tecla) }, Modifier.fillMaxWidth(), Peso.Invertido)
-                else Botao("${o.tecla}.  ${o.rotulo}", { tecla(o.tecla) }, Modifier.fillMaxWidth(), peso = Peso.Invertido)
+            AnimatedVisibility(verTela) {
+                val forma = RoundedCornerShape(10.dp)
+                Text(
+                    p.contexto, style = Texto.codigo, color = c.invTexto,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(forma)
+                        .border(1.dp, c.invLinha, forma).verticalScroll(rememberScrollState()).padding(12.dp),
+                )
+            }
+        }
+        val forma = RoundedCornerShape(12.dp)
+        Column(Modifier.fillMaxWidth().clip(forma).border(1.dp, c.invLinha, forma)) {
+            p.opcoes.forEachIndexed { i, o ->
+                if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(c.invLinha))
+                if (o.livre) RespostaLivre(s, o, ocupado) { ocupado = true }
+                else OpcaoDaPergunta(o, ocupado) { tecla(o.tecla) }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Botao("Cancelar", { tecla("esc") }, Modifier.weight(1f), peso = Peso.Invertido)
-            Botao("Ver a tela", aoVerTela, Modifier.weight(1f), peso = Peso.Invertido)
+            Botao("Cancelar", { tecla("esc") }, Modifier.weight(1f), peso = Peso.Invertido, altura = 44.dp)
+            Botao("Ver o terminal", aoVerTela, Modifier.weight(1f), peso = Peso.Invertido, altura = 44.dp)
+        }
+    }
+}
+
+@Composable
+private fun OpcaoDaPergunta(o: io.github.duckv.app.Opcao, ocupado: Boolean, aoEscolher: () -> Unit) {
+    val c = cores
+    var armado by remember(o) { mutableStateOf(false) }
+    LaunchedEffect(armado) { if (armado) { kotlinx.coroutines.delay(3500); armado = false } }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .background(if (armado) Laranja.copy(alpha = 0.18f) else Color.Transparent)
+            .clickable(enabled = !ocupado, role = Role.Button) {
+                // Opcao que vale para sempre pede um segundo toque.
+                if (o.confirmar && !armado) armado = true else aoEscolher()
+            }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)).background(c.invTexto.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+            Text(o.tecla, style = Texto.rotulo.copy(fontWeight = FontWeight.Bold), color = c.invTexto)
+        }
+        EspacoLargo(12.dp)
+        Column(Modifier.weight(1f)) {
+            Text(if (armado) "Toque de novo para confirmar" else o.rotulo, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = if (armado) Laranja else c.invTexto)
+            if (o.detalhe != null) Text(o.detalhe, style = Texto.apoio, color = c.invApoio)
+        }
+    }
+}
+
+@Composable
+private fun RespostaLivre(s: Sessao, o: io.github.duckv.app.Opcao, ocupado: Boolean, aoEnviar: () -> Unit) {
+    val c = cores
+    val aviso = LocalAviso.current
+    var texto by rememberSaveable(s.id) { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Ou escreva a sua resposta", style = Texto.pequeno, color = c.invApoio)
+        Row(verticalAlignment = Alignment.Bottom) {
+            OutlinedTextField(
+                texto, { texto = it }, Modifier.weight(1f),
+                placeholder = { Text("Sua resposta", color = c.invApoio) },
+                textStyle = Texto.corpo.copy(color = c.invTexto), maxLines = 4,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Laranja, unfocusedBorderColor = c.invLinha, cursorColor = Laranja,
+                    focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                ),
+                shape = RoundedCornerShape(12.dp),
+            )
+            EspacoLargo(8.dp)
+            val pode = texto.isNotBlank() && !ocupado
+            Box(
+                Modifier.padding(bottom = 4.dp).size(48.dp).clip(RoundedCornerShape(14.dp)).background(if (pode) Laranja else c.invLinha)
+                    .clickable(enabled = pode, role = Role.Button, onClickLabel = "Enviar resposta") {
+                        aoEnviar()
+                        Hub.mandar(org.json.JSONObject().put("t", "responder").put("instance", s.id).put("tecla", o.tecla).put("texto", texto.trim())) { erro, _ ->
+                            if (erro != null) aviso(erro) else texto = ""
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) { androidx.compose.material3.Icon(Icons.AutoMirrored.Rounded.Send, "Enviar resposta", tint = if (pode) Tinta else c.invApoio, modifier = Modifier.size(20.dp)) }
         }
     }
 }

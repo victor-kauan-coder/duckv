@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -74,6 +75,12 @@ fun TelaParear(pato: String) {
             style = Texto.corpo, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 420.dp),
         )
         Column(Modifier.widthIn(max = 420.dp).fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // o computador e o celular, ligados: o que o pareamento faz, num desenho
+            androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                PixelArte(NOTEBOOK, Modifier.size(width = 84.dp, height = 60.dp), mapOf('#' to c.texto, 'o' to Laranja, 'b' to c.apoio))
+                PixelArte(listOf("o.o.o.o.o"), Modifier.size(width = 54.dp, height = 8.dp).padding(horizontal = 6.dp), mapOf('o' to Laranja))
+                PixelArte(CELULAR, Modifier.size(width = 40.dp, height = 46.dp), mapOf('#' to c.texto, 'o' to Laranja))
+            }
             Text("Para começar", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
             Text("No computador, abra iniciar-claudev.cmd. Na janela aparece um código QR: escaneie aqui.", style = Texto.apoio, color = c.apoio)
             Botao(

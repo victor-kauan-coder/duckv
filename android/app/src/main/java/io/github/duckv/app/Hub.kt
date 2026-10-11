@@ -133,11 +133,25 @@ object Hub {
         val b = base ?: return null
         val req = Request.Builder().url("$b/api/img/$id").header("Cookie", "painel=$token").build()
         val bmp = runCatching {
-            cliente.newCall(req).execute().use { r -> if (r.isSuccessful) r.body?.bytes()?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) } else null }
+            cliente.newCall(req).execute().use { r -> if (r.isSuccessful) r.body?.bytes()?.let(::decodificar) else null }
         }.getOrNull() ?: return null
         imagens.put(id, bmp)
         return bmp
     }
+
+    // Prints de tela grandes estourariam a memoria: reduz para no maximo ~1600 px no lado maior.
+    private fun decodificar(b: ByteArray): android.graphics.Bitmap? {
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size, o)
+        var amostra = 1
+        while (maxOf(o.outWidth, o.outHeight) / (amostra * 2) >= 1600) amostra *= 2
+        return android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = amostra })
+    }
+
+    // ------------------------------------------------------------ mensagens a caminho
+
+    /** Mensagens ja aceitas pelo computador que ainda nao apareceram na conversa: (sessao, texto). */
+    val aCaminho = MutableStateFlow<List<Pair<String, String>>>(emptyList())
 
     // ------------------------------------------------------------ ligacao
 

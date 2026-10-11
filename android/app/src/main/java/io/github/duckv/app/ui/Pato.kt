@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.abs
@@ -53,7 +55,13 @@ private val TRUQUES = mapOf(
     "festa" to listOf("grasna", "bate"),
     "dorme" to listOf("espia", "rabo"),
 )
-private val DURACAO = mapOf("grasna" to 900L, "bate" to 800L, "rabo" to 800L, "pisca" to 320L, "cisca" to 1300L, "olha" to 1200L, "pulinho" to 480L, "espia" to 1100L)
+private val DURACAO = mapOf(
+    "grasna" to 900L, "bate" to 800L, "rabo" to 800L, "pisca" to 320L, "cisca" to 1300L, "olha" to 1200L, "pulinho" to 480L, "espia" to 1100L,
+    // reacoes ao toque
+    "amor" to 1600L, "salto" to 900L, "danca" to 1400L, "quaa" to 1000L, "bravo" to 1300L,
+)
+private val REACOES = listOf("amor", "salto", "danca", "quaa")
+private val Coracao = Color(0xFFFF5A5F)
 
 private val Penas = Color(0xFFFFF6EE)
 private val Asa = Color(0xFFE6D3BF)
@@ -69,7 +77,7 @@ private val BicoCansado = Color(0xFFCDB35C)
  * @param andar se o pato pode passear de um lado a outro da largura toda
  */
 @Composable
-fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier, andar: Boolean = true) {
+fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier, andar: Boolean = true, tocavel: Boolean = true) {
     val ctx = LocalContext.current
     val semMovimento = remember {
         Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
@@ -98,8 +106,28 @@ fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier
             delay(3500L + Random.nextLong(6000))
         }
     }
+    // Toque no pato: ele reage. Varios toques seguidos o deixam bravo.
+    val vibra = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var toques by remember { mutableStateOf(listOf<Long>()) }
     val c = cores
-    Canvas(modifier) {
+    val tocar = Modifier.pointerInput(anima) {
+        detectTapGestures {
+            val agora = System.nanoTime() / 1_000_000
+            toques = (toques + agora).filter { agora - it < 1800 }
+            vibra.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            truque = if (toques.size >= 4) "bravo" else REACOES.filter { it != truque }.random()
+            truqueDesde = agora
+        }
+    }
+    // a reacao ao toque some sozinha no fim
+    LaunchedEffect(truqueDesde) {
+        val tr = truque ?: return@LaunchedEffect
+        if (tr in REACOES || tr == "bravo") {
+            delay(DURACAO[tr] ?: 900)
+            if (truque == tr) truque = null
+        }
+    }
+    Canvas(modifier.then(if (tocavel) tocar else Modifier)) {
         val dt = System.nanoTime() / 1_000_000 - truqueDesde
         desenhar(estado, if (anima) t else 0L, truque, dt, andar && anima, cor, c)
     }
@@ -124,15 +152,21 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
         paraDireita = ida
     } else x = u + livre / 2
     if (truque == "olha") paraDireita = !paraDireita
+    // meia-volta no ar durante o salto
+    if (truque == "salto" && dt in 300..650) paraDireita = !paraDireita
 
     // altura: pulo, ginga e sentar
     var pulo = 0f
     when {
+        truque == "salto" -> pulo = sin(dt / 900.0 * PI).toFloat().coerceAtLeast(0f) * 5f
+        truque == "amor" -> pulo = abs(sin(dt / 400.0 * PI)).toFloat() * 0.8f
         estado == "festa" -> pulo = abs(sin(t / 300.0 * PI)).toFloat() * 2.5f
         estado == "pede" -> pulo = abs(sin(t / 400.0 * PI)).toFloat() * 2f
         truque == "pulinho" -> pulo = abs(sin(dt / 240.0 * PI)).toFloat() * 1.2f
     }
-    val ginga = if (anda && passo) -0.5f else 0f
+    // parado, o pato respira: o corpo sobe e desce de leve
+    val respira = if (!anda && !sentado && truque == null && (t / 900) % 2 == 0L) 0.25f else 0f
+    val ginga = (if (anda && passo) -0.5f else 0f) - respira
     val chao = size.height - u * 0.8f
     val topo = chao - 13 * u + (if (sentado) 2 * u else 0f) - (pulo + ginga) * u
 
@@ -145,6 +179,8 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
 
     // movimentos das partes
     val asaSobe = when {
+        truque == "danca" || truque == "salto" -> (dt / 90) % 2 == 0L
+        truque == "bravo" -> (dt / 50) % 2 == 0L
         estado == "festa" -> (t / 70) % 2 == 0L
         estado == "pede" -> (t / 100) % 2 == 0L
         truque == "bate" -> (dt / 65) % 2 == 0L
@@ -152,7 +188,9 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
     }
     val bicoAbre = when {
         estado == "pede" -> (t / 200) % 2 == 0L
-        truque == "grasna" -> (dt / 110) % 2 == 0L
+        truque == "grasna" || truque == "quaa" -> (dt / 110) % 2 == 0L
+        truque == "amor" -> dt < 300
+        truque == "bravo" -> (dt / 80) % 2 == 0L
         else -> false
     }
     val rabo = if (truque == "rabo") (if ((dt / 65) % 2 == 0L) 0.4f else -0.4f) else 0f
@@ -172,7 +210,12 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
         drawRect(cor, Offset(lx, topo + cy * u), Size(w * u + 0.6f, h * u + 0.6f))
     }
 
-    val giro = if (cansado) -8f else 0f
+    val giro = when {
+        cansado -> -8f
+        truque == "danca" -> sin(dt / 350.0 * PI).toFloat() * 12f
+        truque == "bravo" -> sin(dt / 60.0 * PI).toFloat() * 4f
+        else -> 0f
+    }
     rotate(giro, Offset(x + largura / 2, chao)) {
         for ((cx, cy, ch) in CELULAS) {
             var dx = 0f
@@ -198,7 +241,34 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
         }
         if (olhoFechado) cel(10f + cisca * 0.4f, 2.6f + cisca, Tinta, 2f, 0.45f)
         if (bicoAbre) for ((sx2, sy) in SOM) cel(sx2, sy + cisca, c.texto)
+        // bravo: sobrancelha franzida em cima do olho
+        if (truque == "bravo") { cel(9f, 1.4f, Tinta, 1f, 0.5f); cel(10f, 1.7f, Tinta, 1f, 0.5f) }
     }
+
+    // coracoes sobem da cabeca e somem
+    if (truque == "amor") {
+        for (n in 0..2) {
+            val f = ((dt - n * 280) / 1100f).coerceIn(0f, 1f)
+            if (f <= 0f || f >= 1f) continue
+            val hx = 11f + n * 1.6f - 1.5f
+            val hy = -1.5f - f * 6f
+            for ((yy, linha) in CORACAO.withIndex()) for ((xx, ch) in linha.withIndex()) {
+                if (ch == '.') continue
+                val lx = px(hx + xx * 0.42f)
+                drawRect(Coracao.copy(alpha = 1f - f), Offset(lx, topo + (hy + yy * 0.42f) * u), Size(u * 0.42f + 0.6f, u * 0.42f + 0.6f))
+            }
+        }
+    }
+    // grasnado forte: tres ondas saindo do bico
+    if (truque == "quaa") {
+        val f = (dt % 500) / 500f
+        for (n in 0..2) {
+            val d = (n + f) * 1.4f
+            cel(17f + d, 1.5f - d * 0.6f, c.texto.copy(alpha = (1f - (n + f) / 3f).coerceIn(0f, 1f)), 0.6f, 0.6f)
+            cel(17f + d, 3.5f + d * 0.6f, c.texto.copy(alpha = (1f - (n + f) / 3f).coerceIn(0f, 1f)), 0.6f, 0.6f)
+        }
+    }
+    if (truque == "bravo" && (dt / 160) % 2 == 0L) for ((ex, ey) in EXCLAMA) { cel(ex - 1.3f, ey, Coracao); cel(ex + 0.3f, ey, Coracao) }
 
     if (estado == "pede" && (t / 400) % 2 == 0L) for ((ex, ey) in EXCLAMA) cel(ex, ey, Laranja)
     if (estado == "dorme") {

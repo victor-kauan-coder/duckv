@@ -314,8 +314,8 @@ function pubInst(i) {
     effort: i.effort,
     permMode: i.permMode,
     canSend: (!!i.agent || !!i.hosted) && i.status !== 'ended',
-    desktop: !!i.desktop,
-    sessionId: i.desktop ? i.sessionId : undefined,
+    desktop: !!(i.desktop || i.historico),
+    sessionId: i.desktop || i.historico ? i.sessionId : undefined,
     lastText: i.lastText,
   };
 }
@@ -408,7 +408,7 @@ function pushMsgs(inst, items) {
     inst.msgIds.add(it.id);
     inst.messages.push(it);
     fresh.push(it);
-    if (it.role === 'assistant') inst.lastText = clip(it.text, 200);
+    if (it.role === 'assistant') inst.lastText = clip(semMarkdown(it.text), 200);
   }
   if (!fresh.length) return;
   if (inst.messages.length > 400) {
@@ -527,6 +527,14 @@ function onPhoneMessage(c, m) {
       else send(c, { t: 'ack', ref: m.ref });
       break;
     }
+    case 'responder': {
+      // Resposta escrita para uma pergunta do Claude (a opcao "Type something.").
+      const inst = instances.get(m.instance);
+      if (!inst?.hosted) send(c, { t: 'err', ref: m.ref, msg: 'Só dá para responder por aqui nas sessões abertas pelo celular.' });
+      else if (!inst.hosted.responder(String(m.tecla || ''), typeof m.texto === 'string' ? m.texto : '')) send(c, { t: 'err', ref: m.ref, msg: 'Escreva a resposta.' });
+      else send(c, { t: 'ack', ref: m.ref });
+      break;
+    }
     case 'term': {
       const inst = instances.get(m.instance);
       c.term = m.on && inst?.hosted ? inst.id : null;
@@ -565,6 +573,37 @@ function onPhoneMessage(c, m) {
     case 'prefs': {
       const err = setPrefs(m);
       send(c, err ? { t: 'err', ref: m.ref, msg: err } : { t: 'ack', ref: m.ref });
+      break;
+    }
+    case 'historico': {
+      const acc = accounts.get(m.account);
+      if (!acc) send(c, { t: 'err', ref: m.ref, msg: 'Conta não encontrada.' });
+      else send(c, { t: 'ack', ref: m.ref, itens: historicoDa(acc).map(({ file, ...x }) => x) });
+      break;
+    }
+    case 'abrirHistorico': {
+      const acc = accounts.get(m.account);
+      const item = acc && historicoDa(acc).find((x) => x.sid === m.sid);
+      if (!item) {
+        send(c, { t: 'err', ref: m.ref, msg: 'Essa conversa não foi encontrada.' });
+        break;
+      }
+      // Ja aberta (no celular, no computador ou como leitura)? Vai para ela.
+      const viva = [...instances.values()].find((i) => i.sessionId === item.sid && i.status !== 'ended');
+      if (viva) {
+        send(c, { t: 'ack', ref: m.ref, instance: viva.id });
+        break;
+      }
+      const inst = getInst(`hist-${item.sid.slice(0, 8)}`, acc.id);
+      inst.historico = true;
+      inst.sessionId = item.sid;
+      inst.configDir = item.origem === 'conta' ? acc.dir : null;
+      inst.cwd = item.cwd;
+      inst.name = item.titulo;
+      inst.startedAt = item.mtime;
+      setTranscript(inst, item.file);
+      dirty();
+      send(c, { t: 'ack', ref: m.ref, instance: inst.id });
       break;
     }
     case 'conta': {
@@ -651,8 +690,9 @@ function waitPermission(body, res) {
 function startSession(m) {
   if (!hostedAvailable()) return { err: `Este computador não conseguiu carregar o terminal virtual (${hostedError()}).` };
   // Continuar pelo celular uma sessao do Claude desktop: mesma conversa, mesma pasta, login padrao.
-  const desk = m.resume ? [...instances.values()].find((i) => i.desktop && i.sessionId === m.resume) : null;
-  if (m.resume && (!desk || !/^[0-9a-f-]{36}$/.test(m.resume))) return { err: 'Essa sessão do desktop não foi encontrada.' };
+  // Continuar pelo celular uma conversa do desktop ou do historico: mesma conversa, mesma pasta, mesmo login.
+  const desk = m.resume ? [...instances.values()].find((i) => (i.desktop || i.historico) && i.sessionId === m.resume) : null;
+  if (m.resume && (!desk || !/^[0-9a-f-]{36}$/.test(m.resume))) return { err: 'Essa conversa não foi encontrada.' };
   const acc = accounts.get(desk ? desk.account : m.account);
   if (!acc) return { err: 'Conta não encontrada.' };
   const cwd = folderAllowed(String(desk ? desk.cwd : m.cwd || ''), cfg.pastasPermitidas || [], desk ? [...folders, desk.cwd] : folders);
@@ -676,8 +716,11 @@ function startSession(m) {
   inst.effort = effort;
   if (model !== 'default') inst.model = model;
   const env = { PAINEL_ACCOUNT: acc.id, PAINEL_ACCOUNT_NAME: pubAccount(acc.id).nome, PAINEL_INSTANCE: id, PAINEL_HOSTED: '1', PAINEL_PORT: String(PORT) };
-  if (!acc.padrao && acc.dir && !desk) env.CLAUDE_CONFIG_DIR = acc.dir;
-  const ajustes = desk && acc.dir ? path.join(acc.dir, 'settings.json') : null;
+  // A conversa mora na pasta da conta (historico da conta) ou na pasta padrao (Claude desktop).
+  const pastaConfig = desk ? desk.configDir : !acc.padrao ? acc.dir : null;
+  if (pastaConfig) env.CLAUDE_CONFIG_DIR = pastaConfig;
+  // Na pasta padrao nao ha ganchos do claudeV: vao pela linha de comando, sem mexer nas configuracoes de sempre.
+  const ajustes = desk && !desk.configDir && acc.dir ? path.join(acc.dir, 'settings.json') : null;
   if (desk) {
     inst.sessionId = desk.sessionId;
     inst.name = inst.name || desk.name;
@@ -830,7 +873,7 @@ function onHook(body) {
       clearPerm(inst);
       inst.status = 'idle';
       inst.activity = '';
-      if (ev.last_assistant_message) inst.lastText = clip(ev.last_assistant_message, 200);
+      if (ev.last_assistant_message) inst.lastText = clip(semMarkdown(ev.last_assistant_message), 200);
       if (prefs.avisos.fim && !anyVisiblePhone()) {
         pushNotify({
           title: `${pubAccount(inst.account).nome} terminou`,
@@ -1116,6 +1159,69 @@ function sessoesDoDesktop() {
 if (process.env.PAINEL_DEMO !== '1' && !process.env.PAINEL_DATA) {
   setTimeout(sessoesDoDesktop, 2500).unref();
   setInterval(sessoesDoDesktop, 5000).unref();
+}
+
+// Historico de cada conta: todas as conversas guardadas na pasta da conta e, para a conta
+// logada no Claude desktop, tambem as da pasta padrao. Titulo pelo resumo ou pela primeira mensagem.
+const cacheTitulo = new Map();
+function tituloDaSessao(file, mtime) {
+  const k = cacheTitulo.get(file);
+  if (k && k.mtime === mtime) return k.titulo;
+  let titulo = null;
+  try {
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(131072);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    for (const l of buf.subarray(0, n).toString('utf8').split('\n')) {
+      let e;
+      try {
+        e = JSON.parse(l);
+      } catch {
+        continue;
+      }
+      if ((e.type === 'summary' && e.summary) || (e.type === 'custom-title' && e.customTitle)) {
+        titulo = e.customTitle || e.summary;
+        break;
+      }
+      if (!titulo && e.type === 'user' && !e.isMeta && !e.isSidechain) {
+        const cont = e.message?.content;
+        // o primeiro texto escrito por voce; blocos internos (<ide_...>, <command-...>) ficam de fora
+        const textos = typeof cont === 'string' ? [cont] : Array.isArray(cont) ? cont.filter((b) => b?.type === 'text').map((b) => b.text) : [];
+        const t = textos.map((x) => String(x || '').replace(/<([a-z-]+)[^>]*>[\s\S]*?<\/\1>/g, '').trim()).find((x) => x && !x.startsWith('<'));
+        if (t) titulo = t;
+      }
+    }
+  } catch {
+    /* sem leitura */
+  }
+  titulo = titulo ? clip(String(titulo).replace(/\s+/g, ' ').trim(), 70) : null;
+  cacheTitulo.set(file, { mtime, titulo });
+  return titulo;
+}
+function historicoDa(acc) {
+  const pastas = [];
+  if (acc.dir && !acc.padrao) pastas.push([path.join(acc.dir, 'projects'), 'conta']);
+  if (acc.padrao || (acc.email && acc.email === emailDesktop)) pastas.push([PROJETOS_DESKTOP, 'desktop']);
+  const itens = [];
+  for (const [raiz, origem] of pastas) {
+    for (const proj of lerDir(raiz)) {
+      if (!proj.isDirectory()) continue;
+      for (const f of lerDir(path.join(raiz, proj.name))) {
+        if (!f.isFile() || !/^[0-9a-f-]{36}\.jsonl$/.test(f.name)) continue;
+        const file = path.join(raiz, proj.name, f.name);
+        try {
+          const st = fs.statSync(file);
+          if (st.size < 200) continue;
+          itens.push({ sid: f.name.slice(0, 36), file, origem, mtime: st.mtimeMs });
+        } catch {
+          /* sumiu */
+        }
+      }
+    }
+  }
+  itens.sort((a, b) => b.mtime - a.mtime);
+  return itens.slice(0, 80).map((x) => ({ ...x, cwd: pastaDaSessao(x.file), titulo: tituloDaSessao(x.file, x.mtime) || 'Conversa sem título' }));
 }
 
 // Imagens da conversa, servidas so para celulares pareados. As mais antigas saem primeiro.
@@ -1554,3 +1660,8 @@ server.listen(PORT, HOST, async () => {
   console.log(`Contas: ${[...accounts.values()].map((a) => a.nome).join(', ')}`);
   console.log('Deixe esta janela aberta. Ctrl+C para desligar.\n');
 });
+
+// Resumo de uma resposta para a lista de sessoes e os avisos: sem asteriscos, crases e titulos do markdown.
+function semMarkdown(t) {
+  return String(t || '').replace(/[*`#>]+/g, '').replace(/\s+/g, ' ').trim();
+}

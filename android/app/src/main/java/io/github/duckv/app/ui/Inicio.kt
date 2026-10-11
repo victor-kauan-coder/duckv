@@ -44,6 +44,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.WifiOff
@@ -95,6 +96,7 @@ fun Inicio(
     aoNova: (String?) -> Unit,
     aoOpcoes: () -> Unit,
     aoVerTela: (Sessao) -> Unit,
+    aoHistorico: (String) -> Unit = {},
 ) {
     val c = cores
     val agora = relogio(e)
@@ -178,6 +180,7 @@ fun Inicio(
                 if (temPedidos(minhas)) Pedidos(e, minhas, aoVerTela)
                 CartaoConta(e, conta, agora, pato, aoAbrirSessao)
                 if (e.host.disponivel) Botao("Abrir sessão em ${conta.nome}", { aoNova(conta.id) }, Modifier.fillMaxWidth(), Icons.Rounded.Add, Peso.Principal)
+                Botao("Todas as conversas", { aoHistorico(conta.id) }, Modifier.fillMaxWidth(), Icons.Rounded.History, Peso.Quieto)
                 // outras contas pedindo permissao: um atalho, sem precisar procurar
                 val outras = contas.filter { it.id != conta.id && estadoDaConta(e, it, agora).bicho == "pede" }
                 for (o in outras) {

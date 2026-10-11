@@ -186,10 +186,15 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
     val c = cores
     val todas by Hub.conversa.collectAsState()
     val msgs = remember(todas, ferramentas) { agrupar(if (ferramentas) todas else todas.filter { it.papel != "tool" }) }
+    val pend by Hub.aCaminho.collectAsState()
+    val enviadas = remember(todas) { todas.filter { it.papel == "user" }.map { it.texto.trim() }.toSet() }
+    val acaminho = pend.filter { it.first == s.id && it.second.trim() !in enviadas }.map { it.second }.distinct()
+    // Quando a mensagem aparece de verdade, sai da lista de "a caminho".
+    LaunchedEffect(enviadas) { Hub.aCaminho.value = Hub.aCaminho.value.filterNot { it.first == s.id && it.second.trim() in enviadas } }
     val lista = rememberLazyListState()
     val noFim by remember { derivedStateOf { lista.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= lista.layoutInfo.totalItemsCount - 3 } ?: true } }
     var primeira by remember { mutableStateOf(true) }
-    LaunchedEffect(msgs.size) {
+    LaunchedEffect(msgs.size + acaminho.size) {
         if (msgs.isEmpty()) return@LaunchedEffect
         if (primeira) {
             lista.scrollToItem(msgs.size)
@@ -203,7 +208,8 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { InfoSessao(s, cor) }
-        if (msgs.isEmpty()) item {
+        if (msgs.isEmpty() && acaminho.isEmpty()) item {
+            PixelArte(FAISCA, Modifier.fillMaxWidth().height(40.dp).padding(top = 20.dp), mapOf('o' to cor))
             Text(
                 if (s.hospedada) "A conversa aparece aqui depois da sua primeira mensagem. Se o Claude Code perguntar algo ao abrir, a pergunta surge logo abaixo, com botões."
                 else "A conversa aparece aqui assim que a sessão trocar mensagens.",
@@ -211,6 +217,8 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
             )
         }
         items(msgs, key = { it.first().id }) { if (it.size > 1) GrupoFerramentas(it, cor) else Mensagem(it.first(), cor) }
+        // Mensagens aceitas pelo computador que o Claude Code ainda nao registrou: aparecem na hora, esmaecidas.
+        items(acaminho, key = { "pend:" + it }) { t -> MensagemACaminho(t, cor) }
     }
 }
 
@@ -265,12 +273,16 @@ private fun InfoSessao(s: Sessao, cor: Color) {
 
 // Quanto do contexto esta ocupado, do que ele e feito agora e quanto a sessao ja gastou.
 @Composable
-private fun ContextoDetalhado(s: Sessao, cor: Color) {
+private fun ContextoDetalhado(s: Sessao, cor: Color, sempreAberto: Boolean = false) {
     val c = cores
     val ctx = s.ctx
     val u = s.ultima
-    if (ctx == null && u == null && s.respostas == 0) return
+    if (ctx == null && u == null && s.respostas == 0) {
+        if (sempreAberto) Text("O contexto aparece depois da primeira resposta do Claude nesta sessão.", style = Texto.apoio, color = c.apoio)
+        return
+    }
     var aberto by rememberSaveable(s.id) { mutableStateOf(true) }
+    if (sempreAberto) aberto = true
     val tamanho = ctx?.tamanho ?: 0L
     // O percentual do Claude Code manda; sem ele, a ultima resposta diz o que esta no contexto.
     val ocupado = when {
@@ -375,7 +387,13 @@ private fun Blocos(texto: String, cor: Color) {
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.elevada)
                         .border(1.dp, c.linha, RoundedCornerShape(10.dp)).horizontalScroll(rememberScrollState()).padding(12.dp),
                 )
-            } else Text(textoRico(parte.trim(), c), style = Texto.corpo, color = c.texto)
+            } else {
+                // Tabelas em markdown viram grade; o resto e texto corrido.
+                for (t in remember(parte) { trechos(parte.trim()) }) when (t) {
+                    is Trecho.Tabela -> TabelaMarkdown(t, cor)
+                    is Trecho.Texto -> Text(textoRico(t.texto.trim(), c), style = Texto.corpo, color = c.texto)
+                }
+            }
         }
     }
 }
@@ -415,16 +433,25 @@ private fun Mensagem(m: Msg, cor: Color) {
 @Composable
 private fun ImagemDaConversa(id: String, doUsuario: Boolean) {
     val c = cores
-    val bmp by androidx.compose.runtime.produceState<android.graphics.Bitmap?>(null, id) {
+    // null: carregando; falhou: nao veio (imagem antiga que o computador ja nao guarda, ou sem conexao)
+    var tentativa by remember(id) { mutableStateOf(0) }
+    var falhou by remember(id) { mutableStateOf(false) }
+    val bmp by androidx.compose.runtime.produceState<android.graphics.Bitmap?>(null, id, tentativa) {
+        falhou = false
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Hub.imagem(id) }
+        falhou = value == null
     }
     var cheia by remember { mutableStateOf(false) }
     val forma = RoundedCornerShape(12.dp)
     Box(Modifier.fillMaxWidth(), contentAlignment = if (doUsuario) Alignment.CenterEnd else Alignment.CenterStart) {
         val b = bmp
         if (b == null) {
-            Box(Modifier.fillMaxWidth(0.7f).height(160.dp).clip(forma).background(c.elevada).border(1.dp, c.linha, forma), contentAlignment = Alignment.Center) {
-                Text("Carregando imagem", style = Texto.pequeno, color = c.apoio)
+            Box(
+                Modifier.fillMaxWidth(0.7f).height(160.dp).clip(forma).background(c.elevada).border(1.dp, c.linha, forma)
+                    .clickable(enabled = falhou, onClickLabel = "Tentar de novo") { tentativa++ },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (falhou) "A imagem não carregou. Toque para tentar de novo." else "Carregando imagem", style = Texto.pequeno, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.padding(12.dp))
             }
         } else {
             androidx.compose.foundation.Image(
@@ -439,6 +466,22 @@ private fun ImagemDaConversa(id: String, doUsuario: Boolean) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MensagemACaminho(t: String, cor: Color) {
+    val c = cores
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        Column(
+            Modifier.widthIn(max = 520.dp).fillMaxWidth(0.86f).wrapIfShort().clip(RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
+                .background(cor.copy(alpha = if (c.escuro) 0.12f else 0.08f)).border(1.dp, cor.copy(alpha = 0.35f), RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.End,
+        ) {
+            Text(t, style = Texto.corpo, color = c.texto.copy(alpha = 0.75f))
+            Text("Enviando", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }
@@ -483,13 +526,26 @@ private fun Modifier.wrapIfShort() = this.then(Modifier.width(androidx.compose.f
 // ------------------------------------------------------------ escrever
 
 @Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Unit) {
     val c = cores
     val aviso = LocalAviso.current
     var texto by rememberSaveable(s.id) { mutableStateOf("") }
     var enviando by remember { mutableStateOf(false) }
+    val acaminho = { t: String -> Hub.aCaminho.value = Hub.aCaminho.value + (s.id to t) }
     val enviar = { t: String, ok: String? ->
-        Hub.enviar(s.id, t) { erro, _ -> aviso(erro ?: ok ?: return@enviar) }
+        Hub.enviar(s.id, t) { erro, _ ->
+            if (erro == null) acaminho(t)
+            aviso(erro ?: ok ?: return@enviar)
+        }
+    }
+    var verContexto by remember { mutableStateOf(false) }
+    if (verContexto) {
+        androidx.compose.material3.ModalBottomSheet({ verContexto = false }, containerColor = c.fundo) {
+            Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ContextoDetalhado(s, cor, sempreAberto = true)
+            }
+        }
     }
     Column(Modifier.fillMaxWidth().background(c.fundo).navigationBarsPadding()) {
         Divisoria()
@@ -511,6 +567,9 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                 items(e.prefs.rapidas) { r -> Botao(r, { enviar(r, "Enviada") }, Modifier.widthIn(max = 240.dp), peso = Peso.Quieto, altura = 38.dp, linhas = 1) }
             }
         }
+        if (s.pergunta != null) {
+            Text("Responda a pergunta acima. O que você escrever aqui espera ela fechar.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
+        }
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
             OutlinedTextField(
                 texto, { texto = it }, Modifier.weight(1f),
@@ -522,15 +581,22 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                     focusedContainerColor = c.superficie, unfocusedContainerColor = c.superficie,
                 ),
             )
-            EspacoLargo(8.dp)
+            // A bolinha do contexto, como no Claude: enche conforme a conversa ocupa a memoria.
+            val pctCtx = s.ctx?.pct ?: s.ultima?.let { u -> s.ctx?.tamanho?.takeIf { it > 0 }?.let { (u.entrada + u.cw + u.cr + u.saida) * 100.0 / it } }
+            AnelContexto(pctCtx, cor, { verContexto = true }, Modifier.padding(start = 4.dp, bottom = 8.dp))
+            EspacoLargo(4.dp)
             val pode = texto.isNotBlank() && !enviando
             Box(
                 Modifier.padding(bottom = 4.dp).size(48.dp).clip(CircleShape).background(if (pode) Laranja else c.linha)
                     .clickable(enabled = pode, role = Role.Button) {
                         enviando = true
-                        Hub.enviar(s.id, texto.trim()) { erro, _ ->
+                        val t = texto.trim()
+                        Hub.enviar(s.id, t) { erro, _ ->
                             enviando = false
-                            if (erro != null) aviso(erro) else texto = ""
+                            if (erro != null) aviso(erro) else {
+                                texto = ""
+                                acaminho(t)
+                            }
                         }
                     },
                 contentAlignment = Alignment.Center,

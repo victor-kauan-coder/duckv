@@ -101,6 +101,8 @@ export function toolSummary(name, input) {
       return Array.isArray(i.todos) ? `${i.todos.length} itens` : '';
     case 'Skill':
       return clip(i.skill || '', 60);
+    case 'AskUserQuestion':
+      return clip((Array.isArray(i.questions) ? i.questions : []).map((q) => q?.question).filter(Boolean).join(' · '), 200);
     default: {
       const first = Object.values(i).find((v) => typeof v === 'string' && v);
       return clip(first || '', 100);

@@ -98,13 +98,21 @@ function menuNumerado(ls, fim) {
     let marcado = false;
     let j = i;
     let topo = i;
+    let detalhe = [];
     while (j >= 0) {
       const m = opcao.exec(ls[j]);
       if (m) {
-        opcoes.unshift({ tecla: m[2], rotulo: m[3].trim().slice(0, 120) });
+        const o = { tecla: m[2], rotulo: m[3].trim().slice(0, 120) };
+        // As linhas indentadas logo abaixo explicam a opcao (perguntas do AskUserQuestion).
+        if (detalhe.length) o.detalhe = detalhe.join(' ').replace(/\s+/g, ' ').trim().slice(0, 240);
+        // "Type something." e parecidas: a resposta e escrita, nao escolhida.
+        if (/^(type something|other|outro|digite)/i.test(o.rotulo)) o.livre = true;
+        opcoes.unshift(o);
+        detalhe = [];
         if (m[1]) marcado = true;
         topo = j;
-      } else if (ls[j].trim() && !/^\s{3,}\S/.test(ls[j])) break;
+      } else if (/^\s{3,}\S/.test(ls[j])) detalhe.unshift(ls[j].trim());
+      else if (ls[j].trim()) break;
       else if (!ls[j].trim() && j < topo - 1) break;
       j--;
     }
@@ -283,14 +291,26 @@ export function startHosted(opts) {
     // Enter so depois que o texto aparecer na caixa (ou 2 s, o que vier antes).
     const inicio = t.replace(/\s+/g, ' ').slice(0, 12);
     const t0 = Date.now();
+    // A mensagem ainda esta na caixa de entrada (e nao so na conversa, acima dela)?
+    const naCaixa = () => {
+      const ls = snapshot().lines;
+      // A caixa e a ultima linha com o marcador; as de cima sao mensagens ja enviadas.
+      // Com um menu aberto, um Enter a mais escolheria uma opcao: nao repete.
+      if (readPrompt(ls)) return false;
+      const i = ls.findLastIndex((l) => CAIXA.test(l));
+      return i >= 0 && ls.slice(i, i + 6).join(' ').replace(/\s+/g, ' ').includes(inicio);
+    };
+    let tentativas = 0;
     const enter = () => {
       const tela = snapshot().lines.join('\n');
       if (Date.now() - t0 < 2000 && !tela.includes(inicio) && !tela.includes('[Pasted')) return void setTimeout(enter, 100);
       write('\r');
+      // Texto longo chega como "colado" e o Claude Code as vezes ignora o Enter logo depois: confere e repete.
       setTimeout(() => {
+        if (alive && ++tentativas < 4 && naCaixa()) return enter();
         digitando = false;
         esvaziar();
-      }, 800);
+      }, 700);
     };
     setTimeout(enter, 150);
   }
@@ -327,6 +347,15 @@ export function startHosted(opts) {
       return false;
     },
     // Digita um texto e aperta Enter, como o usuario faria no teclado.
+    // Resposta escrita para uma pergunta do Claude: escolhe a opcao de escrever, digita e confirma.
+    responder(tecla, texto) {
+      const t = cleanText(texto).replace(/\s+/g, ' ').trim().slice(0, 2000);
+      if (!/^[1-9]$/.test(tecla) || !t) return false;
+      write(tecla);
+      setTimeout(() => write(t), 300);
+      setTimeout(() => write('\r'), 300 + 250 + Math.min(1500, t.length * 2));
+      return true;
+    },
     // Espera a caixa de mensagem existir: logo ao abrir (ou enquanto o Claude Code se atualiza)
     // o texto digitado se perderia.
     send(text) {
