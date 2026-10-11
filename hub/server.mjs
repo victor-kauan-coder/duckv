@@ -16,18 +16,34 @@ import { hostedAvailable, hostedError, startHosted, folderAllowed, listFolders, 
 
 const argv = new Set(process.argv.slice(2));
 const cfg = ensureConfig(() => webpush.generateVAPIDKeys());
-if (argv.has('--novo-token')) {
-  cfg.token = crypto.randomBytes(32).toString('base64url');
-  writeJson(CONFIG_FILE, cfg);
-  console.log('Novo codigo de pareamento criado. Os celulares ja pareados precisam parear de novo.');
-}
 const PORT = Number(process.env.PAINEL_PORT) || cfg.port;
 const HOST = argv.has('--lan') ? '0.0.0.0' : '127.0.0.1';
 const APP = path.join(ROOT, 'app');
 const STATE_FILE = path.join(DATA, 'state.json');
 const PUSH_FILE = path.join(DATA, 'push.json');
-// Codigo novo tambem corta os avisos de quem tinha o codigo antigo.
-if (argv.has('--novo-token')) writeJson(PUSH_FILE, []);
+const APARELHOS_FILE = path.join(DATA, 'aparelhos.json');
+
+// Celulares pareados. Cada um recebe a propria chave, e no disco fica so o hash dela:
+// uma sessao do Claude que leia a pasta data/ nao consegue se passar por um celular.
+const hashDe = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+let aparelhos = readJson(APARELHOS_FILE, []) || [];
+if (cfg.token) {
+  // Versoes antigas guardavam uma chave unica em config.json: vira um aparelho e sai de la.
+  aparelhos.push({ id: 'antigo', nome: 'Pareado antes da versão 1.2', hash: hashDe(cfg.token), criado: Date.now() });
+  delete cfg.token;
+  writeJson(APARELHOS_FILE, aparelhos);
+  writeJson(CONFIG_FILE, cfg);
+}
+if (argv.has('--novo-token')) {
+  aparelhos = [];
+  writeJson(APARELHOS_FILE, aparelhos);
+  writeJson(PUSH_FILE, []);
+  console.log('Todos os celulares foram despareados. Escaneie o codigo novo em cada um.');
+}
+// O codigo do QR vive so na memoria e muda a cada vez que o claudeV liga.
+// PAINEL_CODIGO existe para os testes.
+const CODIGO = process.env.PAINEL_CODIGO || crypto.randomBytes(24).toString('base64url');
+delete process.env.PAINEL_CODIGO;
 if (HOST === '0.0.0.0') {
   console.warn('\nATENCAO: --lan abre o claudeV sem criptografia na rede local. Quem estiver na mesma rede pode copiar o codigo de pareamento e comandar o computador. Prefira o Tailscale.\n');
 }
@@ -140,12 +156,13 @@ function rodarSetup() {
 function novaConta(nomePedido) {
   const lista = listaContas();
   const ids = new Set(lista.map((a) => a.id));
-  let n = lista.length + 1;
-  while (ids.has(`conta${n}`)) n++;
-  const id = `conta${n}`;
-  const nome = texto(nomePedido, 30).replace(/[^\p{L}\p{N} ._-]/gu, '').trim() || `Conta ${n}`;
   const modelo = lista.find((a) => a.dir);
   const base = modelo ? path.dirname(modelo.dir) : path.join(os.homedir(), '.claude-contas');
+  // Pula pastas que ja existem: uma conta removida deixa o login la, e a conta nova nao pode herdar.
+  let n = lista.length + 1;
+  while (ids.has(`conta${n}`) || fs.existsSync(path.join(base, `conta${n}`))) n++;
+  const id = `conta${n}`;
+  const nome = texto(nomePedido, 30).replace(/[^\p{L}\p{N} ._-]/gu, '').trim() || `Conta ${n}`;
   const dir = path.join(base, id);
   const usadas = new Set([...accounts.values()].map((a) => (prefs.contas[a.id]?.cor || a.cor).toLowerCase()));
   const cor = [...DEFAULT_COLORS, '#3d8bfd', '#2fb37a', '#9b6bff', '#e0569a', '#f26b4e', '#8a3b12'].find((c) => !usadas.has(c)) || DEFAULT_COLORS[0];
@@ -184,7 +201,7 @@ try {
   testCommand = null;
 }
 const instances = new Map();
-let pushSubs = readJson(PUSH_FILE, []) || [];
+let pushSubs = (readJson(PUSH_FILE, []) || []).filter((s) => aparelhos.some((a) => a.id === (s.aparelho || 'antigo')));
 
 function getAccount(id) {
   id = /^[a-z0-9_-]{1,24}$/i.test(id || '') ? id : 'conta1';
@@ -286,6 +303,8 @@ function pubInst(i) {
     cost: i.cost,
     lines: i.lines,
     tokens: i.tokens,
+    last: i.last || null,
+    turns: i.turns || 0,
     tasks,
     perms: i.perms.map((p) => ({ id: p.id, tool: p.tool, desc: p.desc, preview: p.preview, at: p.at, toolUseId: p.toolUseId })),
     localAsk: i.localAsk,
@@ -471,6 +490,7 @@ function onPhoneMessage(c, m) {
       else if (!text) err = 'Mensagem vazia.';
       else if (text.length > 8000) err = 'Mensagem longa demais (máximo de 8000 caracteres).';
       else if (!inst.hosted && (!inst.agent || inst.agent.readyState !== 1)) err = 'Essa sessão não está conectada ao claudeV.';
+      else if (inst.hosted) err = textoPerigoso(text);
       if (err) {
         send(c, { t: 'err', ref: m.ref, msg: err });
         break;
@@ -728,6 +748,8 @@ function markEnded(inst) {
 function onHook(body) {
   const ev = body?.event;
   if (!ev || typeof ev !== 'object') return;
+  // Cada passo da sessao grava no historico: soma de novo para o numero acompanhar.
+  scheduleTokenScan();
   const id = body.instance || (ev.session_id ? `s:${ev.session_id}` : null);
   if (!id) return;
   const inst = getInst(id, body.account);
@@ -890,13 +912,18 @@ function pollInst(inst) {
   }
   if (changed) {
     const t = { in: 0, out: 0, cw: 0, cr: 0 };
+    let ultima = null;
     for (const u of inst.usageById.values()) {
       t.in += u.in;
       t.out += u.out;
       t.cw += u.cw;
       t.cr += u.cr;
+      if (!ultima || u.ts >= ultima.ts) ultima = u;
     }
     inst.tokens = t;
+    // A ultima resposta mostra do que o contexto e feito agora.
+    inst.last = ultima && { in: ultima.in, out: ultima.out, cw: ultima.cw, cr: ultima.cr };
+    inst.turns = inst.usageById.size;
   }
   if (items.length) pushMsgs(inst, items);
   if (changed || items.length) dirty();
@@ -955,10 +982,11 @@ function scanTokens() {
   scanTimer = null;
   let changed = false;
   for (const a of accounts.values()) {
-    const r = a.usage.five_hour?.resetsAt;
-    if (!a.dir || !r) continue;
+    if (!a.dir) continue;
     try {
-      const since = r - FIVE_H;
+      // Sem leitura do limite ainda, conta as ultimas 5 horas: o numero aparece desde o primeiro uso.
+      const r = a.usage.five_hour?.resetsAt;
+      const since = r && r > Date.now() ? r - FIVE_H : Date.now() - FIVE_H;
       const total = scanWindowTokens(a.dir, since, a.tokCache);
       const next = { ...total, since };
       if (JSON.stringify(next) !== JSON.stringify(a.tokens)) {
@@ -972,9 +1000,10 @@ function scanTokens() {
   if (changed) dirty();
 }
 function scheduleTokenScan() {
-  if (!scanTimer) scanTimer = setTimeout(scanTokens, 4000);
+  if (!scanTimer) scanTimer = setTimeout(scanTokens, 800);
 }
-setInterval(scanTokens, 60000).unref();
+// Quase em tempo real: so os arquivos que mudaram sao relidos, entao a varredura e leve.
+setInterval(scanTokens, 5000).unref();
 
 // ---------------------------------------------------------------- http
 
@@ -997,6 +1026,19 @@ const SEC_HEADERS = {
 
 let tailnetHost = null;
 
+// Numa sessao aberta pelo celular o texto e digitado no terminal. "!" roda um comando
+// sem pedir permissao e alguns comandos de barra mudam as permissoes; por isso so
+// passam os comandos de barra desta lista. Pedidos em texto comum continuam livres.
+const COMANDOS_DO_CELULAR = new Set(['model', 'effort', 'compact', 'clear', 'login', 'status', 'cost', 'usage', 'context', 'help', 'init', 'resume', 'rename', 'review']);
+function textoPerigoso(text) {
+  const t = text.trimStart();
+  if (t.startsWith('!')) return 'Comandos com ! rodam no computador sem pedir permissão, então não valem pelo celular. Peça ao Claude em texto comum.';
+  if (!t.startsWith('/')) return null;
+  const nome = t.slice(1).split(/\s/)[0].toLowerCase();
+  if (COMANDOS_DO_CELULAR.has(nome)) return null;
+  return `Pelo celular valem só estes comandos: ${[...COMANDOS_DO_CELULAR].map((c) => '/' + c).join(', ')}. Os outros, como /permissions, ficam no computador.`;
+}
+
 function cookieToken(req) {
   const raw = req.headers.cookie || '';
   for (const part of raw.split(';')) {
@@ -1005,13 +1047,32 @@ function cookieToken(req) {
   }
   return null;
 }
-const isPhone = (req) => {
+function aparelhoDe(req) {
   const t = cookieToken(req);
-  return !!t && safeEq(t, cfg.token);
-};
+  if (!t) return null;
+  const h = hashDe(t);
+  return aparelhos.find((a) => safeEq(a.hash, h)) || null;
+}
+const isPhone = (req) => !!aparelhoDe(req);
+function novoAparelho(nome) {
+  const chave = crypto.randomBytes(32).toString('base64url');
+  aparelhos.push({ id: crypto.randomBytes(6).toString('hex'), nome: texto(nome, 40) || 'Celular', hash: hashDe(chave), criado: Date.now() });
+  writeJson(APARELHOS_FILE, aparelhos);
+  return chave;
+}
+function esquecerAparelho(id) {
+  aparelhos = aparelhos.filter((a) => a.id !== id);
+  writeJson(APARELHOS_FILE, aparelhos);
+  pushSubs = pushSubs.filter((s) => (s.aparelho || 'antigo') !== id);
+  writeJson(PUSH_FILE, pushSubs);
+  for (const p of phones) if (p.aparelho === id) p.ws.close(4001, 'despareado');
+}
+// Os programas do Claude Code falam direto com 127.0.0.1; nada que chegue pela rede
+// (Tailscale ou --lan) passa por agente, mesmo com o segredo.
+const local = (req) => !req.headers['x-forwarded-for'] && /^(::ffff:)?127\.0\.0\.1$|^::1$/.test(req.socket.remoteAddress || '');
 const isAgent = (req) => {
   const s = req.headers['x-painel-secret'];
-  return typeof s === 'string' && safeEq(s, cfg.agentSecret);
+  return typeof s === 'string' && local(req) && safeEq(s, cfg.agentSecret);
 };
 
 // Recusa pedidos vindos de outros sites (o navegador manda o cabecalho Origin).
@@ -1093,7 +1154,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (p === '/parear' && req.method === 'GET') {
       const k = url.searchParams.get('k') || '';
-      if (!k || !safeEq(k, cfg.token)) {
+      if (!k || !safeEq(k, CODIGO)) {
         res.writeHead(403, { ...SEC_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('Codigo de pareamento invalido. Abra o link mostrado na janela do claudeV, no computador.');
         return;
@@ -1101,7 +1162,7 @@ const server = http.createServer(async (req, res) => {
       const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
       res.writeHead(302, {
         ...SEC_HEADERS,
-        'Set-Cookie': `painel=${cfg.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secure}`,
+        'Set-Cookie': `painel=${novoAparelho('Navegador')}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secure}`,
         Location: '/',
         'Cache-Control': 'no-store',
       });
@@ -1119,8 +1180,16 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
 
+    // O app Android troca o codigo do QR pela chave propria do aparelho.
+    if (p === '/api/parear' && req.method === 'POST') {
+      const b = await readBody(req, 4096);
+      if (typeof b?.k !== 'string' || !safeEq(b.k, CODIGO)) return json(res, 403, { erro: 'codigo invalido' });
+      return json(res, 200, { chave: novoAparelho(b.nome) });
+    }
+
     if (p.startsWith('/api/')) {
-      if (!isPhone(req)) return json(res, 401, { erro: 'nao pareado' });
+      const aparelho = aparelhoDe(req);
+      if (!aparelho) return json(res, 401, { erro: 'nao pareado' });
       if (!originOk(req)) return json(res, 403, { erro: 'origem' });
       if (p === '/api/state' && req.method === 'GET') return json(res, 200, snapshot());
       if (p === '/api/push/key' && req.method === 'GET') return json(res, 200, { key: cfg.vapid.publicKey });
@@ -1130,12 +1199,13 @@ const server = http.createServer(async (req, res) => {
           return json(res, 400, { erro: 'inscricao invalida' });
         }
         pushSubs = pushSubs.filter((s) => s.endpoint !== sub.endpoint);
-        pushSubs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } });
+        pushSubs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, aparelho: aparelho.id });
         if (pushSubs.length > 10) pushSubs = pushSubs.slice(-10);
         writeJson(PUSH_FILE, pushSubs);
         return json(res, 200, { ok: true });
       }
       if (p === '/api/desparear' && req.method === 'POST') {
+        esquecerAparelho(aparelho.id);
         res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': MIME['.json'], 'Set-Cookie': 'painel=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' });
         res.end('{"ok":true}');
         return;
@@ -1165,8 +1235,9 @@ server.on('upgrade', (req, socket, head) => {
   } catch {
     /* cai no destroy abaixo */
   }
-  if (p === '/ws' && isPhone(req) && originOk(req)) {
-    wssPhone.handleUpgrade(req, socket, head, (ws) => wssPhone.emit('connection', ws, req));
+  const aparelho = p === '/ws' ? aparelhoDe(req) : null;
+  if (aparelho && originOk(req)) {
+    wssPhone.handleUpgrade(req, socket, head, (ws) => wssPhone.emit('connection', ws, req, aparelho));
   } else if (p === '/agent' && isAgent(req)) {
     wssAgent.handleUpgrade(req, socket, head, (ws) => wssAgent.emit('connection', ws, req));
   } else {
@@ -1175,8 +1246,8 @@ server.on('upgrade', (req, socket, head) => {
   }
 });
 
-wssPhone.on('connection', (ws) => {
-  const c = { ws, open: null, term: null, visible: true };
+wssPhone.on('connection', (ws, req, aparelho) => {
+  const c = { ws, open: null, term: null, visible: true, aparelho: aparelho.id };
   phones.add(c);
   send(c, snapshot());
   ws.on('message', (raw) => {
@@ -1287,7 +1358,7 @@ server.listen(PORT, HOST, async () => {
   if (tailnetHost) base = `https://${tailnetHost}`;
   else if (HOST === '0.0.0.0' && lanAddresses().length) base = `http://${lanAddresses()[0]}:${PORT}`;
   else base = `http://localhost:${PORT}`;
-  const link = `${base}/parear?k=${cfg.token}`;
+  const link = `${base}/parear?k=${CODIGO}`;
   console.log('\nclaudeV ligado.\n');
   if (!argv.has('--sem-qr')) {
     console.log('Para parear o celular, aponte a camera para o codigo abaixo:\n');

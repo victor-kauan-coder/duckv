@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.flow.MutableStateFlow
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
@@ -74,11 +75,18 @@ object Hub {
     fun parear(link: String, pronto: (String?) -> Unit) {
         val (b, k) = lerLink(link) ?: return pronto("Esse não é o link do claudeV. Use o código da janela do claudeV no computador.")
         thread {
+            var chave: String? = null
             val erro = try {
-                cliente.newCall(Request.Builder().url("$b/api/state").header("Cookie", "painel=$k").build()).execute().use {
+                // Troca o codigo do QR pela chave propria deste celular; o codigo muda a cada vez que o claudeV liga.
+                val corpo = JSONObject().put("k", k).put("nome", android.os.Build.MODEL).toString().toRequestBody("application/json".toMediaType())
+                cliente.newCall(Request.Builder().url("$b/api/parear").post(corpo).build()).execute().use {
                     when (it.code) {
-                        200 -> null
-                        401 -> "O código não vale mais. Abra a janela do claudeV e escaneie o código novo."
+                        200 -> {
+                            chave = it.body?.string()?.let { t -> JSONObject(t).optString("chave") }?.takeIf { c -> c.length >= 16 }
+                            if (chave == null) "O computador respondeu de um jeito estranho. Atualize o claudeV no computador." else null
+                        }
+                        403 -> "Esse código não vale mais: ele muda cada vez que o claudeV liga. Escaneie o código da janela aberta agora."
+                        404 -> "O claudeV do computador está desatualizado. Atualize a pasta e rode instalar.cmd de novo."
                         else -> "O computador respondeu com erro ${it.code}."
                     }
                 }
@@ -87,7 +95,7 @@ object Hub {
             }
             principal.post {
                 if (erro == null) {
-                    prefs.edit().putString("base", b).putString("token", k).apply()
+                    prefs.edit().putString("base", b).putString("token", chave).apply()
                     pareado.value = true
                     ligar()
                 }

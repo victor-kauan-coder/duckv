@@ -25,8 +25,8 @@ data class Conta(
 )
 
 data class Perm(val id: String, val tool: String, val desc: String, val preview: String, val em: Long)
-data class Opcao(val tecla: String, val rotulo: String)
-data class Pergunta(val titulo: String, val opcoes: List<Opcao>)
+data class Opcao(val tecla: String, val rotulo: String, val confirmar: Boolean = false)
+data class Pergunta(val titulo: String, val opcoes: List<Opcao>, val contexto: String = "")
 data class Tarefa(val assunto: String, val status: String)
 data class Contexto(val pct: Double?, val entrada: Long, val tamanho: Long)
 data class PedidoLocal(val tool: String?, val texto: String)
@@ -42,6 +42,8 @@ data class Sessao(
     val inicio: Long,
     val ctx: Contexto?,
     val tokens: Tokens,
+    val ultima: Tokens?,
+    val respostas: Int,
     val linhasMais: Int,
     val linhasMenos: Int,
     val tarefas: List<Tarefa>,
@@ -141,13 +143,15 @@ fun lerEstado(m: JSONObject): Estado {
             inicio = i.optLong("startedAt"),
             ctx = ctx?.takeIf { it.optLong("size") > 0 }?.let { Contexto(it.d("pct"), it.optLong("in"), it.optLong("size")) },
             tokens = tokens(i.optJSONObject("tokens")) ?: Tokens(0, 0, 0, 0),
+            ultima = tokens(i.optJSONObject("last")),
+            respostas = i.optInt("turns"),
             linhasMais = linhas?.optInt("add") ?: 0,
             linhasMenos = linhas?.optInt("rem") ?: 0,
             tarefas = i.optJSONArray("tasks").mapa { Tarefa(it.optString("subject"), it.optString("status")) },
             perms = i.optJSONArray("perms").mapa { Perm(it.optString("id"), it.optString("tool"), it.optString("desc"), it.optString("preview"), it.optLong("at")) },
             pedidoLocal = local?.let { PedidoLocal(it.s("tool"), it.optString("text")) },
             hospedada = i.optBoolean("hosted"),
-            pergunta = perg?.let { p -> Pergunta(p.optString("titulo"), p.optJSONArray("opcoes").mapa { Opcao(it.optString("tecla"), it.optString("rotulo")) }) },
+            pergunta = perg?.let { p -> Pergunta(p.optString("titulo"), p.optJSONArray("opcoes").mapa { Opcao(it.optString("tecla"), it.optString("rotulo"), it.optBoolean("confirmar")) }, p.optString("contexto")) },
             rodape = i.optString("rodape"),
             effort = i.s("effort"),
             modo = i.s("permMode"),

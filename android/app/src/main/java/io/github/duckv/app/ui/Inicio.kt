@@ -316,14 +316,20 @@ private fun CartaoConta(e: Estado, conta: Conta, agora: Long, pato: String, aoAb
             Medidor("Limite de 5 horas", "five_hour", conta.cinco, conta, cor, agora)
             Medidor("Limite da semana", "seven_day", conta.semana, conta, cor, agora)
             conta.tokens?.let { t ->
-                Text(
-                    buildString {
-                        append(compacto(t.novos)).append(" tokens nesta janela de 5 horas")
-                        if (t.cr > 0) append(", mais ").append(compacto(t.cr)).append(" relidos do cache")
-                        append('.')
-                    },
-                    style = Texto.apoio, color = c.apoio,
-                )
+                // Atualiza a cada poucos segundos, somado dos historicos desta conta no computador.
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("Tokens nas últimas 5 horas", style = Texto.rotulo, color = c.texto, modifier = Modifier.weight(1f))
+                        Text(compacto(t.novos), style = Texto.numero, color = c.texto)
+                    }
+                    Text(
+                        buildString {
+                            append("Entrada ").append(compacto(t.entrada)).append(" · saída ").append(compacto(t.saida))
+                            if (t.cr > 0) append(" · relidos do cache ").append(compacto(t.cr))
+                        },
+                        style = Texto.apoio, color = c.apoio,
+                    )
+                }
             }
         }
         val ss = e.sessoes.filter { it.conta == conta.id }.sortedBy { it.inicio }

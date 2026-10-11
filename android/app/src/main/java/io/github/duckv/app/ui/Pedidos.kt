@@ -172,9 +172,20 @@ fun CartaoPergunta(conta: Conta, s: Sessao, aoVerTela: () -> Unit) {
             EspacoLargo(8.dp)
             Text("O Claude Code pergunta em ${s.titulo}", style = Texto.pequeno, color = c.invApoio)
         }
-        if (p.titulo.isNotBlank()) Text(p.titulo, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.invTexto)
+        // A tela inteira acima das opcoes: se for um pedido de permissao, o comando aparece completo.
+        if (p.contexto.isNotBlank()) {
+            val forma = RoundedCornerShape(10.dp)
+            Text(
+                p.contexto, style = Texto.codigo, color = c.invTexto,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(forma)
+                    .border(1.dp, c.invLinha, forma).verticalScroll(rememberScrollState()).padding(12.dp),
+            )
+        } else if (p.titulo.isNotBlank()) Text(p.titulo, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.invTexto)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (o in p.opcoes) Botao("${o.tecla}.  ${o.rotulo}", { tecla(o.tecla) }, Modifier.fillMaxWidth(), peso = Peso.Invertido)
+            for (o in p.opcoes) {
+                if (o.confirmar) BotaoConfirma("${o.tecla}.  ${o.rotulo}", Icons.Rounded.Check, { tecla(o.tecla) }, Modifier.fillMaxWidth(), Peso.Invertido)
+                else Botao("${o.tecla}.  ${o.rotulo}", { tecla(o.tecla) }, Modifier.fillMaxWidth(), peso = Peso.Invertido)
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Botao("Cancelar", { tecla("esc") }, Modifier.weight(1f), peso = Peso.Invertido)

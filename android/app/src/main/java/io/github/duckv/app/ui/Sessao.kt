@@ -225,24 +225,8 @@ private fun InfoSessao(s: Sessao, cor: Color) {
             EspacoLargo(10.dp)
             Text(if (s.status == "idle") "Esperando sua mensagem" else oQueFaz(s), style = Texto.rotulo, color = c.texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        s.ctx?.let { ctx ->
-            val p = ctx.pct ?: 0.0
-            Text(
-                buildAnnotatedString {
-                    append("Contexto ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = c.texto)) { append("${p.toInt()}%") }
-                    append(" · ${compacto(ctx.entrada)} de ${compacto(ctx.tamanho)} tokens")
-                },
-                style = Texto.apoio, color = c.apoio,
-            )
-            Celulas(20, minOf(20, kotlin.math.ceil(p / 5).toInt()), cor, altura = 8.dp)
-        }
-        val partes = buildList {
-            val gastos = s.tokens.novos
-            if (gastos > 0) add("Gasto ${compacto(gastos)} tokens")
-            if (s.linhasMais > 0 || s.linhasMenos > 0) add("Linhas +${s.linhasMais} −${s.linhasMenos}")
-        }
-        if (partes.isNotEmpty()) Text(partes.joinToString(" · "), style = Texto.apoio, color = c.apoio)
+        ContextoDetalhado(s, cor)
+        if (s.linhasMais > 0 || s.linhasMenos > 0) Text("Linhas +${s.linhasMais} −${s.linhasMenos}", style = Texto.apoio, color = c.apoio)
         if (s.tarefas.isNotEmpty()) {
             val feitas = s.tarefas.count { it.status == "completed" }
             val emCurso = s.tarefas.any { it.status == "in_progress" }
@@ -272,6 +256,78 @@ private fun InfoSessao(s: Sessao, cor: Color) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+// Quanto do contexto esta ocupado, do que ele e feito agora e quanto a sessao ja gastou.
+@Composable
+private fun ContextoDetalhado(s: Sessao, cor: Color) {
+    val c = cores
+    val ctx = s.ctx
+    val u = s.ultima
+    if (ctx == null && u == null && s.respostas == 0) return
+    var aberto by rememberSaveable(s.id) { mutableStateOf(true) }
+    val tamanho = ctx?.tamanho ?: 0L
+    // O percentual do Claude Code manda; sem ele, a ultima resposta diz o que esta no contexto.
+    val ocupado = when {
+        ctx?.pct != null && tamanho > 0 -> (ctx.pct / 100.0 * tamanho).toLong()
+        u != null -> u.entrada + u.cw + u.cr + u.saida
+        else -> 0L
+    }
+    val pct = ctx?.pct ?: if (tamanho > 0) ocupado * 100.0 / tamanho else null
+    Divisoria()
+    Row(Modifier.fillMaxWidth().clickable(onClickLabel = if (aberto) "Esconder detalhes do contexto" else "Mostrar detalhes do contexto") { aberto = !aberto }, verticalAlignment = Alignment.Bottom) {
+        Column(Modifier.weight(1f)) {
+            Text("Contexto", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
+            Text(
+                if (tamanho > 0) "${compacto(ocupado)} de ${compacto(tamanho)} tokens · cabem mais ${compacto(maxOf(0, tamanho - ocupado))}"
+                else "${compacto(ocupado)} tokens na última resposta",
+                style = Texto.apoio, color = c.apoio,
+            )
+        }
+        if (pct != null) Text("${pct.toInt()}%", style = Texto.numero, color = c.texto)
+        Icon(if (aberto) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown, null, tint = c.apoio)
+    }
+    if (pct != null) Celulas(20, minOf(20, kotlin.math.ceil(pct / 5).toInt()), cor, altura = 10.dp)
+    if (pct != null && pct >= 80) Text("Quase cheio. Compactar a conversa, em Controles, libera espaço.", style = Texto.apoio.copy(fontWeight = FontWeight.Medium), color = c.realce)
+    AnimatedVisibility(aberto) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 6.dp)) {
+            if (u != null) {
+                val partes = listOf(
+                    Triple("Lido do cache", u.cr, cor),
+                    Triple("Gravado no cache", u.cw, cor.copy(alpha = 0.5f)),
+                    Triple("Sem cache", u.entrada, c.apoio),
+                    Triple("Resposta do Claude", u.saida, c.texto),
+                )
+                val soma = partes.sumOf { it.second }.coerceAtLeast(1)
+                Text("Do que é feita a última resposta", style = Texto.pequeno, color = c.apoio)
+                Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(3.dp)).background(c.linha)) {
+                    for ((_, v, corParte) in partes) if (v > 0) Box(Modifier.weight(v.toFloat() / soma).fillMaxSize().background(corParte))
+                }
+                for ((nome, v, corParte) in partes) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Marca(corParte, tamanho = 10.dp)
+                        EspacoLargo(8.dp)
+                        Text(nome, style = Texto.apoio, color = c.texto, modifier = Modifier.weight(1f))
+                        Text(compacto(v), style = Texto.apoio.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
+                        Text("  ${(v * 100 / soma)}%", style = Texto.apoio, color = c.apoio, modifier = Modifier.widthIn(min = 44.dp), textAlign = TextAlign.End)
+                    }
+                }
+            }
+            if (s.respostas > 0) {
+                val t = s.tokens
+                Divisoria()
+                Text("Nesta sessão", style = Texto.pequeno, color = c.apoio)
+                Text(
+                    "${plural(s.respostas, "resposta", "respostas")} · ${compacto(t.novos + t.cr)} tokens processados",
+                    style = Texto.rotulo, color = c.texto,
+                )
+                Text(
+                    "Sem cache ${compacto(t.entrada)} · gravado no cache ${compacto(t.cw)} · lido do cache ${compacto(t.cr)} · respostas ${compacto(t.saida)}",
+                    style = Texto.apoio, color = c.apoio,
+                )
             }
         }
     }
@@ -489,17 +545,20 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
         Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
             TituloSecao("Ajustes desta sessão", Modifier.padding(bottom = 0.dp))
             val atual = s.model.orEmpty().lowercase()
+            // O Claude Code so confirma a troca na proxima leitura; ate la vale o que voce tocou.
+            var modeloTocado by remember(s.id, s.model) { mutableStateOf<String?>(null) }
+            var esforcoTocado by remember(s.id, s.effort) { mutableStateOf<String?>(null) }
             Column {
                 CabecalhoAjuste("Modelo", s.model)
                 ListaEscolha(
                     opcoesModelo(e.host.modelos.filter { it != "default" }),
-                    e.host.modelos.firstOrNull { it != "opusplan" && it != "default" && atual.contains(it) },
-                    { m -> enviar("/model $m", "Modelo trocado para ${MODELOS[m] ?: m}") }, cor = cor,
+                    modeloTocado ?: e.host.modelos.firstOrNull { it != "opusplan" && it != "default" && atual.contains(it) },
+                    { m -> modeloTocado = m; enviar("/model $m", "Modelo trocado para ${MODELOS[m] ?: m}") }, cor = cor,
                 )
             }
             Column {
                 CabecalhoAjuste("Esforço de raciocínio", null)
-                EscalaEsforco(e.host.esforcos, s.effort.orEmpty(), { ef -> enviar("/effort $ef", "Esforço trocado para ${ESFORCOS[ef] ?: ef}") }, comPadrao = false, cor = cor)
+                EscalaEsforco(e.host.esforcos, esforcoTocado ?: s.effort.orEmpty(), { ef -> esforcoTocado = ef; enviar("/effort $ef", "Esforço trocado para ${ESFORCOS[ef] ?: ef}") }, comPadrao = false, cor = cor)
             }
             Column {
                 CabecalhoAjuste("Permissões", null)

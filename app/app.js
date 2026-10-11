@@ -401,11 +401,18 @@ function cartaoPergunta(conta, sessao, id) {
     'section',
     { class: 'pedido', 'data-id': id, 'aria-label': 'Pergunta do Claude Code' },
     el('h2', { text: `O Claude Code pergunta em ${nomeDaSessao(sessao)}` }),
-    sessao.pergunta.titulo ? el('p', { class: 'oque', text: sessao.pergunta.titulo }) : null,
+    // A tela inteira acima das opcoes: se for um pedido de permissao, o comando aparece completo.
+    sessao.pergunta.contexto
+      ? el('pre', { text: sessao.pergunta.contexto, tabIndex: 0 })
+      : sessao.pergunta.titulo ? el('p', { class: 'oque', text: sessao.pergunta.titulo }) : null,
     el(
       'div',
       { class: 'respostas' },
-      sessao.pergunta.opcoes.map((o) => el('button', { class: 'botao', type: 'button', onclick: () => tecla(o.tecla) }, el('span', { class: 'numero', text: o.tecla }), el('span', { text: o.rotulo }))),
+      sessao.pergunta.opcoes.map((o) => {
+        const b = el('button', { class: 'botao', type: 'button', onclick: o.confirmar ? null : () => tecla(o.tecla) }, el('span', { class: 'numero', text: o.tecla }), el('span', { text: o.rotulo }));
+        // Permissao que vale para sempre pede um segundo toque.
+        return o.confirmar ? duasVezes(b, o.rotulo, () => tecla(o.tecla)) : b;
+      }),
     ),
     el(
       'div',

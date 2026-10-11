@@ -108,8 +108,11 @@ De vez em quando ele faz uma gracinha por conta própria: grasna, bate a asa, ba
 
 ## Segurança
 
-- Quem tiver o código de pareamento controla as sessões. Trate o link e o código como uma senha. Para trocar, rode `node hub/server.mjs --novo-token`.
-- Pelo celular não dá para abrir sessão no modo que pula todas as permissões.
+- O código do QR muda cada vez que o claudeV liga e só serve para parear. Cada celular recebe uma chave própria; no computador fica só um resumo dela, então nem uma sessão do Claude lendo a pasta `data` consegue se passar pelo seu celular.
+- "Desparear este celular" apaga a chave daquele celular no computador. Para desparear todos de uma vez, rode `node hub/server.mjs --novo-token`.
+- Pelo celular não dá para abrir sessão no modo que pula todas as permissões, nem mandar comandos com `!` ou comandos de barra que mexem em permissões. Valem `/model`, `/effort`, `/compact`, `/clear`, `/login`, `/status`, `/cost`, `/usage`, `/context`, `/help`, `/init`, `/resume`, `/rename` e `/review`.
+- Quando uma pergunta do Claude Code vira botão, o app mostra a tela inteira acima das opções, e "não perguntar de novo" pede um segundo toque.
+- Aceitar um pedido pelo aviso exige desbloquear o celular.
 - O celular só abre sessões dentro da sua pasta pessoal, em pastas que já tiveram sessão aberta no computador, ou nas que você listar em `pastasPermitidas` no arquivo `data/config.json`. Exemplo: `"pastasPermitidas": ["D:\\projetos"]`.
 - O claudeV nunca vê suas senhas. O login de cada conta é feito no próprio Claude Code.
 - Manter três contas pessoais é uma decisão sua: os termos da Anthropic dizem que os limites dos planos pressupõem uso individual comum. Vale conferir os termos.

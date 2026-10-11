@@ -123,7 +123,14 @@ export function readPrompt(lines) {
       }
       titulo.unshift(t);
     }
-    return { titulo: titulo.join(' ').slice(0, 300), opcoes };
+    // Tudo o que a tela mostra acima das opcoes: num pedido de permissao que caiu no
+    // terminal, o comando inteiro tem de aparecer no celular antes do botao de aceitar.
+    let ini = Math.max(0, topo - 40);
+    while (ini < topo && !ls[ini].trim()) ini++;
+    const contexto = ls.slice(ini, topo).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd().slice(-4000);
+    // Opcoes que deixam uma permissao valendo para sempre pedem um segundo toque.
+    for (const o of opcoes) if (/don.?t ask again|always|allow all|sempre/i.test(o.rotulo)) o.confirmar = true;
+    return { titulo: titulo.join(' ').slice(0, 300), opcoes, contexto };
   }
   return null;
 }

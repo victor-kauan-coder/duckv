@@ -9,7 +9,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'claudev-teste-'));
 fs.writeFileSync(path.join(TMP, 'contas.json'), JSON.stringify([1, 2, 3].map((n) => ({ id: 'conta' + n, nome: 'Conta ' + n, cor: '#ff7a1a', dir: path.join(TMP, 'c' + n) }))));
-const AMBIENTE = { ...process.env, PAINEL_DATA: TMP, PAINEL_CONTAS: path.join(TMP, 'contas.json') };
+const CODIGO = 'codigo-de-teste-0123456789';
+const AMBIENTE = { ...process.env, PAINEL_CODIGO: CODIGO, PAINEL_DATA: TMP, PAINEL_CONTAS: path.join(TMP, 'contas.json') };
 const require = createRequire(path.join(ROOT, 'x.js'));
 const { Client } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/index.js')).href);
 const { StdioClientTransport } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/stdio.js')).href);
@@ -29,11 +30,19 @@ ok((await fetch(`${base}/api/state`)).status === 401, 'API sem pareamento respon
 ok((await fetch(`${base}/parear?k=errado`, { redirect: 'manual' })).status === 403, 'codigo de pareamento errado e recusado');
 ok((await fetch(`${base}/ingest/hook`, { method: 'POST', body: '{}' })).status === 403, 'relatorio sem segredo e recusado');
 ok((await fetch(`${base}/..%2f..%2fdata/config.json`)).status === 404, 'arquivos fora do app nao sao servidos');
-const pair = await fetch(`${base}/parear?k=${cfg.token}`, { redirect: 'manual' });
+const pair = await fetch(`${base}/parear?k=${CODIGO}`, { redirect: 'manual' });
 const cookie = (pair.headers.get('set-cookie') || '').split(';')[0];
 ok(pair.status === 302 && cookie.startsWith('painel='), 'pareamento entrega o cookie');
 ok((await fetch(`${base}/api/state`, { headers: { cookie, origin: 'https://evil.example' } })).status === 403, 'outro site (Origin estranho) e recusado');
 ok((await fetch(`${base}/`)).status === 200, 'pagina do app e servida');
+ok(!JSON.stringify(cfg).includes(cookie.slice(7)) && !fs.readFileSync(path.join(TMP, 'aparelhos.json'), 'utf8').includes(cookie.slice(7)), 'a chave do celular nao fica gravada no disco');
+const viaApi = await (await fetch(`${base}/api/parear`, { method: 'POST', body: JSON.stringify({ k: CODIGO, nome: 'Teste' }) })).json();
+const outro = `painel=${viaApi.chave}`;
+ok((await fetch(`${base}/api/state`, { headers: { cookie: outro } })).status === 200, 'app Android pareia pela API');
+ok((await fetch(`${base}/api/parear`, { method: 'POST', body: JSON.stringify({ k: 'errado' }) })).status === 403, 'API de pareamento recusa codigo errado');
+await fetch(`${base}/api/desparear`, { method: 'POST', headers: { cookie: outro } });
+ok((await fetch(`${base}/api/state`, { headers: { cookie: outro } })).status === 401, 'desparear invalida a chave no computador');
+ok((await fetch(`${base}/api/state`, { headers: { cookie } })).status === 200, 'desparear um celular nao afeta os outros');
 
 // --- celular simulado
 const phone = new WebSocket(`ws://127.0.0.1:${PORT}/ws`, { headers: { cookie } });
