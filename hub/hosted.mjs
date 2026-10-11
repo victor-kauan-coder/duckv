@@ -87,13 +87,9 @@ export function listFolders(dir) {
 const BOX = /[\u2500-\u257f\u2580-\u259f]/g;
 const limpa = (l) => String(l || '').replace(BOX, ' ').replace(/\s+$/, '');
 
-// Procura, na parte de baixo da tela, um menu de opcoes numeradas do Claude Code
-// (por exemplo "❯ 1. Yes  2. No") para o app oferecer como botoes. So vale quando
-// uma das linhas tem o marcador de selecao, para nao confundir com listas no texto.
-export function readPrompt(lines) {
-  const ls = lines.map(limpa);
-  let fim = ls.length - 1;
-  while (fim >= 0 && !ls[fim].trim()) fim--;
+// Menu numerado do Claude Code ("❯ 1. Yes" / "  2. No"). So vale quando uma das linhas
+// tem o marcador de selecao, para nao confundir com listas no texto.
+function menuNumerado(ls, fim) {
   const opcao = /^\s*([❯›>▶]\s*)?(\d)[.)]\s+(\S.*)$/;
   for (let i = fim; i >= Math.max(0, fim - 24); i--) {
     if (!opcao.test(ls[i])) continue;
@@ -114,26 +110,61 @@ export function readPrompt(lines) {
     }
     const emOrdem = opcoes.every((o, n) => Number(o.tecla) === n + 1);
     if (opcoes.length < 2 || opcoes.length > 9 || !marcado || !emOrdem) return null;
-    const titulo = [];
-    let vazias = 0;
-    for (let k = topo - 1; k >= 0 && titulo.length < 3; k--) {
-      const t = ls[k].trim();
-      if (!t) {
-        if (titulo.length && ++vazias > 1) break;
-        continue;
-      }
-      titulo.unshift(t);
-    }
-    // Tudo o que a tela mostra acima das opcoes: num pedido de permissao que caiu no
-    // terminal, o comando inteiro tem de aparecer no celular antes do botao de aceitar.
-    let ini = Math.max(0, topo - 40);
-    while (ini < topo && !ls[ini].trim()) ini++;
-    const contexto = ls.slice(ini, topo).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd().slice(-4000);
-    // Opcoes que deixam uma permissao valendo para sempre pedem um segundo toque.
-    for (const o of opcoes) if (/don.?t ask again|always|allow all|sempre/i.test(o.rotulo)) o.confirmar = true;
-    return { titulo: titulo.join(' ').slice(0, 300), opcoes, contexto };
+    return { opcoes, topo };
   }
   return null;
+}
+
+// Menu sem numeros ("❯ No, exit" / "  Yes, I trust this folder"), com "Enter to confirm"
+// logo abaixo. Escolhe-se com as setas; `selecionada` diz onde o marcador esta agora.
+function menuSemNumero(ls, fim) {
+  for (let i = fim; i >= Math.max(0, fim - 24); i--) {
+    const m = /^\s*❯\s+(\S.*)$/.exec(ls[i]);
+    if (!m) continue;
+    const col = ls[i].lastIndexOf(m[1]);
+    // opcoes irmas: o texto comeca na mesma coluna e antes dela so ha espaco
+    const irma = (l) => l != null && l.length > col && l[col] !== ' ' && !l.slice(0, col).trim();
+    let topo = i;
+    let base = i;
+    while (topo > 0 && irma(ls[topo - 1])) topo--;
+    while (base < ls.length - 1 && irma(ls[base + 1])) base++;
+    if (base === topo || base - topo > 8) return null;
+    if (!/Enter to confirm|Esc to cancel/i.test(ls.slice(base + 1, base + 4).join(' '))) return null;
+    const opcoes = [];
+    for (let k = topo; k <= base; k++) opcoes.push({ tecla: String(opcoes.length + 1), rotulo: (k === i ? m[1] : ls[k].slice(col)).trim().slice(0, 120) });
+    return { opcoes, topo, menu: true, selecionada: i - topo };
+  }
+  return null;
+}
+
+// Procura, na parte de baixo da tela, uma pergunta do Claude Code para o app oferecer como botoes.
+export function readPrompt(lines) {
+  const ls = lines.map(limpa);
+  let fim = ls.length - 1;
+  while (fim >= 0 && !ls[fim].trim()) fim--;
+  const achado = menuNumerado(ls, fim) || menuSemNumero(ls, fim);
+  if (!achado) return null;
+  const { opcoes, topo } = achado;
+  const titulo = [];
+  let vazias = 0;
+  for (let k = topo - 1; k >= 0 && titulo.length < 3; k--) {
+    const t = ls[k].trim();
+    if (!t) {
+      if (titulo.length && ++vazias > 1) break;
+      continue;
+    }
+    titulo.unshift(t);
+  }
+  // Tudo o que a tela mostra acima das opcoes: num pedido de permissao que caiu no
+  // terminal, o comando inteiro tem de aparecer no celular antes do botao de aceitar.
+  let ini = Math.max(0, topo - 40);
+  while (ini < topo && !ls[ini].trim()) ini++;
+  const contexto = ls.slice(ini, topo).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd().slice(-4000);
+  // Opcoes que deixam uma permissao valendo para sempre pedem um segundo toque.
+  for (const o of opcoes) if (/don.?t ask again|always|allow all|sempre/i.test(o.rotulo)) o.confirmar = true;
+  const p = { titulo: titulo.join(' ').slice(0, 300), opcoes, contexto };
+  if (achado.menu) Object.assign(p, { menu: true, selecionada: achado.selecionada });
+  return p;
 }
 
 // A linha do rodape em que o Claude Code mostra o modo de permissao ativo.
@@ -233,7 +264,11 @@ export function startHosted(opts) {
   const fila = [];
   let digitando = false;
   const CAIXA = /^\s*[❯>][\s ](?!\d[.)]\s)/;
-  const pronto = () => snapshot().lines.some((l) => CAIXA.test(l));
+  // Com um menu aberto (confiar na pasta, permissao...) nao e caixa de mensagem: o Enter escolheria uma opcao.
+  const pronto = () => {
+    const ls = snapshot().lines;
+    return ls.some((l) => CAIXA.test(l)) && !readPrompt(ls);
+  };
   function esvaziar() {
     if (digitando || !fila.length || !alive) return;
     if (!pronto()) return void setTimeout(esvaziar, 300);
@@ -279,6 +314,15 @@ export function startHosted(opts) {
       // mandado como tecla do Windows (win32-input-mode: aperta e solta), ele chega na hora.
       if (name === 'esc' && process.platform === 'win32' && !opts.command) return write('\x1b[27;1;27;1;0;1_\x1b[27;1;27;0;0;1_'), true;
       if (KEYS[name]) return write(KEYS[name]), true;
+      // Botao de um menu sem numeros: anda com as setas ate a opcao e confirma.
+      const menu = /^[1-9]$/.test(name) ? readPrompt(snapshot().lines) : null;
+      if (menu?.menu) {
+        const passos = Number(name) - 1 - menu.selecionada;
+        const seta = `\x1b${term.modes.applicationCursorKeysMode ? 'O' : '['}${passos > 0 ? 'B' : 'A'}`;
+        write(seta.repeat(Math.abs(passos)));
+        setTimeout(() => write('\r'), 150);
+        return true;
+      }
       if (/^[a-z0-9]$/i.test(name)) return write(name), true;
       return false;
     },

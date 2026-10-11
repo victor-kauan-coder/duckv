@@ -138,5 +138,12 @@ inst = state.instances.find((i) => i.id === 'conta2-teste');
 ok(inst?.status === 'ended', 'sessao fechada aparece como encerrada');
 phone.close(); hub.kill();
 fs.rmSync(TMP, { recursive: true, force: true });
+// --- perguntas do Claude Code lidas da tela
+const { readPrompt } = await import(pathToFileURL(path.join(ROOT, 'hub/hosted.mjs')).href);
+const confia = readPrompt([' Quick safety check: do you trust this folder?', '', ' ❯ No, exit', '   Yes, I trust this folder', '', ' Enter to confirm · Esc to cancel']);
+ok(confia?.menu && confia.selecionada === 0 && confia.opcoes[1]?.rotulo === 'Yes, I trust this folder', 'menu sem numeros vira botoes');
+ok(readPrompt(['────', '❯ Try "edit"', '────', '  manual mode on']) === null, 'caixa de mensagem nao e confundida com menu');
+ok(readPrompt(['Do you want to proceed?', '❯ 1. Yes', '  2. No'])?.opcoes.length === 2, 'menu numerado continua reconhecido');
+
 console.log(process.exitCode ? '\nAlgum teste falhou.' : '\nServidor e canal: tudo certo.');
 process.exit(process.exitCode || 0);
