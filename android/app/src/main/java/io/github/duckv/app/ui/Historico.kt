@@ -78,7 +78,7 @@ fun TelaHistorico(e: Estado?, contaId: String, aoVoltar: () -> Unit, aoAbrir: (S
                     busca, { busca = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     placeholder = { Text("Buscar por título ou pasta", color = c.apoio) }, singleLine = true,
                     leadingIcon = { Icon(Icons.Rounded.Search, null, tint = c.apoio) },
-                    shape = RoundedCornerShape(14.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
+                    shape = RoundedCornerShape(16.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
                 )
                 val q = busca.trim().lowercase()
                 val vistos = lista.filter { q.isEmpty() || it.titulo.lowercase().contains(q) || it.cwd.orEmpty().lowercase().contains(q) }

@@ -69,7 +69,7 @@ fun TelaParear(pato: String) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Pato(if (ocupado) "trabalha" else "dorme", pato, Laranja, Modifier.widthIn(max = 420.dp).fillMaxWidth().height(150.dp).padding(top = 24.dp))
-        Text("claudeV", style = Texto.marca.copy(fontSize = 40.sp, lineHeight = 42.sp), color = c.texto)
+        Logo(tamanho = 40)
         Text(
             "Acompanhe e comande as sessões do Claude Code das suas contas, direto do celular.",
             style = Texto.corpo, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 420.dp),

@@ -76,6 +76,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
@@ -124,11 +125,11 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Marca(cor, tamanho = 8.dp)
                         EspacoLargo(6.dp)
-                        Text(listOfNotNull(conta.nome, s.model, pasta(s.cwd).ifEmpty { null }).joinToString(" · "), style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(listOfNotNull(conta.nome, s.model, pasta(s.cwd).takeIf { it.isNotEmpty() && it != s.titulo }).joinToString(" · "), style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
-            Pato(s?.let { bichoDaSessao(it) } ?: "dorme", pato, cor, Modifier.width(64.dp).height(50.dp), andar = false)
+            Pato(s?.let { bichoDaSessao(it) } ?: "dorme", pato, cor, Modifier.width(64.dp).height(50.dp), andar = false, tipo = conta?.pato)
         }
         if (s == null) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -158,25 +159,29 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
 }
 
 @Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 private fun Abas(aba: String, cor: Color, aoTrocar: (String) -> Unit) {
     val c = cores
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-        for ((chave, rotulo, ic) in listOf(Triple("conversa", "Conversa", Icons.Rounded.ChatBubbleOutline), Triple("controles", "Controles", Icons.Rounded.Tune))) {
-            val marcada = aba == chave
-            Column(
-                Modifier.weight(1f).clickable(role = Role.Tab, onClick = { aoTrocar(chave) }),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Row(Modifier.height(46.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(ic, null, tint = if (marcada) c.texto else c.apoio, modifier = Modifier.size(18.dp))
-                    EspacoLargo(8.dp)
-                    Text(rotulo, style = Texto.rotulo.copy(fontWeight = if (marcada) FontWeight.SemiBold else FontWeight.Medium), color = if (marcada) c.texto else c.apoio)
-                }
-                Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(if (marcada) cor else Color.Transparent))
-            }
+    val abas = listOf(Triple("conversa", "Conversa", Icons.Rounded.ChatBubbleOutline), Triple("controles", "Controles", Icons.Rounded.Tune))
+    androidx.compose.material3.PrimaryTabRow(
+        abas.indexOfFirst { it.first == aba }.coerceAtLeast(0), containerColor = c.fundo, contentColor = c.texto,
+        indicator = {
+            androidx.compose.material3.TabRowDefaults.PrimaryIndicator(
+                Modifier.tabIndicatorOffset(abas.indexOfFirst { it.first == aba }.coerceAtLeast(0), matchContentSize = true),
+                width = androidx.compose.ui.unit.Dp.Unspecified, color = c.primario,
+            )
+        },
+        divider = { Divisoria() },
+    ) {
+        for ((chave, rotulo, ic) in abas) {
+            androidx.compose.material3.Tab(
+                aba == chave, { aoTrocar(chave) },
+                text = { Text(rotulo, style = Texto.rotulo) },
+                icon = { Icon(ic, null, Modifier.size(20.dp)) },
+                selectedContentColor = c.texto, unselectedContentColor = c.apoio,
+            )
         }
     }
-    Divisoria()
 }
 
 // ------------------------------------------------------------ conversa
@@ -213,7 +218,7 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
             Text(
                 if (s.hospedada) "A conversa aparece aqui depois da sua primeira mensagem. Se o Claude Code perguntar algo ao abrir, a pergunta surge logo abaixo, com botões."
                 else "A conversa aparece aqui assim que a sessão trocar mensagens.",
-                style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(vertical = 24.dp),
+                style = Texto.apoio, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
             )
         }
         items(msgs, key = { it.first().id }) { if (it.size > 1) GrupoFerramentas(it, cor) else Mensagem(it.first(), cor) }
@@ -227,7 +232,7 @@ private fun InfoSessao(s: Sessao, cor: Color) {
     val c = cores
     var abrirTarefas by rememberSaveable { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.superficie).border(1.dp, c.linha, RoundedCornerShape(14.dp)).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.cartao).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -281,7 +286,8 @@ private fun ContextoDetalhado(s: Sessao, cor: Color, sempreAberto: Boolean = fal
         if (sempreAberto) Text("O contexto aparece depois da primeira resposta do Claude nesta sessão.", style = Texto.apoio, color = c.apoio)
         return
     }
-    var aberto by rememberSaveable(s.id) { mutableStateOf(true) }
+    // fechado ao abrir a conversa: as mensagens vem primeiro; o detalhe abre num toque
+    var aberto by rememberSaveable(s.id) { mutableStateOf(false) }
     if (sempreAberto) aberto = true
     val tamanho = ctx?.tamanho ?: 0L
     // O percentual do Claude Code manda; sem ele, a ultima resposta diz o que esta no contexto.
@@ -313,7 +319,7 @@ private fun ContextoDetalhado(s: Sessao, cor: Color, sempreAberto: Boolean = fal
                     Triple("Lido do cache", u.cr, cor),
                     Triple("Gravado no cache", u.cw, cor.copy(alpha = 0.5f)),
                     Triple("Sem cache", u.entrada, c.apoio),
-                    Triple("Resposta do Claude", u.saida, c.texto),
+                    Triple("Resposta do Claude", u.saida, c.vazio),
                 )
                 val soma = partes.sumOf { it.second }.coerceAtLeast(1)
                 Text("Do que é feita a última resposta", style = Texto.pequeno, color = c.apoio)
@@ -384,8 +390,8 @@ private fun Blocos(texto: String, cor: Color) {
             if (i % 2 == 1) {
                 Text(
                     parte.trimEnd('\n'), style = Texto.codigo, color = c.texto, softWrap = false,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.elevada)
-                        .border(1.dp, c.linha, RoundedCornerShape(10.dp)).horizontalScroll(rememberScrollState()).padding(12.dp),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.cartaoAlto)
+                        .horizontalScroll(rememberScrollState()).padding(12.dp),
                 )
             } else {
                 // Tabelas em markdown viram grade; o resto e texto corrido.
@@ -416,9 +422,9 @@ private fun Mensagem(m: Msg, cor: Color) {
         "image" -> m.img?.let { ImagemDaConversa(it, m.via == "user") }
         "sys" -> Text(m.texto, style = Texto.pequeno, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp))
         "user" -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            val forma = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
+            val forma = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)
             Column(
-                Modifier.widthIn(max = 520.dp).fillMaxWidth(0.86f, ).wrapIfShort().clip(forma).background(cor.copy(alpha = if (c.escuro) 0.22f else 0.16f)).padding(horizontal = 14.dp, vertical = 10.dp),
+                Modifier.widthIn(max = 520.dp).fillMaxWidth(0.86f).wrapIfShort().clip(forma).background(c.invFundo).padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalAlignment = Alignment.End,
             ) {
                 SelectionContainer { Blocos(m.texto, cor) }
@@ -501,7 +507,7 @@ private fun GrupoFerramentas(grupo: List<Msg>, cor: Color) {
     val c = cores
     var aberto by rememberSaveable(grupo.first().id) { mutableStateOf(false) }
     val forma = RoundedCornerShape(12.dp)
-    Column(Modifier.fillMaxWidth().clip(forma).border(1.dp, c.linha, forma)) {
+    Column(Modifier.fillMaxWidth().clip(forma).background(c.cartao)) {
         Row(
             Modifier.fillMaxWidth().clickable { aberto = !aberto }.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -575,19 +581,19 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                 texto, { texto = it }, Modifier.weight(1f),
                 placeholder = { Text(if (s.hospedada) "Mensagem ou /comando" else "Escreva para o Claude", color = c.apoio) },
                 textStyle = Texto.corpo.copy(color = c.texto), maxLines = 6,
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(28.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = c.texto, unfocusedBorderColor = c.linha, cursorColor = Laranja,
-                    focusedContainerColor = c.superficie, unfocusedContainerColor = c.superficie,
+                    focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, cursorColor = c.primario,
+                    focusedContainerColor = c.elevada, unfocusedContainerColor = c.elevada,
                 ),
             )
             // A bolinha do contexto, como no Claude: enche conforme a conversa ocupa a memoria.
             val pctCtx = s.ctx?.pct ?: s.ultima?.let { u -> s.ctx?.tamanho?.takeIf { it > 0 }?.let { (u.entrada + u.cw + u.cr + u.saida) * 100.0 / it } }
-            AnelContexto(pctCtx, cor, { verContexto = true }, Modifier.padding(start = 4.dp, bottom = 8.dp))
+            if (pctCtx != null) AnelContexto(pctCtx, cor, { verContexto = true }, Modifier.padding(start = 4.dp, bottom = 8.dp))
             EspacoLargo(4.dp)
             val pode = texto.isNotBlank() && !enviando
             Box(
-                Modifier.padding(bottom = 4.dp).size(48.dp).clip(CircleShape).background(if (pode) Laranja else c.linha)
+                Modifier.padding(bottom = 4.dp).size(48.dp).clip(CircleShape).background(if (pode) c.primario else c.elevada)
                     .clickable(enabled = pode, role = Role.Button) {
                         enviando = true
                         val t = texto.trim()
@@ -600,7 +606,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                         }
                     },
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.AutoMirrored.Rounded.Send, "Enviar", tint = if (pode) Tinta else c.apoio, modifier = Modifier.size(22.dp)) }
+            ) { Icon(Icons.AutoMirrored.Rounded.Send, "Enviar", tint = if (pode) c.noPrimario else c.apoio, modifier = Modifier.size(22.dp)) }
         }
     }
 }
@@ -643,10 +649,12 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
         if (!s.hospedada) {
             // Sessao do computador: o celular so le os ajustes, entao eles aparecem como leitura.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Leitura(Icons.Rounded.Memory, "Modelo", s.model ?: "não informado", Modifier.weight(1f))
-                Leitura(Icons.Rounded.Psychology, "Esforço", ESFORCOS[s.effort] ?: s.effort ?: "padrão", Modifier.weight(1f))
-                Leitura(Icons.Rounded.Shield, "Permissões", nomeDoModo(s.modo), Modifier.weight(1f))
+            Column(Modifier.clip(RoundedCornerShape(16.dp)).background(c.cartao)) {
+                Leitura(Icons.Rounded.Memory, "Modelo", s.model ?: "Não informado", Modifier)
+                Divisoria(Modifier.padding(start = 56.dp))
+                Leitura(Icons.Rounded.Psychology, "Esforço", ESFORCOS[s.effort] ?: s.effort ?: "Padrão", Modifier)
+                Divisoria(Modifier.padding(start = 56.dp))
+                Leitura(Icons.Rounded.Shield, "Permissões", nomeDoModo(s.modo).replaceFirstChar { it.uppercase() }, Modifier)
             }
             Column {
                 if (s.desktop) {
@@ -726,13 +734,13 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
 @Composable
 private fun Leitura(icone: ImageVector, rotulo: String, valor: String, modifier: Modifier) {
     val c = cores
-    Column(
-        modifier.clip(RoundedCornerShape(12.dp)).border(1.dp, c.linha, RoundedCornerShape(12.dp)).padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Icon(icone, null, tint = c.apoio, modifier = Modifier.size(18.dp))
-        Text(rotulo, style = Texto.pequeno, color = c.apoio)
-        Text(valor, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp), color = c.texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    // item de lista do Material 3: icone, rotulo e valor
+    Row(modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icone, null, tint = c.apoio, modifier = Modifier.size(24.dp))
+        Column(Modifier.padding(start = 16.dp)) {
+            Text(rotulo, style = Texto.pequeno, color = c.apoio)
+            Text(valor, style = Texto.corpo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 

@@ -23,6 +23,8 @@ data class Conta(
     val tokens: Tokens?,
     val reinicio: Reinicio?,
     val email: String? = null,
+    val pato: String = "classico",
+    val plano: String? = null,
 )
 
 data class Perm(val id: String, val tool: String, val desc: String, val preview: String, val em: Long)
@@ -122,6 +124,8 @@ fun lerEstado(m: JSONObject): Estado {
             id = a.optString("id"),
             nome = a.optString("nome"),
             email = a.s("email"),
+            pato = a.optString("pato", "classico"),
+            plano = a.s("plano"),
             cor = corDe(a.s("cor")),
             padroes = Padroes(p.s("model"), p.s("effort"), p.s("mode"), p.s("cwd")),
             cinco = uso(u?.optJSONObject("five_hour")),

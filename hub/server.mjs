@@ -100,6 +100,11 @@ function setPrefs(m) {
       if (!/^#[0-9a-f]{6}$/i.test(m.cor)) return 'Cor inválida.';
       atual.cor = m.cor.toLowerCase();
     }
+    // Tipo de patinho da conta (o app desenha cada um e escolhe a cor junto).
+    if (m.pato != null) {
+      if (!/^[a-z]{2,20}$/.test(m.pato)) return 'Tipo de patinho inválido.';
+      atual.pato = m.pato;
+    }
     if (m.padroes && typeof m.padroes === 'object') {
       const p = m.padroes;
       const novo = { ...(atual.padroes || {}) };
@@ -330,7 +335,9 @@ function snapshot() {
       id: a.id,
       nome: nomeDe(a),
       email: a.email || null,
+      plano: a.plano || null,
       cor: prefs.contas[a.id]?.cor || a.cor,
+      pato: prefs.contas[a.id]?.pato || 'classico',
       padroes: prefs.contas[a.id]?.padroes || {},
       usage: a.usage,
       tokens: a.tokens,
@@ -411,8 +418,8 @@ function pushMsgs(inst, items) {
     if (it.role === 'assistant') inst.lastText = clip(semMarkdown(it.text), 200);
   }
   if (!fresh.length) return;
-  if (inst.messages.length > 400) {
-    const drop = inst.messages.splice(0, inst.messages.length - 400);
+  if (inst.messages.length > 5000) {
+    const drop = inst.messages.splice(0, inst.messages.length - 5000);
     for (const d of drop) inst.msgIds.delete(d.id);
   }
   for (const c of phones) if (c.open === inst.id) send(c, { t: 'msgs', instance: inst.id, items: fresh });
@@ -1258,6 +1265,8 @@ async function consultarUso(a) {
   } catch {
     return false;
   }
+  // plano da assinatura (pro, max, team...), para o app mostrar no cartao da conta
+  if (typeof k?.subscriptionType === 'string') a.plano = k.subscriptionType;
   if (!k?.accessToken || (k.expiresAt && k.expiresAt < now())) return false;
   const r = await fetch(USO_URL, {
     headers: { Authorization: `Bearer ${k.accessToken}`, 'anthropic-beta': 'oauth-2025-04-20' },

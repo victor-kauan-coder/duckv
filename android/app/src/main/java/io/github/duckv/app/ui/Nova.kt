@@ -119,7 +119,6 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
             verticalArrangement = Arrangement.spacedBy(36.dp),
         ) {
           Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            TituloSecao("Onde abrir", Modifier.padding(bottom = 0.dp))
             Column {
                 CabecalhoAjuste("Conta", null)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -139,7 +138,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                 erroLista?.let { Text(it, style = Texto.apoio, color = c.perigo) }
                 lista?.let { l ->
                     val forma = RoundedCornerShape(12.dp)
-                    Column(Modifier.fillMaxWidth().clip(forma).border(1.dp, c.linha, forma).background(c.superficie)) {
+                    Column(Modifier.fillMaxWidth().clip(forma).background(c.cartao)) {
                         Text(l.caminho, style = Texto.codigo, color = c.apoio, modifier = Modifier.padding(12.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Divisoria()
                         if (l.pai != null) LinhaPasta(Icons.Rounded.SubdirectoryArrowLeft, "Subir uma pasta") { navegar(l.pai) }
@@ -149,7 +148,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                 }
                 if (e.host.pastas.isNotEmpty()) {
                     Text("Usadas há pouco", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
-                    for (f in e.host.pastas.take(6)) LinhaPasta(Icons.Rounded.History, f) { cwd = f; lista = null; erroPasta = null }
+                    for (f in e.host.pastas.take(6)) LinhaPasta(Icons.Rounded.History, io.github.duckv.app.pasta(f), f.dropLast(io.github.duckv.app.pasta(f).length).trimEnd('\\', '/')) { cwd = f; lista = null; erroPasta = null }
                 }
             }
             OutlinedTextField(
@@ -226,11 +225,15 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
 }
 
 @Composable
-private fun LinhaPasta(icone: androidx.compose.ui.graphics.vector.ImageVector, texto: String, aoTocar: () -> Unit) {
+private fun LinhaPasta(icone: androidx.compose.ui.graphics.vector.ImageVector, texto: String, caminho: String? = null, aoTocar: () -> Unit) {
     val c = cores
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = aoTocar).padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = aoTocar).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icone, null, tint = c.apoio, modifier = Modifier.size(20.dp))
-        EspacoLargo(12.dp)
-        Text(texto, style = Texto.rotulo.copy(fontWeight = FontWeight.Normal), color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        EspacoLargo(16.dp)
+        // o nome da pasta em destaque; o caminho ate ela embaixo, cortado no comeco
+        Column {
+            Text(texto, style = Texto.corpo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!caminho.isNullOrBlank()) Text(if (caminho.length > 42) "…" + caminho.takeLast(41) else caminho, style = Texto.pequeno, color = c.apoio, maxLines = 1)
+        }
     }
 }

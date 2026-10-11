@@ -3,3 +3,5 @@ data/
 contas.json
 conta*.cmd
 conta*.sh
+.impeccable/review/
+.impeccable/build/

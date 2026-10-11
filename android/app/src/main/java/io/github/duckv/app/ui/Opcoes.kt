@@ -180,11 +180,11 @@ private fun BlocoConta(e: Estado, conta: Conta, salvar: (JSONObject) -> Unit, po
     var aberto by rememberSaveable { mutableStateOf(false) }
     var nome by rememberSaveable(conta.id, conta.nome) { mutableStateOf(conta.nome) }
     var pasta by rememberSaveable(conta.id) { mutableStateOf(conta.padroes.cwd.orEmpty()) }
-    val forma = RoundedCornerShape(14.dp)
+    val forma = RoundedCornerShape(16.dp)
     val padrao = { p: JSONObject -> salvar(JSONObject().put("op", "conta").put("id", conta.id).put("padroes", p)) }
-    Column(Modifier.fillMaxWidth().clip(forma).border(1.dp, c.linha, forma).background(c.superficie)) {
+    Column(Modifier.fillMaxWidth().clip(forma).background(c.cartao)) {
         Row(Modifier.fillMaxWidth().clickable { aberto = !aberto }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Marca(Color(conta.cor), tamanho = 14.dp)
+            Pato("parado", "parado", Color(conta.cor), Modifier.size(width = 40.dp, height = 32.dp), andar = false, tocavel = false, tipo = conta.pato)
             EspacoLargo(12.dp)
             Column(Modifier.weight(1f)) {
                 Text(conta.nome, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
@@ -204,31 +204,19 @@ private fun BlocoConta(e: Estado, conta: Conta, salvar: (JSONObject) -> Unit, po
                     shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
                 )
                 if (mudou) Botao("Salvar nome", salvarNome, Modifier.fillMaxWidth(), Icons.Rounded.Check, Peso.Principal)
-                CabecalhoAjuste("Cor", CORES.firstOrNull { io.github.duckv.app.corDe(it.first) == conta.cor }?.second, Modifier.padding(bottom = 0.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    for ((hex, rotulo) in CORES) {
-                        val cor = Color(io.github.duckv.app.corDe(hex))
-                        val marcada = io.github.duckv.app.corDe(hex) == conta.cor
-                        Box(
-                            Modifier.size(40.dp).clip(CircleShape).background(cor)
-                                .border(if (marcada) 3.dp else 0.dp, c.texto, CircleShape)
-                                .clickable(role = Role.RadioButton, onClickLabel = rotulo) { salvar(JSONObject().put("op", "conta").put("id", conta.id).put("cor", hex)) },
-                            contentAlignment = Alignment.Center,
-                        ) { if (marcada) Icon(Icons.Rounded.Check, rotulo, tint = sobre(cor), modifier = Modifier.size(20.dp)) }
-                    }
-                }
+                // O patinho escolhe a cara do pato e a cor da conta de uma vez so.
+                EscolhaPatinho(conta) { tp -> salvar(JSONObject().put("op", "conta").put("id", conta.id).put("pato", tp.id).put("cor", tp.cor)) }
                 Divisoria()
-                Text("Ao abrir uma sessão desta conta pelo celular", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
                 Column {
-                    CabecalhoAjuste("Modelo", null)
+                    CabecalhoAjuste("Modelo inicial", null)
                     ListaEscolha(opcoesModelo(e.host.modelos), conta.padroes.model ?: "default", { padrao(JSONObject().put("model", it)) }, cor = Color(conta.cor))
                 }
                 Column {
-                    CabecalhoAjuste("Esforço de raciocínio", null)
+                    CabecalhoAjuste("Esforço inicial", null)
                     EscalaEsforco(e.host.esforcos, conta.padroes.effort.orEmpty(), { padrao(JSONObject().put("effort", it.ifEmpty { JSONObject.NULL })) }, cor = Color(conta.cor))
                 }
                 Column {
-                    CabecalhoAjuste("Permissões", null)
+                    CabecalhoAjuste("Permissões iniciais", null)
                     ListaEscolha(opcoesModo(e.host.modos), conta.padroes.mode ?: "manual", { padrao(JSONObject().put("mode", it)) }, cor = Color(conta.cor))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -258,8 +246,8 @@ private fun Rapidas(rapidas: List<String>, salvar: (JSONObject) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         TituloSecao("Mensagens rápidas")
         Text("Aparecem como botões acima da caixa de mensagem de cada sessão. Até 12.", style = Texto.apoio, color = c.apoio)
-        val forma = RoundedCornerShape(14.dp)
-        Column(Modifier.fillMaxWidth().clip(forma).border(1.dp, c.linha, forma).background(c.superficie)) {
+        val forma = RoundedCornerShape(16.dp)
+        Column(Modifier.fillMaxWidth().clip(forma).background(c.cartao)) {
             if (rapidas.isEmpty()) Text("Nenhuma mensagem rápida. Adicione uma abaixo.", style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(14.dp))
             rapidas.forEachIndexed { i, r ->
                 if (i > 0) Divisoria()
@@ -287,3 +275,47 @@ private fun Rapidas(rapidas: List<String>, salvar: (JSONObject) -> Unit) {
     }
 }
 
+
+/** Menu suspenso com os tipos de patinho: cada um desenhado, com nome, jeito e a cor que da a conta. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun EscolhaPatinho(conta: Conta, aoEscolher: (TipoPato) -> Unit) {
+    val c = cores
+    val atual = tipoPato(conta.pato)
+    var aberto by remember { mutableStateOf(false) }
+    androidx.compose.material3.ExposedDropdownMenuBox(aberto, { aberto = it }) {
+        OutlinedTextField(
+            atual.nome, {}, Modifier.fillMaxWidth().menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryNotEditable),
+            readOnly = true, singleLine = true, label = { Text("Patinho e cor da conta") },
+            leadingIcon = { Pato("parado", "parado", Color(conta.cor), Modifier.size(width = 36.dp, height = 28.dp), andar = false, tocavel = false, tipo = atual.id) },
+            trailingIcon = { androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(aberto) },
+            supportingText = { Text(atual.sobre) },
+            textStyle = Texto.corpo.copy(color = c.texto), colors = campoCores(),
+        )
+        ExposedDropdownMenu(aberto, { aberto = false }, containerColor = c.elevada) {
+            for (tp in TIPOS_PATO) {
+                val cor = Color(io.github.duckv.app.corDe(tp.cor))
+                androidx.compose.material3.DropdownMenuItem(
+                    text = {
+                        Column(Modifier.padding(vertical = 4.dp)) {
+                            Text(tp.nome, style = Texto.corpo, color = c.texto)
+                            Text(tp.sobre, style = Texto.pequeno, color = c.apoio)
+                        }
+                    },
+                    onClick = {
+                        aberto = false
+                        aoEscolher(tp)
+                    },
+                    leadingIcon = { Pato("parado", "parado", cor, Modifier.size(width = 48.dp, height = 38.dp), andar = false, tocavel = false, tipo = tp.id) },
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (tp.id == atual.id) Icon(Icons.Rounded.Check, "Escolhido", tint = c.realce, modifier = Modifier.padding(end = 8.dp).size(20.dp))
+                            Marca(cor, tamanho = 14.dp)
+                        }
+                    },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}

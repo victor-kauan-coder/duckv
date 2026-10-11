@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.SegmentedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -69,21 +70,21 @@ data class Opcao(val id: String, val nome: String, val sobre: String? = null)
 @Composable
 fun ListaEscolha(opcoes: List<Opcao>, marcado: String?, aoEscolher: (String) -> Unit, modifier: Modifier = Modifier, cor: Color = Laranja) {
     val c = cores
-    val forma = RoundedCornerShape(14.dp)
-    Column(modifier.fillMaxWidth().clip(forma).border(1.dp, c.linha, forma).background(c.superficie).selectableGroup()) {
+    val forma = RoundedCornerShape(16.dp)
+    Column(modifier.fillMaxWidth().clip(forma).background(c.cartao).selectableGroup()) {
         opcoes.forEachIndexed { i, o ->
             val sim = o.id == marcado
             if (i > 0) Divisoria(if (sim || opcoes[i - 1].id == marcado) Modifier else Modifier.padding(start = 16.dp))
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                    .background(if (sim) cor.copy(alpha = if (c.escuro) 0.16f else 0.10f) else Color.Transparent)
+                    .background(if (sim) c.invFundo else Color.Transparent)
                     .selectable(sim, role = Role.RadioButton, onClick = { aoEscolher(o.id) })
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(o.nome, style = Texto.rotulo.copy(fontWeight = if (sim) FontWeight.SemiBold else FontWeight.Medium), color = c.texto)
-                    if (o.sobre != null) Text(o.sobre, style = Texto.apoio, color = c.apoio)
+                    Text(o.nome, style = Texto.rotulo.copy(fontWeight = if (sim) FontWeight.SemiBold else FontWeight.Medium), color = if (sim) c.invTexto else c.texto)
+                    if (o.sobre != null) Text(o.sobre, style = Texto.apoio, color = if (sim) c.invApoio else c.apoio)
                 }
                 Box(Modifier.padding(start = 12.dp)) { Marcador(sim, cor) }
             }
@@ -93,56 +94,16 @@ fun ListaEscolha(opcoes: List<Opcao>, marcado: String?, aoEscolher: (String) -> 
 
 @Composable
 private fun Marcador(sim: Boolean, cor: Color) {
-    val c = cores
-    val fundo by animateColorAsState(if (sim) cor else Color.Transparent, label = "marcador")
-    Box(
-        Modifier.size(24.dp).clip(CircleShape).background(fundo).border(2.dp, if (sim) cor else c.vazio, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) { if (sim) Icon(Icons.Rounded.Check, null, tint = sobre(cor), modifier = Modifier.size(16.dp)) }
+    // botao de radio do Material 3; a linha inteira e que recebe o toque
+    androidx.compose.material3.RadioButton(sim, null, colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = cores.realce, unselectedColor = cores.vazio))
 }
 
-/**
- * Esforco e uma escala, nao uma lista: as casas enchem ate o nivel escolhido, como os medidores.
- * "Padrao" fica separado a esquerda porque nao e um nivel.
- */
+/** Esforco: a mesma lista de escolha do modelo e das permissoes, do padrao ao maximo, com o que cada nivel faz. */
 @Composable
 fun EscalaEsforco(niveis: List<String>, marcado: String, aoEscolher: (String) -> Unit, modifier: Modifier = Modifier, comPadrao: Boolean = true, cor: Color = Laranja) {
-    val c = cores
-    val pos = niveis.indexOf(marcado)
-    Column(modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
-            if (comPadrao) {
-                Casa("Padrão", marcado == "", cheia = marcado == "", cor = c.texto, frente = c.fundo, modifier = Modifier.weight(1.25f)) { aoEscolher("") }
-                Box(Modifier.size(10.dp))
-            }
-            niveis.forEachIndexed { i, n ->
-                if (i > 0) Box(Modifier.size(4.dp))
-                Casa(CURTO[n] ?: ESFORCOS[n] ?: n, i == pos, cheia = pos >= 0 && i <= pos, cor = cor, frente = sobre(cor), modifier = Modifier.weight(1f), nomeLongo = ESFORCOS[n]) { aoEscolher(n) }
-            }
-        }
-        SOBRE_ESFORCO[if (pos >= 0 || marcado == "") marcado else ""]?.let {
-            Text(it, style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(top = 10.dp))
-        }
-    }
-}
-
-@Composable
-private fun Casa(rotulo: String, sim: Boolean, cheia: Boolean, cor: Color, frente: Color, modifier: Modifier, nomeLongo: String? = null, aoTocar: () -> Unit) {
-    val c = cores
-    val forma = RoundedCornerShape(8.dp)
-    val fundo by animateColorAsState(if (cheia) cor else c.superficie, label = "casa")
-    Box(
-        modifier.heightIn(min = 48.dp).clip(forma).background(fundo)
-            .border(if (sim) 2.dp else 1.dp, if (sim) c.texto else if (cheia) cor else c.linha, forma)
-            .selectable(sim, role = Role.RadioButton, onClick = aoTocar)
-            .then(if (nomeLongo != null) Modifier.semantics { contentDescription = nomeLongo } else Modifier),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            rotulo, style = Texto.pequeno.copy(fontWeight = if (sim) FontWeight.Bold else FontWeight.Medium),
-            color = if (cheia) frente else c.texto, textAlign = TextAlign.Center, maxLines = 1,
-        )
-    }
+    val opcoes = (if (comPadrao) listOf(Opcao("", "Padrão", SOBRE_ESFORCO[""])) else emptyList()) +
+        niveis.map { Opcao(it, ESFORCOS[it] ?: it, SOBRE_ESFORCO[it]) }
+    ListaEscolha(opcoes, marcado.takeIf { m -> opcoes.any { it.id == m } }, aoEscolher, modifier, cor)
 }
 
 fun opcoesModelo(ids: List<String>) = ids.map { Opcao(it, MODELOS[it] ?: it, SOBRE_MODELO[it]) }

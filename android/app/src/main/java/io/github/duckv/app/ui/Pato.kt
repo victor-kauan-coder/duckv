@@ -63,10 +63,27 @@ private val DURACAO = mapOf(
 private val REACOES = listOf("amor", "salto", "danca", "quaa")
 private val Coracao = Color(0xFFFF5A5F)
 
-private val Penas = Color(0xFFFFF6EE)
-private val Asa = Color(0xFFE6D3BF)
-private val Bico = Color(0xFFFFD84A)
-private val Pes = Color(0xFFFF9A3D)
+/**
+ * Tipos de patinho: cada um tem a propria plumagem e a cor da conta que vem com ele.
+ * [cabeca] pinta a cabeca de outra cor (o marreco); [contorno] troca o contorno escuro.
+ */
+data class TipoPato(
+    val id: String, val nome: String, val sobre: String,
+    val penas: Color, val asa: Color, val bico: Color, val pes: Color,
+    val cor: String, val cabeca: Color? = null, val contorno: Color? = null,
+)
+
+val TIPOS_PATO = listOf(
+    TipoPato("classico", "Clássico", "Branquinho, bico amarelo", Color(0xFFFFF6EE), Color(0xFFE6D3BF), Color(0xFFFFD84A), Color(0xFFFF9A3D), "#ff7a1a"),
+    TipoPato("borracha", "De borracha", "O da banheira", Color(0xFFFFD23F), Color(0xFFF2B705), Color(0xFFFF8A00), Color(0xFFFF8A00), "#f2a900"),
+    TipoPato("marreco", "Marreco", "Cabeça verde de lago", Color(0xFFD9C7A8), Color(0xFF8C6E4E), Color(0xFFE8C547), Color(0xFFF28C28), "#2b8a6e", cabeca = Color(0xFF2E7D4F)),
+    TipoPato("pessego", "Pêssego", "Rosado e fofo", Color(0xFFFFDCCB), Color(0xFFF7B79A), Color(0xFFFF8A65), Color(0xFFFF8A65), "#f26b4e"),
+    TipoPato("chocolate", "Chocolate", "Marrom de quintal", Color(0xFF9A6644), Color(0xFF6B4226), Color(0xFFF2B24C), Color(0xFFE07B39), "#b5651d"),
+    TipoPato("mar", "Do mar", "Penas cinza-azuladas", Color(0xFFE6EEF5), Color(0xFF9EC3DD), Color(0xFFFFC94A), Color(0xFF6FA8DC), "#3d8bfd"),
+    TipoPato("noturno", "Noturno", "Plumagem de madrugada", Color(0xFF4A4152), Color(0xFF6E6279), Color(0xFFFFB347), Color(0xFFFFB347), "#7e57c2", contorno = Color(0xFF15111A)),
+    TipoPato("rosa", "Rosa", "Para quem gosta de cor", Color(0xFFFFC9DF), Color(0xFFF48FB1), Color(0xFFFFD84A), Color(0xFFF06292), "#e0569a"),
+)
+fun tipoPato(id: String?) = TIPOS_PATO.find { it.id == id } ?: TIPOS_PATO[0]
 private val Cansado = Color(0xFFCFC4BA)
 private val AsaCansada = Color(0xFFB9ADA2)
 private val BicoCansado = Color(0xFFCDB35C)
@@ -77,7 +94,7 @@ private val BicoCansado = Color(0xFFCDB35C)
  * @param andar se o pato pode passear de um lado a outro da largura toda
  */
 @Composable
-fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier, andar: Boolean = true, tocavel: Boolean = true) {
+fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier, andar: Boolean = true, tocavel: Boolean = true, tipo: String? = null) {
     val ctx = LocalContext.current
     val semMovimento = remember {
         Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
@@ -129,11 +146,11 @@ fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier
     }
     Canvas(modifier.then(if (tocavel) tocar else Modifier)) {
         val dt = System.nanoTime() / 1_000_000 - truqueDesde
-        desenhar(estado, if (anima) t else 0L, truque, dt, andar && anima, cor, c)
+        desenhar(estado, if (anima) t else 0L, truque, dt, andar && anima, cor, c, tipoPato(tipo))
     }
 }
 
-private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Long, andar: Boolean, cor: Color, c: Cores) {
+private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Long, andar: Boolean, cor: Color, c: Cores, tp: TipoPato) {
     val u = size.height / 19.5f
     val largura = 16 * u
     val anda = andar && (estado == "trabalha" || estado == "festa")
@@ -199,10 +216,13 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
     val pisa = anda || estado == "festa"
 
     val cansado = estado == "cansado"
-    val contorno = if (c.escuro) Color(0xFFA08A7A) else Tinta
-    val penas = if (cansado) Cansado else Penas
-    val asa = if (cansado) AsaCansada else Asa
-    val bico = if (cansado) BicoCansado else Bico
+    // contorno claro no tema escuro, para o pato nao sumir no fundo
+    val contorno = tp.contorno?.let { if (c.escuro) Color(0xFFA08A7A) else it } ?: if (c.escuro) Color(0xFFA08A7A) else Tinta
+    val penas = if (cansado) Cansado else tp.penas
+    val asa = if (cansado) AsaCansada else tp.asa
+    val bico = if (cansado) BicoCansado else tp.bico
+    val cabeca = if (cansado) Cansado else tp.cabeca ?: penas
+    val pes = tp.pes
 
     fun px(cx: Float) = if (paraDireita) x + cx * u else x + (16 - cx - 1) * u
     fun cel(cx: Float, cy: Float, cor: Color, w: Float = 1f, h: Float = 1f) {
@@ -222,12 +242,13 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
             var dy = 0f
             val cor = when (ch) {
                 'O', 'o', 'T' -> contorno
-                'B', 'b', 't' -> penas
+                'B' -> if (cy < 4) cabeca else penas
+                'b', 't' -> penas
                 'w' -> asa
                 'k' -> bico
                 'q' -> Tinta
                 'e' -> if (olhoFechado) penas else Tinta
-                else -> Pes // f, g
+                else -> pes // f, g
             }
             when (ch) {
                 'O', 'B', 'e', 'k' -> { dx = cisca * 0.4f; dy = cisca }

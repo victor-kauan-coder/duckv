@@ -1,27 +1,35 @@
 package io.github.duckv.app.ui
 
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,11 +41,13 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -75,23 +85,45 @@ fun plural(n: Int, um: String, varios: String) = "$n ${if (n == 1) um else vario
 // Aviso curto no rodape da tela (snackbar).
 val LocalAviso = staticCompositionLocalOf<(String) -> Unit> { {} }
 
-// ------------------------------------------------------------ medidor em casas
+// ------------------------------------------------------------ medidores
 
+/**
+ * Barra de progresso no desenho do Material 3: trilho claro, parte cheia arredondada, uma
+ * fresta entre as duas e o ponto de parada no fim. Sem [quenteDe], vira casas (tarefas).
+ */
 @Composable
-fun Celulas(total: Int, cheias: Int, cor: Color, modifier: Modifier = Modifier, quenteDe: Int? = 16, agora: Int = -1, altura: Dp = 12.dp) {
+fun Celulas(total: Int, cheias: Int, cor: Color, modifier: Modifier = Modifier, quenteDe: Int? = 16, agora: Int = -1, altura: Dp = 4.dp) {
     val c = cores
-    Canvas(modifier.fillMaxWidth().height(altura)) {
+    val alto = altura.coerceIn(4.dp, 6.dp)
+    Canvas(modifier.fillMaxWidth().height(alto)) {
         if (total <= 0) return@Canvas
-        val gap = 2.dp.toPx()
-        val w = (size.width - gap * (total - 1)) / total
-        for (i in 0 until total) {
-            val corCasa = when {
-                i < cheias && quenteDe != null && i >= quenteDe -> c.texto
-                i < cheias -> cor
-                i == agora -> cor.copy(alpha = 0.45f)
-                else -> c.linha
+        val h = size.height
+        val raio = CornerRadius(h / 2, h / 2)
+        val trilho = cor.copy(alpha = if (c.escuro) 0.28f else 0.22f)
+        if (quenteDe == null) {
+            // casas: uma por tarefa
+            val gap = 3.dp.toPx()
+            val w = (size.width - gap * (total - 1)) / total
+            for (i in 0 until total) {
+                val corCasa = when {
+                    i < cheias -> cor
+                    i == agora -> cor.copy(alpha = 0.55f)
+                    else -> trilho
+                }
+                drawRoundRect(corCasa, Offset(i * (w + gap), 0f), Size(w, h), raio)
             }
-            drawRect(corCasa, Offset(i * (w + gap), 0f), Size(w, size.height))
+            return@Canvas
+        }
+        val f = (cheias.toFloat() / total).coerceIn(0f, 1f)
+        val cheio = if (f >= 1f) c.perigo else cor
+        val gap = 4.dp.toPx()
+        val wCheio = size.width * f
+        if (f > 0f) drawRoundRect(cheio, Offset.Zero, Size(wCheio.coerceAtLeast(h), h), raio)
+        if (f < 1f) {
+            val ini = if (f > 0f) wCheio + gap else 0f
+            drawRoundRect(trilho, Offset(ini, 0f), Size((size.width - ini).coerceAtLeast(0f), h), raio)
+            // ponto de parada no fim do trilho
+            drawCircle(cheio, h / 2, Offset(size.width - h / 2, h / 2))
         }
     }
 }
@@ -100,7 +132,11 @@ fun Celulas(total: Int, cheias: Int, cor: Color, modifier: Modifier = Modifier, 
 
 enum class Peso { Principal, Comum, Quieto, Perigo, Invertido }
 
-/** Botao de brinquedo: tem uma borda de baixo grossa que afunda ao toque. */
+/**
+ * Botoes do Material 3. Principal: cheio laranja. Comum: tonal. Quieto: contornado.
+ * Perigo: contornado em vermelho. Invertido: contornado sobre um cartao colorido.
+ * [vertical] desenha um bloco de acao (icone em cima do rotulo) num cartao tonal.
+ */
 @Composable
 fun Botao(
     texto: String?,
@@ -109,58 +145,62 @@ fun Botao(
     icone: ImageVector? = null,
     peso: Peso = Peso.Comum,
     habilitado: Boolean = true,
-    altura: Dp = 48.dp,
+    altura: Dp = 40.dp,
     vertical: Boolean = false,
     descricao: String? = null,
     linhas: Int = 2,
 ) {
     val c = cores
-    val toque = remember { MutableInteractionSource() }
-    val apertado by toque.collectIsPressedAsState()
-    val (fundo, frente, borda) = when (peso) {
-        Peso.Principal -> Triple(Laranja, Tinta, LaranjaBorda)
-        Peso.Comum -> Triple(c.superficie, c.texto, c.texto)
-        Peso.Quieto -> Triple(c.superficie, c.texto, c.vazio)
-        Peso.Perigo -> Triple(c.superficie, c.perigo, c.perigo)
-        Peso.Invertido -> Triple(c.invTexto, c.invFundo, c.invTexto)
-    }
-    val fundoReal = if (habilitado) fundo else c.elevada
-    val frenteReal = if (habilitado) frente else c.apoio
-    val bordaReal = if (habilitado) borda else c.linha
-    val fundura = 3.dp
-    val desce by animateDpAsState(if (apertado && habilitado) fundura else 0.dp, label = "afunda")
-    val forma = RoundedCornerShape(10.dp)
-    Box(
-        modifier.clickable(toque, null, enabled = habilitado, role = Role.Button, onClickLabel = descricao, onClick = aoTocar),
-        propagateMinConstraints = true,
-    ) {
-        Box(Modifier.matchParentSize().padding(top = fundura).clip(forma).background(bordaReal))
-        Box(
-            Modifier
-                .padding(top = desce, bottom = fundura - desce)
-                .heightIn(min = altura)
-                .clip(forma)
-                .background(fundoReal)
-                .border(1.5.dp, bordaReal, forma)
-                .padding(horizontal = if (texto == null) 12.dp else 16.dp, vertical = if (vertical) 12.dp else 0.dp),
-            contentAlignment = Alignment.Center,
+    val alto = altura.coerceIn(36.dp, 56.dp)
+    if (vertical) {
+        val (fundo, frente) = when (peso) {
+            Peso.Perigo -> c.erroCont to c.noErroCont
+            Peso.Principal -> c.invFundo to c.invTexto
+            else -> c.cartao to c.texto
+        }
+        Surface(
+            aoTocar, modifier.heightIn(min = 88.dp).semantics { if (descricao != null) contentDescription = descricao },
+            enabled = habilitado, shape = RoundedCornerShape(16.dp), color = fundo, contentColor = frente,
         ) {
-            val conteudo = @Composable {
-                if (icone != null) Icon(icone, descricao ?: texto, tint = frenteReal, modifier = Modifier.size(if (vertical) 24.dp else 20.dp))
-                if (icone != null && texto != null) Spacer(Modifier.size(if (vertical) 6.dp else 8.dp))
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                if (icone != null) Icon(icone, null, Modifier.size(24.dp))
                 if (texto != null) {
-                    Text(
-                        texto, color = frenteReal, style = Texto.rotulo.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
-                        textAlign = TextAlign.Center, maxLines = linhas, overflow = TextOverflow.Ellipsis,
-                    )
+                    Spacer(Modifier.size(8.dp))
+                    Text(texto, style = Texto.rotulo, textAlign = TextAlign.Center, maxLines = linhas, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (vertical) {
-                Column(Modifier.heightIn(min = altura), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { conteudo() }
-            } else {
-                Row(Modifier.heightIn(min = altura), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) { conteudo() }
-            }
         }
+        return
+    }
+    val m = modifier.heightIn(min = alto).semantics { if (descricao != null) contentDescription = descricao }
+    val pad = if (texto == null) PaddingValues(horizontal = 12.dp) else if (icone != null) PaddingValues(start = 16.dp, end = 24.dp) else PaddingValues(horizontal = 24.dp)
+    val conteudo: @Composable RowScope.() -> Unit = {
+        if (icone != null) Icon(icone, if (texto == null) descricao else null, Modifier.size(18.dp))
+        if (icone != null && texto != null) Spacer(Modifier.size(8.dp))
+        if (texto != null) Text(texto, style = Texto.rotulo, textAlign = TextAlign.Center, maxLines = linhas, overflow = TextOverflow.Ellipsis)
+    }
+    when (peso) {
+        Peso.Principal -> Button(aoTocar, m, habilitado, contentPadding = pad, content = conteudo)
+        Peso.Comum -> FilledTonalButton(
+            aoTocar, m, habilitado, contentPadding = pad,
+            colors = ButtonDefaults.filledTonalButtonColors(containerColor = c.cartaoAlto, contentColor = c.texto),
+            content = conteudo,
+        )
+        Peso.Quieto -> OutlinedButton(
+            aoTocar, m, habilitado, contentPadding = pad,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = c.texto),
+            border = BorderStroke(1.dp, if (habilitado) c.vazio else c.linha), content = conteudo,
+        )
+        Peso.Perigo -> OutlinedButton(
+            aoTocar, m, habilitado, contentPadding = pad,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = c.perigo),
+            border = BorderStroke(1.dp, if (habilitado) c.perigo else c.linha), content = conteudo,
+        )
+        Peso.Invertido -> OutlinedButton(
+            aoTocar, m, habilitado, contentPadding = pad,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = c.invTexto),
+            border = BorderStroke(1.dp, c.invTexto.copy(alpha = 0.45f)), content = conteudo,
+        )
     }
 }
 
@@ -186,54 +226,49 @@ fun BotaoConfirma(texto: String, icone: ImageVector, aoConfirmar: () -> Unit, mo
     )
 }
 
+/** Escolha unica entre poucas opcoes: chip de filtro do Material 3, com o ponto da cor quando houver. */
 @Composable
 fun Escolha(texto: String, marcado: Boolean, aoTocar: () -> Unit, modifier: Modifier = Modifier, marca: Color? = null) {
     val c = cores
-    val forma = RoundedCornerShape(10.dp)
-    Row(
-        modifier
-            .heightIn(min = 48.dp)
-            .clip(forma)
-            .background(if (marcado) c.texto else c.superficie)
-            .border(1.5.dp, if (marcado) c.texto else c.linha, forma)
-            .selectable(marcado, role = Role.RadioButton, onClick = aoTocar)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (marca != null) {
-            Marca(marca, tamanho = 10.dp)
-            Spacer(Modifier.width(8.dp))
-        }
-        Text(texto, style = Texto.rotulo, color = if (marcado) c.fundo else c.texto, textAlign = TextAlign.Center)
-    }
+    FilterChip(
+        marcado, aoTocar, { Text(texto, style = Texto.rotulo) }, modifier.heightIn(min = 32.dp),
+        leadingIcon = when {
+            marca != null -> { { Marca(marca, tamanho = 10.dp) } }
+            marcado -> { { Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) } }
+            else -> null
+        },
+        shape = RoundedCornerShape(8.dp),
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = c.invFundo, selectedLabelColor = c.invTexto, selectedLeadingIconColor = c.invTexto,
+            labelColor = c.texto, containerColor = Color.Transparent,
+        ),
+        border = FilterChipDefaults.filterChipBorder(true, marcado, borderColor = c.vazio, selectedBorderColor = Color.Transparent),
+    )
 }
 
+/** Titulo de secao do Material 3: titleSmall, sem caixa alta. */
 @Composable
 fun TituloSecao(texto: String, modifier: Modifier = Modifier) {
-    Text(texto.uppercase(BR), style = Texto.secao, color = cores.apoio, modifier = modifier.padding(bottom = 10.dp))
+    Text(texto, style = Texto.secao, color = cores.apoio, modifier = modifier.padding(bottom = 8.dp))
 }
 
+/** Cartao tonal (surfaceContainer), cantos de 16 dp, sem sombra. */
 @Composable
 fun Cartao(modifier: Modifier = Modifier, conteudo: @Composable () -> Unit) {
-    val c = cores
-    val forma = RoundedCornerShape(16.dp)
-    Column(
-        modifier
-            .fillMaxWidth()
-            .clip(forma)
-            .background(c.superficie)
-            .border(1.dp, c.linha, forma),
+    Card(
+        modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = cores.cartao, contentColor = cores.texto),
     ) { conteudo() }
 }
 
 @Composable
 fun Marca(cor: Color, modifier: Modifier = Modifier, tamanho: Dp = 10.dp) {
-    Box(modifier.size(tamanho).clip(RoundedCornerShape(2.dp)).background(cor))
+    Box(modifier.size(tamanho).clip(CircleShape).background(cor))
 }
 
 @Composable
 fun Divisoria(modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().height(1.dp).background(cores.linha))
+    HorizontalDivider(modifier, thickness = 1.dp, color = cores.linha)
 }
 
 @Composable
