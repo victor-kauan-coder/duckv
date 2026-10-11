@@ -200,7 +200,7 @@ private fun BlocoConta(e: Estado, conta: Conta, salvar: (JSONObject) -> Unit, po
                         IconButton({ salvar(JSONObject().put("op", "conta").put("id", conta.id).put("nome", nome.trim())) }) { Icon(Icons.Rounded.Check, "Salvar nome", tint = c.ok) }
                     }
                 }
-                Text("Cor", style = Texto.rotulo, color = c.texto)
+                CabecalhoAjuste("Cor", CORES.firstOrNull { io.github.duckv.app.corDe(it.first) == conta.cor }?.second, Modifier.padding(bottom = 0.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     for ((hex, rotulo) in CORES) {
                         val cor = Color(io.github.duckv.app.corDe(hex))
@@ -213,19 +213,19 @@ private fun BlocoConta(e: Estado, conta: Conta, salvar: (JSONObject) -> Unit, po
                         ) { if (marcada) Icon(Icons.Rounded.Check, rotulo, tint = sobre(cor), modifier = Modifier.size(20.dp)) }
                     }
                 }
-                Text("Ao abrir uma sessão desta conta pelo celular, começar com:", style = Texto.apoio, color = c.apoio)
-                Text("Modelo", style = Texto.rotulo, color = c.texto)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (m in e.host.modelos) Escolha(MODELOS[m] ?: m, (conta.padroes.model ?: "default") == m, { padrao(JSONObject().put("model", m)) })
+                Divisoria()
+                Text("Ao abrir uma sessão desta conta pelo celular", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
+                Column {
+                    CabecalhoAjuste("Modelo", null)
+                    ListaEscolha(opcoesModelo(e.host.modelos), conta.padroes.model ?: "default", { padrao(JSONObject().put("model", it)) }, cor = Color(conta.cor))
                 }
-                Text("Esforço de raciocínio", style = Texto.rotulo, color = c.texto)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Escolha("Padrão", conta.padroes.effort.isNullOrEmpty(), { padrao(JSONObject().put("effort", JSONObject.NULL)) })
-                    for (ef in e.host.esforcos) Escolha(ESFORCOS[ef] ?: ef, conta.padroes.effort == ef, { padrao(JSONObject().put("effort", ef)) })
+                Column {
+                    CabecalhoAjuste("Esforço de raciocínio", null)
+                    EscalaEsforco(e.host.esforcos, conta.padroes.effort.orEmpty(), { padrao(JSONObject().put("effort", it.ifEmpty { JSONObject.NULL })) }, cor = Color(conta.cor))
                 }
-                Text("Modo de permissão", style = Texto.rotulo, color = c.texto)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (m in e.host.modos) Escolha(MODOS[m]?.first ?: m, (conta.padroes.mode ?: "manual") == m, { padrao(JSONObject().put("mode", m)) })
+                Column {
+                    CabecalhoAjuste("Permissões", null)
+                    ListaEscolha(opcoesModo(e.host.modos), conta.padroes.mode ?: "manual", { padrao(JSONObject().put("mode", it)) }, cor = Color(conta.cor))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(

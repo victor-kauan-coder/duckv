@@ -454,12 +454,13 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
     val enviar = { t: String, ok: String -> Hub.enviar(s.id, t) { erro, _ -> aviso(erro ?: ok) } }
     val tecla = { k: String, ok: String -> Hub.tecla(s.id, k) { erro, _ -> aviso(erro ?: ok) } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Leitura(Icons.Rounded.Memory, "Modelo", s.model ?: "não informado", Modifier.weight(1f))
-            Leitura(Icons.Rounded.Psychology, "Esforço", ESFORCOS[s.effort] ?: s.effort ?: "padrão", Modifier.weight(1f))
-            Leitura(Icons.Rounded.Shield, "Permissões", nomeDoModo(s.modo), Modifier.weight(1f))
-        }
         if (!s.hospedada) {
+            // Sessao do computador: o celular so le os ajustes, entao eles aparecem como leitura.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Leitura(Icons.Rounded.Memory, "Modelo", s.model ?: "não informado", Modifier.weight(1f))
+                Leitura(Icons.Rounded.Psychology, "Esforço", ESFORCOS[s.effort] ?: s.effort ?: "padrão", Modifier.weight(1f))
+                Leitura(Icons.Rounded.Shield, "Permissões", nomeDoModo(s.modo), Modifier.weight(1f))
+            }
             Column {
                 TituloSecao("Sessão aberta no computador")
                 Text("Daqui você conversa, usa as mensagens rápidas e responde pedidos de permissão. Para trocar modelo, esforço e modo, interromper ou encerrar pelo celular, abra a sessão por aqui.", style = Texto.apoio, color = c.apoio)
@@ -485,33 +486,38 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
                 }
             }
         }
-        val atual = s.model.orEmpty().lowercase()
-        Column {
-            TituloSecao("Modelo")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (m in e.host.modelos) {
-                    val rotulo = MODELOS[m] ?: m
-                    Escolha(rotulo, atual.contains(m) && m != "opusplan", { enviar("/model $m", "Modelo trocado para $rotulo") })
-                }
+        Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            TituloSecao("Ajustes desta sessão", Modifier.padding(bottom = 0.dp))
+            val atual = s.model.orEmpty().lowercase()
+            Column {
+                CabecalhoAjuste("Modelo", s.model)
+                ListaEscolha(
+                    opcoesModelo(e.host.modelos.filter { it != "default" }),
+                    e.host.modelos.firstOrNull { it != "opusplan" && it != "default" && atual.contains(it) },
+                    { m -> enviar("/model $m", "Modelo trocado para ${MODELOS[m] ?: m}") }, cor = cor,
+                )
             }
-        }
-        Column {
-            TituloSecao("Esforço de raciocínio")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (ef in e.host.esforcos) {
-                    val rotulo = ESFORCOS[ef] ?: ef
-                    Escolha(rotulo, s.effort == ef, { enviar("/effort $ef", "Esforço trocado para $rotulo") })
-                }
+            Column {
+                CabecalhoAjuste("Esforço de raciocínio", null)
+                EscalaEsforco(e.host.esforcos, s.effort.orEmpty(), { ef -> enviar("/effort $ef", "Esforço trocado para ${ESFORCOS[ef] ?: ef}") }, comPadrao = false, cor = cor)
             }
-        }
-        Column {
-            TituloSecao("Modo de permissão")
-            Text(
-                if (s.rodape.isNotBlank()) "O Claude Code mostra agora: ${s.rodape}" else "Cada toque passa para o modo seguinte: perguntar sempre, aceitar edições, planejar.",
-                style = Texto.apoio, color = c.apoio,
-            )
-            Espaco(10.dp)
-            Botao("Passar para o próximo modo", { tecla("shift-tab", "Modo trocado") }, Modifier.fillMaxWidth(), Icons.Rounded.Shield)
+            Column {
+                CabecalhoAjuste("Permissões", null)
+                Cartao {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(nomeDoModo(s.modo), style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
+                        Text(
+                            if (s.rodape.isNotBlank()) "O Claude Code mostra agora: ${s.rodape}" else MODOS[if (s.modo == "default") "manual" else s.modo]?.second ?: "Cada toque passa para o modo seguinte.",
+                            style = Texto.apoio, color = c.apoio,
+                        )
+                    }
+                    Divisoria()
+                    Box(Modifier.padding(12.dp)) {
+                        Botao("Passar para o próximo modo", { tecla("shift-tab", "Modo trocado") }, Modifier.fillMaxWidth(), Icons.Rounded.Shield)
+                    }
+                }
+                Text("O Claude Code não deixa escolher o modo direto: cada toque passa para o seguinte, como o Shift+Tab.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 8.dp))
+            }
         }
         Column {
             TituloSecao("Avançado")

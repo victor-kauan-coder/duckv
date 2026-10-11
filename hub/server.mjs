@@ -26,6 +26,11 @@ const HOST = argv.has('--lan') ? '0.0.0.0' : '127.0.0.1';
 const APP = path.join(ROOT, 'app');
 const STATE_FILE = path.join(DATA, 'state.json');
 const PUSH_FILE = path.join(DATA, 'push.json');
+// Codigo novo tambem corta os avisos de quem tinha o codigo antigo.
+if (argv.has('--novo-token')) writeJson(PUSH_FILE, []);
+if (HOST === '0.0.0.0') {
+  console.warn('\nATENCAO: --lan abre o claudeV sem criptografia na rede local. Quem estiver na mesma rede pode copiar o codigo de pareamento e comandar o computador. Prefira o Tailscale.\n');
+}
 const PREFS_FILE = path.join(DATA, 'prefs.json');
 const FIVE_H = 5 * 3600 * 1000;
 const WINDOWS = ['five_hour', 'seven_day'];
@@ -138,7 +143,7 @@ function novaConta(nomePedido) {
   let n = lista.length + 1;
   while (ids.has(`conta${n}`)) n++;
   const id = `conta${n}`;
-  const nome = texto(nomePedido, 30) || `Conta ${n}`;
+  const nome = texto(nomePedido, 30).replace(/[^\p{L}\p{N} ._-]/gu, '').trim() || `Conta ${n}`;
   const modelo = lista.find((a) => a.dir);
   const base = modelo ? path.dirname(modelo.dir) : path.join(os.homedir(), '.claude-contas');
   const dir = path.join(base, id);
@@ -575,7 +580,7 @@ function addPerm(inst, perm) {
     const acc = pubAccount(inst.account);
     pushNotify({
       title: `${acc.nome} pede permissão`,
-      body: clip(`${perm.tool}: ${perm.desc || perm.preview}`, 180),
+      body: clip(`${perm.tool}: ${perm.preview || perm.desc}`, 180),
       tag: `perm-${perm.id}`,
       url: `/#/s/${encodeURIComponent(inst.id)}`,
       perm: { instance: inst.id, request_id: perm.id },

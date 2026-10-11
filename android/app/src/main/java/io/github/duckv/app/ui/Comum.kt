@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -186,19 +187,23 @@ fun BotaoConfirma(texto: String, icone: ImageVector, aoConfirmar: () -> Unit, mo
 }
 
 @Composable
-fun Escolha(texto: String, marcado: Boolean, aoTocar: () -> Unit, modifier: Modifier = Modifier) {
+fun Escolha(texto: String, marcado: Boolean, aoTocar: () -> Unit, modifier: Modifier = Modifier, marca: Color? = null) {
     val c = cores
     val forma = RoundedCornerShape(10.dp)
-    Box(
+    Row(
         modifier
-            .heightIn(min = 44.dp)
+            .heightIn(min = 48.dp)
             .clip(forma)
             .background(if (marcado) c.texto else c.superficie)
             .border(1.5.dp, if (marcado) c.texto else c.linha, forma)
-            .clickable(role = Role.RadioButton, onClick = aoTocar)
+            .selectable(marcado, role = Role.RadioButton, onClick = aoTocar)
             .padding(horizontal = 14.dp),
-        contentAlignment = Alignment.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (marca != null) {
+            Marca(marca, tamanho = 10.dp)
+            Spacer(Modifier.width(8.dp))
+        }
         Text(texto, style = Texto.rotulo, color = if (marcado) c.fundo else c.texto, textAlign = TextAlign.Center)
     }
 }

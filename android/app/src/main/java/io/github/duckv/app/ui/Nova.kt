@@ -1,5 +1,6 @@
 package io.github.duckv.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -84,6 +85,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
     var erroPasta by remember { mutableStateOf<String?>(null) }
     var erro by remember { mutableStateOf<String?>(null) }
     var abrindo by remember { mutableStateOf(false) }
+    var ajustar by rememberSaveable { mutableStateOf(false) }
     var lista by remember { mutableStateOf<Listagem?>(null) }
     var erroLista by remember { mutableStateOf<String?>(null) }
 
@@ -113,17 +115,19 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
     Column(Modifier.fillMaxSize().background(c.fundo).imePadding()) {
         Topo("Abrir sessão", "Abre no computador, você comanda daqui.", aoVoltar)
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(36.dp),
         ) {
+          Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            TituloSecao("Onde abrir", Modifier.padding(bottom = 0.dp))
             Column {
-                TituloSecao("Conta")
+                CabecalhoAjuste("Conta", null)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (ct in e.contas) Escolha(ct.nome, ct.id == conta, { conta = ct.id })
+                    for (ct in e.contas) Escolha(ct.nome, ct.id == conta, { conta = ct.id }, marca = androidx.compose.ui.graphics.Color(ct.cor))
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                TituloSecao("Pasta do projeto", Modifier.padding(bottom = 0.dp))
+                CabecalhoAjuste("Pasta do projeto", null, Modifier.padding(bottom = 0.dp))
                 OutlinedTextField(
                     cwd, { cwd = it; erroPasta = null }, Modifier.fillMaxWidth(),
                     placeholder = { Text("C:\\projetos\\meu-projeto", color = c.apoio) },
@@ -152,27 +156,49 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                 nome, { nome = it.take(50) }, Modifier.fillMaxWidth(), label = { Text("Nome da sessão (opcional)") },
                 singleLine = true, shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
             )
-            Column {
-                TituloSecao("Modelo")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (m in e.host.modelos) Escolha(MODELOS[m] ?: m, modelo == m, { modelo = m })
+          }
+          Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            TituloSecao("Como começar", Modifier.padding(bottom = 0.dp))
+            // Os padroes da conta ja vem escolhidos; o resumo evita tres listas longas no caminho de quem so quer abrir.
+            val resumo = listOf(MODELOS[modelo] ?: modelo, ESFORCOS[esforco] ?: "Esforço padrão").joinToString(" · ")
+            Cartao {
+                Row(
+                    Modifier.fillMaxWidth().clickable(onClickLabel = if (ajustar) "Esconder ajustes" else "Mudar ajustes") { ajustar = !ajustar }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(resumo, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
+                        Text(nomeDoModo(modo), style = Texto.apoio, color = c.apoio)
+                    }
+                    Text(if (ajustar) "Pronto" else "Mudar", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.realce)
+                }
+                if (!ajustar) {
+                    Divisoria()
+                    Text("Vem dos padrões da conta. Para mudar de vez, vá em Opções, Contas.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
                 }
             }
-            Column {
-                TituloSecao("Esforço de raciocínio")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Escolha("Padrão", esforco == "", { esforco = "" })
-                    for (ef in e.host.esforcos) Escolha(ESFORCOS[ef] ?: ef, esforco == ef, { esforco = ef })
+            AnimatedVisibility(ajustar) {
+                Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                    Column {
+                        CabecalhoAjuste("Modelo", null)
+                        ListaEscolha(opcoesModelo(e.host.modelos), modelo, { modelo = it })
+                    }
+                    Column {
+                        CabecalhoAjuste("Esforço de raciocínio", null)
+                        EscalaEsforco(e.host.esforcos, esforco, { esforco = it })
+                    }
+                    Column {
+                        CabecalhoAjuste("Permissões", null)
+                        ListaEscolha(opcoesModo(e.host.modos), modo, { modo = it })
+                    }
                 }
             }
-            Column {
-                TituloSecao("Modo de permissão")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (m in e.host.modos) Escolha(MODOS[m]?.first ?: m, modo == m, { modo = m })
-                }
-                MODOS[modo]?.second?.let { Text(it, style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(top = 8.dp)) }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+          }
+        }
+        // Acao principal presa embaixo: nunca some atras da rolagem.
+        Column(Modifier.fillMaxWidth().background(c.fundo).navigationBarsPadding()) {
+            Divisoria()
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 val aviso = if (!e.host.disponivel) "O computador não conseguiu carregar o terminal virtual, então não dá para abrir sessões por aqui. Rode a instalação de novo." else erro
                 aviso?.let { Text(it, style = Texto.apoio, color = c.perigo) }
                 Botao(

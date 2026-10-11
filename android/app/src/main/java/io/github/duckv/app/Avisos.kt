@@ -93,7 +93,7 @@ object Avisos {
     private fun responder(s: Sessao, p: Perm, aceitar: Boolean): PendingIntent {
         val i = Intent(ctx, Resposta::class.java)
             .putExtra("sessao", s.id).putExtra("pedido", p.id).putExtra("aceitar", aceitar)
-        return PendingIntent.getBroadcast(ctx, (p.id + aceitar).hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        return PendingIntent.getBroadcast(ctx, (s.id + p.id + aceitar).hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
     private fun mostrar(id: Int, n: NotificationCompat.Builder) {
@@ -120,22 +120,29 @@ object Avisos {
         for ((s, p) in atuais) {
             if (!vistos.add(p.id) || appVisivel || !av.perm) continue
             val conta = e.conta(s.conta)
-            val corpo = listOf(p.desc, p.preview).filter { it.isNotBlank() }.joinToString("\n")
-            mostrar(
-                p.id.hashCode(),
-                NotificationCompat.Builder(ctx, PEDIDOS)
-                    .setSmallIcon(R.drawable.ic_aviso)
+            // O comando real vem primeiro: a descricao e escrita pelo proprio modelo e pode enganar.
+            val corpo = listOf(p.preview, p.desc).filter { it.isNotBlank() }.distinct().joinToString("\n")
+            // Comando cortado ou de varias linhas so se aceita dentro do app, vendo tudo.
+            val daPraVer = p.preview.isNotBlank() && !p.preview.endsWith("…") && !p.preview.contains('\n')
+            val titulo = "${conta.nome} pede permissão: ${p.tool}"
+            val b = NotificationCompat.Builder(ctx, PEDIDOS)
+                .setSmallIcon(R.drawable.ic_aviso)
                     .setColor(conta.cor.toInt())
-                    .setContentTitle("${conta.nome} pede permissão: ${p.tool}")
-                    .setContentText(p.desc.ifBlank { p.preview })
+                    .setContentTitle(titulo)
+                    .setContentText(p.preview.ifBlank { p.desc })
                     .setStyle(NotificationCompat.BigTextStyle().bigText(corpo).setSummaryText(s.titulo))
                     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setContentIntent(abrirApp(s.id, s.id.hashCode()))
-                    .addAction(0, "Recusar", responder(s, p, false))
-                    .addAction(0, "Aceitar", responder(s, p, true))
-                    .setAutoCancel(true),
-            )
+                    // Na tela bloqueada aparece so quem pede; responder exige desbloquear.
+                    .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                    .setPublicVersion(
+                        NotificationCompat.Builder(ctx, PEDIDOS).setSmallIcon(R.drawable.ic_aviso).setColor(conta.cor.toInt())
+                            .setContentTitle("${conta.nome} pede permissão").setContentText("Desbloqueie para ver o comando.").build(),
+                    )
+                    .addAction(acao("Recusar", responder(s, p, false)))
+            if (daPraVer) b.addAction(acao("Aceitar", responder(s, p, true)))
+            mostrar(p.id.hashCode(), b.setAutoCancel(true))
         }
         if (antes == null) return
 
@@ -217,6 +224,9 @@ class Vigia : Service() {
 
 // Botoes Aceitar e Recusar da notificacao. Responde por HTTP, que funciona
 // mesmo se a ligacao do app ainda estiver voltando.
+private fun acao(rotulo: String, intent: android.app.PendingIntent) =
+    NotificationCompat.Action.Builder(0, rotulo, intent).setAuthenticationRequired(true).build()
+
 class Resposta : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val sessao = intent.getStringExtra("sessao") ?: return

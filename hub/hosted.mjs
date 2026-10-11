@@ -172,7 +172,8 @@ export function startHosted(opts) {
     cols,
     rows,
     cwd: opts.cwd,
-    env: { ...process.env, ...opts.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+    // NoDefaultCurrentDirectoryInExePath: o cmd.exe nao executa um claude.cmd plantado na pasta do projeto.
+    env: { ...process.env, ...opts.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', NoDefaultCurrentDirectoryInExePath: '1' },
   });
 
   let alive = true;

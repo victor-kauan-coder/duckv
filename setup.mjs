@@ -15,8 +15,10 @@ const fwd = (p) => p.replace(/\\/g, '/');
 const HOOK = path.join(ROOT, 'agent', 'hook.mjs');
 const STATUS = path.join(ROOT, 'agent', 'statusline.mjs');
 const CHANNEL = path.join(ROOT, 'agent', 'channel.mjs');
-const hookCmd = `node "${fwd(HOOK)}"`;
-const statusCmd = `node "${fwd(STATUS)}"`;
+// node pelo caminho absoluto: um node.cmd plantado na pasta do projeto nao roda no lugar dele.
+const NODE = fwd(process.execPath);
+const hookCmd = `"${NODE}" "${fwd(HOOK)}"`;
+const statusCmd = `"${NODE}" "${fwd(STATUS)}"`;
 const nosso = (cmd) => typeof cmd === 'string' && /agent\/(hook|statusline)\.mjs/.test(fwd(cmd));
 
 // Eventos do Claude Code que o painel acompanha. Nenhum deles decide nada:
@@ -84,12 +86,13 @@ function ajustarSettings(conta) {
 }
 
 function atalho(conta) {
-  const nome = conta.nome.replace(/["%\r\n]/g, '');
+  const nome = conta.nome.replace(/[^\p{L}\p{N} ._-]/gu, '').trim() || conta.id;
   if (WIN) {
     const linhas = [
       '@echo off',
       'chcp 65001 >nul',
       'setlocal',
+      'set "NoDefaultCurrentDirectoryInExePath=1"',
       `set "PAINEL_ACCOUNT=${conta.id}"`,
       `set "PAINEL_ACCOUNT_NAME=${nome}"`,
       `set "PAINEL_INSTANCE=${conta.id}-%RANDOM%%RANDOM%%RANDOM%"`,
@@ -166,7 +169,7 @@ for (const conta of contas) {
     claude('mcp remove -s user painel', dir);
     if (remover) canal = 'removido';
     else {
-      const r = claude(`mcp add -s user painel -- node "${CHANNEL}"`, dir);
+      const r = claude(`mcp add -s user painel -- "${process.execPath}" "${CHANNEL}"`, dir);
       canal = r.status === 0 ? 'registrado' : 'FALHOU';
       if (r.status !== 0) pendencias.push(`${conta.nome}: nao consegui registrar o canal. ${String(r.stderr || r.stdout || '').trim().split('\n').pop()}`);
     }

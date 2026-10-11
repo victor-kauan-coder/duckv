@@ -19,9 +19,10 @@ self.addEventListener('push', (event) => {
   };
   if (d.perm) {
     opts.requireInteraction = true;
+    // Aceitar so dentro do app, vendo o comando inteiro: o aviso mostra um resumo cortado.
     opts.actions = [
-      { action: 'allow', title: 'Aceitar' },
       { action: 'deny', title: 'Recusar' },
+      { action: 'ver', title: 'Ver e responder' },
     ];
   }
   event.waitUntil(self.registration.showNotification(d.title || 'claudeV', opts));
@@ -42,7 +43,7 @@ async function abrir(url) {
 self.addEventListener('notificationclick', (event) => {
   const { url, perm } = event.notification.data || {};
   event.notification.close();
-  if (perm && (event.action === 'allow' || event.action === 'deny')) {
+  if (perm && event.action === 'deny') {
     event.waitUntil(
       fetch('/api/verdict', {
         method: 'POST',
