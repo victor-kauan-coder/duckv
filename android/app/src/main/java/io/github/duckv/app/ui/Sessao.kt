@@ -44,6 +44,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CleaningServices
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloseFullscreen
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowLeft
@@ -538,6 +540,21 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
     val aviso = LocalAviso.current
     var texto by rememberSaveable(s.id) { mutableStateOf("") }
     var enviando by remember { mutableStateOf(false) }
+    val anexos = remember(s.id) { androidx.compose.runtime.mutableStateListOf<Pair<String, String>>() }
+    var subindo by remember { mutableStateOf(0) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val escolher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()) { uris ->
+        for (u in uris.take(10)) {
+            subindo++
+            kotlin.concurrent.thread {
+                val r = Hub.anexar(ctx, u)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    subindo--
+                    r.onSuccess { anexos.add(it) }.onFailure { aviso(it.message ?: "Não consegui anexar o arquivo.") }
+                }
+            }
+        }
+    }
     val acaminho = { t: String -> Hub.aCaminho.value = Hub.aCaminho.value + (s.id to t) }
     val enviar = { t: String, ok: String? ->
         Hub.enviar(s.id, t) { erro, _ ->
@@ -576,7 +593,21 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         if (s.pergunta != null) {
             Text("Responda a pergunta acima. O que você escrever aqui espera ela fechar.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
         }
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
+        if (anexos.isNotEmpty() || subindo > 0) {
+            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(anexos.toList(), key = { it.second }) { a ->
+                    androidx.compose.material3.InputChip(
+                        selected = false, onClick = { anexos.remove(a) },
+                        label = { Text(a.first, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp)) },
+                        leadingIcon = { Icon(Icons.Rounded.AttachFile, null, Modifier.size(18.dp)) },
+                        trailingIcon = { Icon(Icons.Rounded.Close, "Tirar ${a.first}", Modifier.size(18.dp)) },
+                    )
+                }
+                if (subindo > 0) item { Text("Enviando $subindo ${if (subindo == 1) "arquivo" else "arquivos"}…", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 10.dp)) }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
+            IconButton({ escolher.launch("*/*") }, Modifier.padding(bottom = 4.dp)) { Icon(Icons.Rounded.AttachFile, "Anexar arquivos", tint = c.apoio) }
             OutlinedTextField(
                 texto, { texto = it }, Modifier.weight(1f),
                 placeholder = { Text(if (s.hospedada) "Mensagem ou /comando" else "Escreva para o Claude", color = c.apoio) },
@@ -591,16 +622,23 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             val pctCtx = s.ctx?.pct ?: s.ultima?.let { u -> s.ctx?.tamanho?.takeIf { it > 0 }?.let { (u.entrada + u.cw + u.cr + u.saida) * 100.0 / it } }
             if (pctCtx != null) AnelContexto(pctCtx, cor, { verContexto = true }, Modifier.padding(start = 4.dp, bottom = 8.dp))
             EspacoLargo(4.dp)
-            val pode = texto.isNotBlank() && !enviando
+            val pode = (texto.isNotBlank() || anexos.isNotEmpty()) && !enviando && subindo == 0
             Box(
                 Modifier.padding(bottom = 4.dp).size(48.dp).clip(CircleShape).background(if (pode) c.primario else c.elevada)
                     .clickable(enabled = pode, role = Role.Button) {
                         enviando = true
-                        val t = texto.trim()
+                        // O caminho vai na mesma linha: o Claude le o arquivo direto do computador.
+                        val caminhos = anexos.joinToString(", ") { it.second }
+                        val t = when {
+                            anexos.isEmpty() -> texto.trim()
+                            texto.isBlank() -> "Veja os arquivos que anexei: $caminhos"
+                            else -> "${texto.trim()} (arquivos anexados: $caminhos)"
+                        }
                         Hub.enviar(s.id, t) { erro, _ ->
                             enviando = false
                             if (erro != null) aviso(erro) else {
                                 texto = ""
+                                anexos.clear()
                                 acaminho(t)
                             }
                         }

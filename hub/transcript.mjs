@@ -286,10 +286,11 @@ function walk(dir, sinceMs, out, depth = 0) {
 }
 
 // Soma os tokens gastos por uma conta desde `sinceMs`, lendo os historicos da
-// pasta da conta. `cache` (Map) evita reler arquivos que nao mudaram.
-export function scanWindowTokens(accountDir, sinceMs, cache) {
-  const files = [];
+// pasta da conta. `cache` (Map) evita reler arquivos que nao mudaram; `aceita(arquivo)` filtra.
+export function scanWindowTokens(accountDir, sinceMs, cache, aceita) {
+  let files = [];
   walk(path.join(accountDir, 'projects'), sinceMs, files);
+  if (aceita) files = files.filter((f) => aceita(f.full));
   const seen = new Set();
   const total = { in: 0, out: 0, cw: 0, cr: 0, msgs: 0 };
   const alive = new Set();

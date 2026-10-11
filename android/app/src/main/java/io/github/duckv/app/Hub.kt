@@ -47,6 +47,13 @@ object Hub {
     private var visivel = true
     private var querLigado = false
 
+    /** Ultima conta vista no inicio: voltar de uma conversa (ou reabrir o app) cai nela. */
+    var contaVista: String?
+        get() = prefs.getString("contaVista", null)
+        set(v) = prefs.edit().putString("contaVista", v).apply()
+    /** Pular para a conta que pede atencao so na primeira vez que o app abre. */
+    var pulouPede = false
+
     val base get() = prefs.getString("base", null)
     private val token get() = prefs.getString("token", null)
 
@@ -146,6 +153,25 @@ object Hub {
         var amostra = 1
         while (maxOf(o.outWidth, o.outHeight) / (amostra * 2) >= 1600) amostra *= 2
         return android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = amostra })
+    }
+
+    // ------------------------------------------------------------ anexos
+
+    /** Manda um arquivo do celular para o computador; devolve (nome, caminho no computador) ou o erro. Fora da thread principal. */
+    fun anexar(ctx: Context, uri: Uri): Result<Pair<String, String>> = runCatching {
+        val b = base ?: error("Sem conexão com o computador.")
+        val nome = ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        } ?: "arquivo"
+        val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("Não consegui ler $nome.")
+        if (bytes.size > 25 * 1024 * 1024) error("$nome passa de 25 MB.")
+        val req = Request.Builder().url("$b/api/anexo?nome=${Uri.encode(nome)}").header("Cookie", "painel=$token")
+            .post(bytes.toRequestBody("application/octet-stream".toMediaType())).build()
+        cliente.newCall(req).execute().use { r ->
+            val j = JSONObject(r.body?.string() ?: "{}")
+            if (!r.isSuccessful) error(j.optString("erro").ifBlank { "O computador recusou $nome." })
+            nome to j.getString("caminho")
+        }
     }
 
     // ------------------------------------------------------------ mensagens a caminho

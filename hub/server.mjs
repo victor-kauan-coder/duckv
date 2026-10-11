@@ -741,6 +741,18 @@ function startSession(m) {
   if (model !== 'default') inst.model = model;
   const env = { PAINEL_ACCOUNT: acc.id, PAINEL_ACCOUNT_NAME: pubAccount(acc.id).nome, PAINEL_INSTANCE: id, PAINEL_HOSTED: '1', PAINEL_PORT: String(PORT) };
   // A conversa mora na pasta da conta (historico da conta) ou na pasta padrao (Claude desktop).
+  // Conversa do desktop de outra conta (nao a logada no Claude Code padrao): copia para a pasta da conta e
+  // continua de la, com o login certo. A continuacao fica no historico da conta.
+  if (desk && !desk.configDir && !acc.padrao && acc.dir && acc.email !== emailDesktop && desk.transcript) {
+    try {
+      const destino = path.join(acc.dir, 'projects', path.basename(path.dirname(desk.transcript)));
+      fs.mkdirSync(destino, { recursive: true });
+      fs.copyFileSync(desk.transcript, path.join(destino, path.basename(desk.transcript)));
+      desk.configDir = acc.dir;
+    } catch (e) {
+      return { err: `Não consegui preparar a conversa para esta conta: ${e.message}` };
+    }
+  }
   const pastaConfig = desk ? desk.configDir : !acc.padrao ? acc.dir : null;
   if (pastaConfig) env.CLAUDE_CONFIG_DIR = pastaConfig;
   // Na pasta padrao nao ha ganchos do claudeV: vao pela linha de comando, sem mexer nas configuracoes de sempre.
@@ -1074,10 +1086,14 @@ function scanTokens() {
       const r = a.usage.five_hour?.resetsAt;
       const since = r && r > Date.now() ? r - FIVE_H : Date.now() - FIVE_H;
       const total = scanWindowTokens(a.dir, since, a.tokCache);
-      // A conta logada no Claude desktop tambem gasta pelas sessoes de la (pasta padrao).
-      if (a.email && a.email === emailDesktop) {
+      // Conversas do Claude desktop (pasta padrao) entram na conta dona de cada uma.
+      if (!a.padrao) {
         a.tokCacheDesk ||= new Map();
-        const d = scanWindowTokens(path.join(os.homedir(), '.claude'), since, a.tokCacheDesk);
+        const minha = (f) => {
+          const sid = /([0-9a-f]{8}-[0-9a-f-]{27})/.exec(path.relative(PROJETOS_DESKTOP, f))?.[1];
+          return sid ? donoDaConversa(sid) === a : a.email === emailDesktop;
+        };
+        const d = scanWindowTokens(path.join(os.homedir(), '.claude'), since, a.tokCacheDesk, minha);
         for (const k of Object.keys(total)) total[k] += d[k] || 0;
       }
       const next = { ...total, since };
@@ -1120,15 +1136,57 @@ function pastaDaSessao(file) {
     return null;
   }
 }
+// O app Claude desktop pode estar logado em varias contas e grava as conversas de todas na pasta
+// padrao; o dono de cada uma fica em claude-code-sessions/<conta>/<organizacao>/local_*.json.
+// No Windows o app vem da loja (MSIX): fora dele, a pasta Roaming dele mora em Packages\Claude_*\LocalCache.
+function pastaSessoesApp() {
+  const sub = path.join('Claude', 'claude-code-sessions');
+  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', sub);
+  if (process.platform !== 'win32') return path.join(os.homedir(), '.config', sub);
+  const pacotes = path.join(os.homedir(), 'AppData', 'Local', 'Packages');
+  const opcoes = [
+    ...lerDir(pacotes).filter((d) => d.isDirectory() && /^Claude_/.test(d.name)).map((d) => path.join(pacotes, d.name, 'LocalCache', 'Roaming', sub)),
+    path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), sub),
+  ];
+  return opcoes.find((p) => fs.existsSync(p)) || opcoes.at(-1);
+}
+let donos = { at: 0, map: new Map() };
+function donosDoDesktop() {
+  if (now() - donos.at < 15000) return donos.map;
+  const SESSOES_APP = pastaSessoesApp();
+  const map = new Map(); // sid da conversa -> { uuid da conta, titulo }
+  for (const conta of lerDir(SESSOES_APP)) {
+    if (!conta.isDirectory()) continue;
+    for (const org of lerDir(path.join(SESSOES_APP, conta.name))) {
+      if (!org.isDirectory()) continue;
+      for (const f of lerDir(path.join(SESSOES_APP, conta.name, org.name))) {
+        if (!/^local_.*\.json$/.test(f.name)) continue;
+        try {
+          const j = JSON.parse(fs.readFileSync(path.join(SESSOES_APP, conta.name, org.name, f.name), 'utf8'));
+          if (j.cliSessionId) map.set(j.cliSessionId, { uuid: conta.name, titulo: typeof j.title === 'string' ? j.title : null });
+        } catch {
+          /* arquivo pela metade */
+        }
+      }
+    }
+  }
+  donos = { at: now(), map };
+  return map;
+}
+// Conta dona de uma conversa da pasta padrao: a do app desktop, ou a logada no Claude Code padrao.
+function donoDaConversa(sid) {
+  const uuid = donosDoDesktop().get(sid)?.uuid;
+  const contas = [...accounts.values()];
+  return (uuid && contas.find((a) => a.uuid === uuid)) || contas.find((a) => a.email && a.email === emailDesktop) || contas[0];
+}
+
 function sessoesDoDesktop() {
-  let email = null;
   try {
-    email = emailDesktop = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).oauthAccount?.emailAddress || null;
+    emailDesktop = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).oauthAccount?.emailAddress || null;
   } catch {
     /* sem login padrao */
   }
-  const conta = [...accounts.values()].find((a) => a.email && a.email === email) || accounts.values().next().value;
-  if (!conta) return;
+  if (!accounts.size) return;
   const desde = now() - 12 * 3600 * 1000;
   const achadas = [];
   for (const proj of lerDir(PROJETOS_DESKTOP)) {
@@ -1154,12 +1212,16 @@ function sessoesDoDesktop() {
     vivas.add(id);
     let inst = instances.get(id);
     if (!inst) {
-      inst = getInst(id, conta.id);
+      inst = getInst(id, donoDaConversa(a.sid).id);
       inst.desktop = true;
       inst.sessionId = a.sid;
       inst.cwd = pastaDaSessao(a.full);
       inst.startedAt = a.mtime;
       setTranscript(inst, a.full);
+      mudou = true;
+    }
+    if (!inst.name && donosDoDesktop().get(a.sid)?.titulo) {
+      inst.name = clip(donosDoDesktop().get(a.sid).titulo, 40);
       mudou = true;
     }
     if (!inst.name) {
@@ -1230,18 +1292,20 @@ function tituloDaSessao(file, mtime) {
 function historicoDa(acc) {
   const pastas = [];
   if (acc.dir && !acc.padrao) pastas.push([path.join(acc.dir, 'projects'), 'conta']);
-  if (acc.padrao || (acc.email && acc.email === emailDesktop)) pastas.push([PROJETOS_DESKTOP, 'desktop']);
+  pastas.push([PROJETOS_DESKTOP, 'desktop']);
   const itens = [];
   for (const [raiz, origem] of pastas) {
     for (const proj of lerDir(raiz)) {
       if (!proj.isDirectory()) continue;
       for (const f of lerDir(path.join(raiz, proj.name))) {
         if (!f.isFile() || !/^[0-9a-f-]{36}\.jsonl$/.test(f.name)) continue;
+        const sid = f.name.slice(0, 36);
+        if (origem === 'desktop' && donoDaConversa(sid) !== acc) continue;
         const file = path.join(raiz, proj.name, f.name);
         try {
           const st = fs.statSync(file);
           if (st.size < 200) continue;
-          itens.push({ sid: f.name.slice(0, 36), file, origem, mtime: st.mtimeMs });
+          itens.push({ sid, file, origem, mtime: st.mtimeMs });
         } catch {
           /* sumiu */
         }
@@ -1249,7 +1313,10 @@ function historicoDa(acc) {
     }
   }
   itens.sort((a, b) => b.mtime - a.mtime);
-  return itens.slice(0, 80).map((x) => ({ ...x, cwd: pastaDaSessao(x.file), titulo: tituloDaSessao(x.file, x.mtime) || 'Conversa sem título' }));
+  // A mesma conversa pode existir nas duas pastas (continuada pelo celular): fica a mais recente.
+  const vistos = new Set();
+  const unicos = itens.filter((x) => !vistos.has(x.sid) && vistos.add(x.sid));
+  return unicos.slice(0, 120).map((x) => ({ ...x, cwd: pastaDaSessao(x.file), titulo: donosDoDesktop().get(x.sid)?.titulo || tituloDaSessao(x.file, x.mtime) || 'Conversa sem título' }));
 }
 
 // Imagens da conversa, servidas so para celulares pareados. As mais antigas saem primeiro.
@@ -1271,7 +1338,9 @@ const USO_URL = 'https://api.anthropic.com/api/oauth/usage';
 function lerEmail(a) {
   const f = a.padrao ? path.join(os.homedir(), '.claude.json') : path.join(a.dir, '.claude.json');
   try {
-    a.email = JSON.parse(fs.readFileSync(f, 'utf8')).oauthAccount?.emailAddress || null;
+    const o = JSON.parse(fs.readFileSync(f, 'utf8')).oauthAccount;
+    a.email = o?.emailAddress || null;
+    a.uuid = o?.accountUuid || null;
   } catch {
     a.email = null;
   }
@@ -1509,6 +1578,24 @@ const server = http.createServer(async (req, res) => {
         if (!img) return json(res, 404, { erro: 'imagem' });
         res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': img.media, 'Cache-Control': 'private, max-age=86400' });
         return res.end(img.buf);
+      }
+      // Arquivo anexado no celular: fica numa pasta do claudeV e a mensagem leva o caminho para o Claude ler.
+      // ponytail: data/anexos nunca e limpa; apagar pastas antigas quando ocupar espaco.
+      if (p === '/api/anexo' && req.method === 'POST') {
+        const nome = (url.searchParams.get('nome') || 'arquivo').normalize('NFC').replace(/[^\p{L}\p{N}._-]+/gu, '_').replace(/^[._]+/, '').slice(-80) || 'arquivo';
+        const partes = [];
+        let total = 0;
+        for await (const ch of req) {
+          total += ch.length;
+          if (total > 25 * 1024 * 1024) return json(res, 413, { erro: 'Arquivo grande demais (máximo de 25 MB).' });
+          partes.push(ch);
+        }
+        if (!total) return json(res, 400, { erro: 'Arquivo vazio.' });
+        const pasta = path.join(DATA, 'anexos', `${new Date().toISOString().slice(0, 10)}-${crypto.randomBytes(4).toString('hex')}`);
+        fs.mkdirSync(pasta, { recursive: true });
+        const caminho = path.join(pasta, nome);
+        fs.writeFileSync(caminho, Buffer.concat(partes));
+        return json(res, 200, { caminho });
       }
       if (p === '/api/push/key' && req.method === 'GET') return json(res, 200, { key: cfg.vapid.publicKey });
       if (p === '/api/push/subscribe' && req.method === 'POST') {

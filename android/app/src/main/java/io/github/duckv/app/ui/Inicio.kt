@@ -58,6 +58,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -125,13 +129,14 @@ fun Inicio(
     val pager = rememberPagerState { contas.size }
     val escopo = rememberCoroutineScope()
     var criando by remember { mutableStateOf(false) }
-    // Ao abrir, vai direto para a conta que precisa de voce.
-    var pulou by rememberSaveable { mutableStateOf(false) }
+    // Volta para a ultima conta vista; so na primeira abertura do app pula para a que precisa de voce.
     LaunchedEffect(e != null) {
-        if (e == null || pulou) return@LaunchedEffect
-        pulou = true
-        val i = contas.indexOfFirst { estadoDaConta(e, it, agora).bicho == "pede" }
+        if (e == null) return@LaunchedEffect
+        val pede = if (Hub.pulouPede) -1 else contas.indexOfFirst { estadoDaConta(e, it, agora).bicho == "pede" }
+        Hub.pulouPede = true
+        val i = if (pede >= 0) pede else contas.indexOfFirst { it.id == Hub.contaVista }
         if (i > 0) pager.scrollToPage(i)
+        snapshotFlow { pager.currentPage }.collect { p -> Hub.estado.value?.contas?.getOrNull(p)?.id?.let { Hub.contaVista = it } }
     }
 
     Box(Modifier.fillMaxSize().background(c.fundo)) {
@@ -173,23 +178,38 @@ fun Inicio(
                 ) {
                     CartaoConta(e, conta, agora, pato, Modifier.padding(horizontal = 16.dp))
                     val minhas = e.sessoes.filter { it.conta == conta.id }
-                    // cabecalho das sessoes, com o atalho para todas as conversas
-                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Sessões", style = Texto.secao, color = c.apoio, modifier = Modifier.weight(1f))
-                        TextButton({ aoHistorico(conta.id) }) { Text("Todas as conversas", style = Texto.rotulo, color = c.realce) }
+                    val ss = minhas.sortedWith(compareByDescending<Sessao> { it.precisa }.thenByDescending { it.status == "working" }.thenBy { it.inicio })
+                    // cabecalho das sessoes, com a contagem e o atalho para todas as conversas
+                    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 24.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Sessões", style = Texto.conta, color = c.texto)
+                        if (ss.isNotEmpty()) Text(
+                            "${ss.size}", style = Texto.pequeno.copy(fontWeight = FontWeight.Medium), color = c.apoio,
+                            modifier = Modifier.padding(start = 8.dp).clip(CircleShape).background(c.cartaoAlto).padding(horizontal = 8.dp, vertical = 1.dp),
+                        )
+                        Box(Modifier.weight(1f))
+                        TextButton({ aoHistorico(conta.id) }) {
+                            Icon(Icons.Rounded.History, null, tint = c.realce, modifier = Modifier.size(18.dp))
+                            Text("Todas as conversas", style = Texto.rotulo, color = c.realce, modifier = Modifier.padding(start = 6.dp))
+                        }
                     }
                     if (temPedidos(minhas)) Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { Pedidos(e, minhas, aoVerTela) }
-                    val ss = minhas.sortedWith(compareByDescending<Sessao> { it.precisa }.thenByDescending { it.status == "working" }.thenBy { it.inicio })
-                    if (ss.isEmpty()) {
-                        Text(
-                            if (e.host.disponivel) "Nenhuma sessão aberta. Toque em Abrir sessão, ou abra o atalho ${conta.id} no computador."
-                            else "Nenhuma sessão aberta. Abra o atalho ${conta.id} no computador.",
-                            style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        )
-                    }
-                    for ((n, s) in ss.withIndex()) {
-                        if (n > 0) Divisoria(Modifier.padding(start = 72.dp, end = 16.dp))
-                        LinhaSessao(s, Color(conta.cor)) { aoAbrirSessao(s.id) }
+                    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(c.cartao).padding(vertical = 6.dp)) {
+                        if (ss.isEmpty()) {
+                            // estado vazio: o computador em pixels e o proximo passo
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                PixelArte(NOTEBOOK, Modifier.size(64.dp), mapOf('#' to c.texto, 'o' to c.elevada, 'b' to c.apoio, 'm' to Color(conta.cor)))
+                                Text("Nenhuma sessão aberta", style = Texto.rotulo, color = c.texto, modifier = Modifier.padding(top = 12.dp))
+                                Text(
+                                    if (e.host.disponivel) "Toque em Abrir sessão ou continue uma conversa antiga em Todas as conversas."
+                                    else "Abra o atalho ${conta.id} no computador.",
+                                    style = Texto.apoio, color = c.apoio, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+                        for ((n, s) in ss.withIndex()) {
+                            if (n > 0) Divisoria(Modifier.padding(start = 72.dp, end = 16.dp))
+                            LinhaSessao(s, Color(conta.cor)) { aoAbrirSessao(s.id) }
+                        }
                     }
                     // outras contas pedindo permissao: um atalho, sem precisar procurar
                     val outras = contas.filter { it.id != conta.id && estadoDaConta(e, it, agora).bicho == "pede" }
@@ -260,9 +280,9 @@ private fun SeletorConta(e: Estado, contas: List<Conta>, atual: Int, agora: Long
             { aberto = true }, Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(12.dp), color = Color.Transparent,
             border = androidx.compose.foundation.BorderStroke(1.dp, c.vazio),
         ) {
-            Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Marca(Color(conta.cor), tamanho = 12.dp)
-                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Row(Modifier.padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Pato(est.bicho, "parado", Color(conta.cor), Modifier.size(width = 40.dp, height = 32.dp), andar = false, tocavel = false, tipo = conta.pato)
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
                     Text(conta.nome, style = Texto.conta, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     // o estado so aparece aqui quando pede atencao; o resto as sessoes ja contam
                     if (est.bicho == "pede" || est.bicho == "cansado") Text(est.texto, style = Texto.pequeno, color = if (est.bicho == "pede") c.realce else c.perigo, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -359,66 +379,115 @@ private fun Esqueleto() {
     }
 }
 
-/** A conta: pato, nome, estado, o limite de 5 horas em destaque, semana e tokens lado a lado. */
+/**
+ * A conta em destaque: um cartao tingido com a cor dela, o pato de pe no chao de pixels,
+ * o limite de 5 horas grande e, embaixo, semana e tokens em dois blocos.
+ */
 @Composable
 private fun CartaoConta(e: Estado, conta: Conta, agora: Long, pato: String, modifier: Modifier) {
     val c = cores
     val cor = Color(conta.cor)
     val est = estadoDaConta(e, conta, agora)
-    Cartao(modifier) {
-        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            // o pato mora aqui; um toque e ele reage
-            Pato(est.bicho, pato, cor, Modifier.size(width = 76.dp, height = 60.dp), andar = false, tipo = conta.pato)
-            Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(conta.email ?: conta.nome, style = Texto.rotulo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                conta.plano?.let { p -> Text("Plano ${p.replaceFirstChar { it.uppercase() }}", style = Texto.pequeno, color = c.apoio, maxLines = 1) }
+    val fundo = cor.copy(alpha = if (c.escuro) 0.16f else 0.13f).compositeOver(c.cartao)
+    val cinco = conta.cinco?.pct
+    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(fundo).padding(start = 20.dp, end = 16.dp, top = 18.dp, bottom = 16.dp)) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f).padding(bottom = 6.dp)) {
+                Text(conta.nome, style = Texto.titulo.copy(fontWeight = FontWeight.Medium), color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOfNotNull(conta.email, conta.plano?.let { p -> "Plano ${p.replaceFirstChar { it.uppercase() }}" }).joinToString(" · "),
+                    style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                EstadoPilula(est, cor, Modifier.padding(top = 12.dp))
+            }
+            // o pato mora aqui, de pe no chao; um toque e ele reage
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Pato(est.bicho, pato, cor, Modifier.size(width = 104.dp, height = 82.dp), andar = false, tipo = conta.pato)
+                Chao(cor, Modifier.width(96.dp))
             }
         }
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)) {
-            Medidor("Limite de 5 horas", "five_hour", conta.cinco, conta, cor, agora, grande = true)
-            Divisoria(Modifier.padding(vertical = 14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Box(Modifier.weight(1f)) { Medidor("Semana", "seven_day", conta.semana, conta, cor, agora, grande = false) }
-                Column(Modifier.weight(1f)) {
-                    Text("Tokens nas últimas 5 horas", style = Texto.pequeno, color = c.apoio)
-                    Text(conta.tokens?.let { compacto(it.novos) } ?: "sem leitura", style = Texto.rotulo.copy(fontSize = 16.sp), color = c.texto)
-                    conta.tokens?.takeIf { it.cr > 0 }?.let { Text("${compacto(it.cr)} relidos do cache", style = Texto.pequeno, color = c.apoio) }
-                }
+
+        Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.Bottom) {
+            if (cinco == null) {
+                Text("—", style = Texto.numero.copy(fontSize = 52.sp, lineHeight = 56.sp), color = c.apoio)
+            } else {
+                Text("${cinco.toInt()}", style = Texto.numero.copy(fontSize = 52.sp, lineHeight = 56.sp, letterSpacing = (-1.5).sp), color = if (cinco >= 100) c.perigo else c.texto)
+                Text("%", style = Texto.titulo, color = c.apoio, modifier = Modifier.padding(start = 2.dp, bottom = 8.dp))
             }
+            Column(Modifier.weight(1f).padding(start = 16.dp, bottom = 8.dp), horizontalAlignment = Alignment.End) {
+                Text("limite de 5 horas", style = Texto.pequeno, color = c.apoio)
+                Text(reinicio("five_hour", conta.cinco, conta, agora, curto = true), style = Texto.rotulo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Celulas(100, (cinco ?: 0.0).toInt().coerceIn(0, 100), cor, Modifier.padding(top = 4.dp), quenteDe = 80, altura = 6.dp)
+        if (cinco == null) Text("Aparece depois da primeira resposta do Claude nesta conta.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 8.dp))
+
+        Row(Modifier.padding(top = 16.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Bloco("Semana", conta.semana?.pct?.let { "${it.toInt()}%" } ?: "—", reinicio("seven_day", conta.semana, conta, agora, curto = true), Modifier.weight(1f).fillMaxHeight()) {
+                Celulas(100, (conta.semana?.pct ?: 0.0).toInt().coerceIn(0, 100), cor, Modifier.padding(top = 8.dp), quenteDe = 80, altura = 4.dp)
+            }
+            Bloco(
+                "Tokens em 5 h", conta.tokens?.let { compacto(it.novos) } ?: "—",
+                conta.tokens?.takeIf { it.cr > 0 }?.let { "${compacto(it.cr)} do cache" } ?: "sem leitura ainda",
+                Modifier.weight(1f).fillMaxHeight(),
+            )
+        }
+        conta.lidoEm?.takeIf { conta.cinco?.pct != null && agora - it > 5 * 60_000 }?.let {
+            Text("Leitura de ${falta(agora - it)} atrás", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 10.dp))
         }
     }
 }
 
+/** Quando a janela reinicia, em texto curto para caber ao lado do numero. */
+private fun reinicio(janela: String, u: Uso?, conta: Conta, agora: Long, curto: Boolean): String = when {
+    u?.pct == null -> "sem leitura"
+    u.resetsAt != null && u.resetsAt > agora -> {
+        val resta = u.resetsAt - agora
+        if (janela == "five_hour" || resta < 20 * 3600_000L) "reinicia às ${hora(u.resetsAt)}" + if (curto) "" else ", em ${falta(resta)}"
+        else "reinicia ${diaDaSemana(u.resetsAt)}"
+    }
+    u.fresh -> "reiniciou" + (conta.reinicio?.takeIf { it.janela == janela }?.let { " às ${hora(it.em)}" }.orEmpty())
+    else -> "reinício não informado"
+}
+
+/** Bloco claro dentro do cartao da conta: rotulo, numero e uma linha de apoio. */
 @Composable
-private fun Medidor(rotulo: String, janela: String, u: Uso?, conta: Conta, cor: Color, agora: Long, grande: Boolean) {
+private fun Bloco(rotulo: String, valor: String, apoio: String, modifier: Modifier, extra: @Composable () -> Unit = {}) {
     val c = cores
-    Column {
-        if (grande) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(rotulo, style = Texto.apoio, color = c.apoio, modifier = Modifier.weight(1f).padding(bottom = 4.dp))
-                Text(if (u?.pct == null) "sem leitura" else "${u.pct.toInt()}%", style = if (u?.pct == null) Texto.apoio else Texto.numero, color = if ((u?.pct ?: 0.0) >= 100) c.perigo else c.texto)
-            }
-        } else {
-            Text(rotulo, style = Texto.pequeno, color = c.apoio)
-            Text(if (u?.pct == null) "sem leitura" else "${u.pct.toInt()}%", style = Texto.rotulo.copy(fontSize = 16.sp), color = if ((u?.pct ?: 0.0) >= 100) c.perigo else c.texto)
+    Column(modifier.clip(RoundedCornerShape(18.dp)).background(c.fundo.copy(alpha = if (c.escuro) 0.55f else 0.75f)).padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Text(rotulo, style = Texto.pequeno, color = c.apoio)
+        Text(valor, style = Texto.titulo.copy(fontWeight = FontWeight.Medium), color = c.texto, modifier = Modifier.padding(top = 2.dp))
+        extra()
+        Text(apoio, style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
+/** O estado da conta numa pilula: ponto colorido e a frase. */
+@Composable
+private fun EstadoPilula(est: EstadoConta, cor: Color, modifier: Modifier = Modifier) {
+    val c = cores
+    val pede = est.bicho == "pede"
+    val cansado = est.bicho == "cansado"
+    Row(
+        modifier.clip(CircleShape).background(if (pede) c.invFundo else c.fundo.copy(alpha = if (c.escuro) 0.55f else 0.75f)).padding(start = 10.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(if (pede) c.realce else if (cansado) c.perigo else if (est.acesa) cor else c.ok))
+        Text(est.texto, style = Texto.pequeno.copy(fontWeight = FontWeight.Medium), color = if (pede) c.invTexto else c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
+    }
+}
+
+/** O chao de pixels onde o pato pisa: tijolinhos na cor da conta, sumindo nas pontas. */
+@Composable
+private fun Chao(cor: Color, modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier.height(6.dp)) {
+        val lado = 3.dp.toPx()
+        val n = (size.width / lado).toInt()
+        for (i in 0 until n) {
+            val meio = 1f - kotlin.math.abs(i - n / 2f) / (n / 2f)
+            drawRect(cor.copy(alpha = 0.15f + 0.55f * meio), androidx.compose.ui.geometry.Offset(i * lado, 0f), androidx.compose.ui.geometry.Size(lado - 0.5f, lado))
+            if (i % 2 == 0) drawRect(cor.copy(alpha = 0.08f + 0.25f * meio), androidx.compose.ui.geometry.Offset(i * lado, lado), androidx.compose.ui.geometry.Size(lado - 0.5f, lado))
         }
-        Box(Modifier.padding(vertical = if (grande) 8.dp else 6.dp)) {
-            Celulas(100, (u?.pct ?: 0.0).toInt().coerceIn(0, 100), cor, quenteDe = 80, altura = 4.dp)
-        }
-        val texto = when {
-            u?.pct == null -> "Aparece depois da primeira resposta do Claude nesta conta."
-            u.resetsAt != null && u.resetsAt > agora -> {
-                val resta = u.resetsAt - agora
-                if (janela == "five_hour" || resta < 20 * 3600_000L) "Reinicia às ${hora(u.resetsAt)}, em ${falta(resta)}"
-                else "Reinicia ${diaDaSemana(u.resetsAt)} às ${hora(u.resetsAt)}"
-            }
-            u.fresh -> {
-                val r = conta.reinicio?.takeIf { it.janela == janela }?.let { " às ${hora(it.em)}" }.orEmpty()
-                "Reiniciou$r. Conta de novo no próximo uso"
-            }
-            else -> "Reinício não informado"
-        } + (conta.lidoEm?.takeIf { u?.pct != null && u.fresh.not() && agora - it > 5 * 60_000 }?.let { ". Leitura de ${falta(agora - it)} atrás" } ?: "")
-        Text(texto, style = Texto.pequeno, color = c.apoio)
     }
 }
 
@@ -443,8 +512,9 @@ private fun LinhaSessao(s: Sessao, cor: Color, aoTocar: () -> Unit) {
         Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = aoTocar).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(40.dp).clip(CircleShape).background(if (s.precisa) c.invFundo else c.cartaoAlto), contentAlignment = Alignment.Center) {
-            Text(s.titulo.take(1).uppercase(), style = Texto.conta, color = if (s.precisa) c.invTexto else c.apoio)
+        // avatar com a inicial, tingido com a cor da conta; quem precisa de voce ganha o tom de destaque
+        Box(Modifier.size(40.dp).clip(CircleShape).background(if (s.precisa) c.invFundo else cor.copy(alpha = if (c.escuro) 0.22f else 0.16f).compositeOver(c.cartao)), contentAlignment = Alignment.Center) {
+            Text(s.titulo.take(1).uppercase(), style = Texto.conta, color = if (s.precisa) c.invTexto else c.texto)
         }
         Column(Modifier.weight(1f).padding(start = 16.dp)) {
             Text(s.titulo, style = Texto.corpo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
