@@ -101,6 +101,7 @@ class Ditado(private val ctx: Context, private val aoErro: (String) -> Unit, pri
         }
         texto = ""
         parcial = ""
+        falhas = 0
         niveis.clear()
         inicio = SystemClock.elapsedRealtime()
         gravando = true
@@ -130,9 +131,11 @@ class Ditado(private val ctx: Context, private val aoErro: (String) -> Unit, pri
         niveis.clear()
     }
 
-    private fun ouvir() {
-        runCatching { rec?.destroy() }
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+    // Erros passageiros seguidos (servico ocupado, rede piscando). Zera a cada palavra entendida.
+    private var falhas = 0
+
+    private val pedido by lazy {
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
@@ -140,10 +143,47 @@ class Ditado(private val ctx: Context, private val aoErro: (String) -> Unit, pri
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L)
         }
-        rec = SpeechRecognizer.createSpeechRecognizer(ctx).apply {
-            setRecognitionListener(ouvinte)
-            startListening(intent)
+    }
+
+    // O mesmo reconhecedor serve a gravacao inteira; recriar a cada pausa faz o servico do Google responder "ocupado".
+    private fun ouvir() {
+        val r = rec ?: SpeechRecognizer.createSpeechRecognizer(ctx).also {
+            it.setRecognitionListener(ouvinte)
+            rec = it
         }
+        runCatching { r.startListening(pedido) }.onFailure { falhou(SpeechRecognizer.ERROR_CLIENT) }
+    }
+
+    /** Volta a ouvir depois de uma pausa ou de um erro passageiro; [novo] troca o reconhecedor por um limpo. */
+    private fun recomecar(espera: Long = 250, novo: Boolean = false) {
+        if (!gravando) return finalizar()
+        main.postDelayed({
+            if (!gravando) return@postDelayed
+            if (novo) {
+                runCatching { rec?.destroy() }
+                rec = null
+            } else runCatching { rec?.cancel() }
+            ouvir()
+        }, espera)
+    }
+
+    private fun falhou(error: Int) {
+        if (!gravando) return finalizar()
+        val fatal = error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS || error == 12 || error == 13 // sem permissao, idioma sem suporte, idioma indisponivel
+        if (!fatal && ++falhas <= 5) return recomecar(espera = 300L * falhas, novo = falhas >= 2)
+        val msg = when (error) {
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "O duckV não tem acesso ao microfone. Libere em Configurações > Apps > duckV > Permissões."
+            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER, 11 ->
+                "O reconhecimento de voz perdeu a internet. O que eu já tinha entendido está no campo."
+            SpeechRecognizer.ERROR_AUDIO -> "O microfone parou de responder. Feche outro app que esteja usando ele e tente de novo."
+            12, 13 -> "O reconhecimento de voz deste celular não tem português instalado."
+            else -> "O reconhecimento de voz parou. O que eu já tinha entendido está no campo."
+        }
+        val tinha = completo
+        cancelar()
+        // o que ja foi entendido nao se perde: vai para o campo, para revisar antes de mandar
+        if (tinha.isNotEmpty()) aoSobrar(tinha)
+        aoErro(msg)
     }
 
     private fun primeiro(b: Bundle?) = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
@@ -175,40 +215,34 @@ class Ditado(private val ctx: Context, private val aoErro: (String) -> Unit, pri
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
-            primeiro(partialResults).takeIf { it.isNotEmpty() }?.let { parcial = it }
+            primeiro(partialResults).takeIf { it.isNotEmpty() }?.let {
+                parcial = it
+                falhas = 0
+            }
         }
 
         override fun onResults(results: Bundle?) {
             val t = primeiro(results).ifEmpty { parcial }
-            if (t.isNotEmpty()) texto = listOf(texto, t).filter { it.isNotBlank() }.joinToString(" ")
+            if (t.isNotEmpty()) {
+                texto = listOf(texto, t).filter { it.isNotBlank() }.joinToString(" ")
+                falhas = 0
+            }
             parcial = ""
-            if (gravando) ouvir() else finalizar()
+            if (gravando) recomecar() else finalizar()
         }
 
         override fun onError(error: Int) {
             when (error) {
                 // pausa longa ou nada entendido: continua ouvindo enquanto voce nao parar
-                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
-                    if (gravando) ouvir() else finalizar()
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
-                    if (gravando) main.postDelayed({ if (gravando) ouvir() }, 300) else finalizar()
-                SpeechRecognizer.ERROR_CLIENT -> if (!gravando) finalizar()
-                else -> {
-                    val msg = when (error) {
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "O duckV não tem acesso ao microfone. Libere em Configurações > Apps > duckV > Permissões."
-                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
-                            "O reconhecimento de voz precisa de internet. Confira a conexão e tente de novo."
-                        SpeechRecognizer.ERROR_AUDIO -> "O microfone não respondeu. Feche outro app que esteja usando ele e tente de novo."
-                        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
-                            "O reconhecimento de voz deste celular não tem português instalado."
-                        else -> "O reconhecimento de voz parou (erro $error). Tente de novo."
+                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                    // o trecho em analise vira texto firme antes de recomecar
+                    if (parcial.isNotBlank()) {
+                        texto = listOf(texto, parcial).filter { it.isNotBlank() }.joinToString(" ")
+                        parcial = ""
                     }
-                    val tinha = completo
-                    cancelar()
-                    // o que ja foi entendido nao se perde: vai para o campo, para revisar antes de mandar
-                    if (tinha.isNotEmpty()) aoSobrar(tinha)
-                    aoErro(msg)
+                    if (gravando) recomecar() else finalizar()
                 }
+                else -> falhou(error)
             }
         }
     }

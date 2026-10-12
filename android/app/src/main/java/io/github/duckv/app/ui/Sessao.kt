@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -46,6 +47,8 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.CloseFullscreen
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowLeft
@@ -204,6 +207,23 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
     val acaminho = pend.filter { it.first == s.id && it.second.trim() !in enviadas }.map { it.second }.distinct()
     // Quando a mensagem aparece de verdade, sai da lista de "a caminho".
     LaunchedEffect(enviadas) { Hub.aCaminho.value = Hub.aCaminho.value.filterNot { it.first == s.id && it.second.trim() in enviadas } }
+    // copiar e reenviar: um toque em cada mensagem
+    val area = androidx.compose.ui.platform.LocalClipboardManager.current
+    val aviso = LocalAviso.current
+    val copiar = { t: String ->
+        area.setText(androidx.compose.ui.text.AnnotatedString(semMarcaVoz(t)))
+        aviso("Copiada")
+    }
+    val podeReenviar = s.viva && s.podeEnviar && !s.desktop
+    val reenviar = { t: String ->
+        Hub.enviar(s.id, t) { erro, _ ->
+            if (erro != null) aviso(erro) else Hub.aCaminho.value = Hub.aCaminho.value + (s.id to t)
+        }
+    }
+    val tirarDaFila = { t: String ->
+        Hub.aCaminho.value = Hub.aCaminho.value.filterNot { it.first == s.id && it.second == t }
+        Hub.mandar(org.json.JSONObject().put("t", "desistir").put("instance", s.id)) { erro, _ -> aviso(erro ?: "Mensagem tirada da fila") }
+    }
     val lista = rememberLazyListState()
     val noFim by remember { derivedStateOf { lista.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= lista.layoutInfo.totalItemsCount - 3 } ?: true } }
     var primeira by remember { mutableStateOf(true) }
@@ -229,9 +249,17 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
                 style = Texto.apoio, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
             )
         }
-        items(msgs, key = { it.first().id }) { if (it.size > 1) GrupoFerramentas(it, cor) else Mensagem(it.first(), cor) }
+        itemsIndexed(msgs, key = { _, g -> g.first().id }) { i, g ->
+            if (g.size > 1) GrupoFerramentas(g, cor)
+            else {
+                // a resposta ganha "Copiar" no fim de cada vez que o agente fala
+                // o ultimo texto antes da proxima mensagem sua (as ferramentas no meio nao contam)
+                val fimDaFala = msgs.drop(i + 1).firstOrNull { it.first().papel != "tool" }?.first()?.papel.let { it == null || it == "user" }
+                Mensagem(g.first(), cor, aoCopiar = copiar, aoReenviar = if (podeReenviar) reenviar else null, fimDaFala = fimDaFala)
+            }
+        }
         // Mensagens aceitas pelo computador que o Claude Code ainda nao registrou: aparecem na hora, esmaecidas.
-        items(acaminho, key = { "pend:" + it }) { t -> MensagemACaminho(t, cor) }
+        items(acaminho, key = { "pend:" + it }) { t -> MensagemACaminho(t, cor, aoCopiar = copiar, aoTirar = if (s.hospedada) tirarDaFila else null) }
     }
 }
 
@@ -413,7 +441,7 @@ private fun Blocos(texto: String, cor: Color) {
 }
 
 @Composable
-private fun Mensagem(m: Msg, cor: Color) {
+private fun Mensagem(m: Msg, cor: Color, aoCopiar: (String) -> Unit = {}, aoReenviar: ((String) -> Unit)? = null, fimDaFala: Boolean = false) {
     val c = cores
     when (m.papel) {
         "tool" -> Row(Modifier.padding(start = 4.dp), verticalAlignment = Alignment.Top) {
@@ -429,7 +457,7 @@ private fun Mensagem(m: Msg, cor: Color) {
         }
         "image" -> m.img?.let { ImagemDaConversa(it, m.via == "user") }
         "sys" -> Text(m.texto, style = Texto.pequeno, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp))
-        "user" -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        "user" -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
             val forma = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)
             Column(
                 Modifier.widthIn(max = 520.dp).fillMaxWidth(0.86f).wrapIfShort().clip(forma).background(c.invFundo).padding(horizontal = 16.dp, vertical = 10.dp),
@@ -439,8 +467,15 @@ private fun Mensagem(m: Msg, cor: Color) {
                 SelectionContainer { Blocos(semMarcaVoz(m.texto), cor) }
                 if (m.doCelular) Text("Enviada do celular", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
             }
+            AcoesMensagem(Alignment.End) {
+                AcaoMensagem(Icons.Rounded.ContentCopy, "Copiar") { aoCopiar(m.texto) }
+                if (aoReenviar != null) AcaoMensagem(Icons.Rounded.Replay, "Reenviar") { aoReenviar(m.texto) }
+            }
         }
-        else -> SelectionContainer { Blocos(m.texto, cor) }
+        else -> Column {
+            SelectionContainer { Blocos(m.texto, cor) }
+            if (fimDaFala && m.texto.isNotBlank()) AcoesMensagem(Alignment.Start) { AcaoMensagem(Icons.Rounded.ContentCopy, "Copiar") { aoCopiar(m.texto) } }
+        }
     }
 }
 
@@ -486,9 +521,9 @@ private fun ImagemDaConversa(id: String, doUsuario: Boolean) {
 }
 
 @Composable
-private fun MensagemACaminho(t: String, cor: Color) {
+private fun MensagemACaminho(t: String, cor: Color, aoCopiar: (String) -> Unit = {}, aoTirar: ((String) -> Unit)? = null) {
     val c = cores
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
         Column(
             Modifier.widthIn(max = 520.dp).fillMaxWidth(0.86f).wrapIfShort().clip(RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
                 .background(cor.copy(alpha = if (c.escuro) 0.12f else 0.08f)).border(1.dp, cor.copy(alpha = 0.35f), RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
@@ -499,6 +534,29 @@ private fun MensagemACaminho(t: String, cor: Color) {
             Text(semMarcaVoz(t), style = Texto.corpo, color = c.texto.copy(alpha = 0.75f))
             Text("Enviando", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
         }
+        AcoesMensagem(Alignment.End) {
+            AcaoMensagem(Icons.Rounded.ContentCopy, "Copiar") { aoCopiar(t) }
+            if (aoTirar != null) AcaoMensagem(Icons.Rounded.Close, "Tirar da fila") { aoTirar(t) }
+        }
+    }
+}
+
+/** Fileira discreta de acoes embaixo de uma mensagem. */
+@Composable
+private fun AcoesMensagem(lado: Alignment.Horizontal, conteudo: @Composable () -> Unit) {
+    Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp, lado)) { conteudo() }
+}
+
+/** Uma acao da mensagem: icone pequeno e rotulo curto, com alvo de toque de 40 dp. */
+@Composable
+private fun AcaoMensagem(icone: androidx.compose.ui.graphics.vector.ImageVector, rotulo: String, aoTocar: () -> Unit) {
+    val c = cores
+    Row(
+        Modifier.clip(RoundedCornerShape(20.dp)).clickable(role = Role.Button, onClick = aoTocar).heightIn(min = 40.dp).padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icone, null, tint = c.apoio, modifier = Modifier.size(16.dp))
+        Text(rotulo, style = Texto.pequeno.copy(fontWeight = FontWeight.Medium), color = c.apoio, modifier = Modifier.padding(start = 6.dp))
     }
 }
 

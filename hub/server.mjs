@@ -15,6 +15,13 @@ import { Tail, parseEntry, TaskTracker, scanWindowTokens } from './transcript.mj
 import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter } from './hosted.mjs';
 import { agenteDe, ehAgente, catalogo, instalado } from './agentes.mjs';
 
+// Aberto de dentro de uma sessao do Claude Code (o app desktop, um terminal do agente), o duckV herdaria as
+// marcas dela, e cada agente que ele abre se acharia uma sessao filha: sem salvar o historico, a conversa nunca
+// chega ao celular. Os agentes abertos daqui sao sessoes de verdade, entao essas marcas saem do ambiente.
+for (const k of Object.keys(process.env)) {
+  if (k === 'CLAUDECODE' || k === 'CLAUDE_PID' || k === 'CLAUDE_EFFORT' || /^CLAUDE_(CODE|AGENT_SDK|PREVIEW)_/.test(k)) delete process.env[k];
+}
+
 const argv = new Set(process.argv.slice(2));
 const cfg = ensureConfig(() => webpush.generateVAPIDKeys());
 const PORT = Number(process.env.PAINEL_PORT) || cfg.port;
@@ -555,6 +562,12 @@ async function onPhoneMessage(c, m) {
       dirty();
       break;
     }
+    case 'desistir': {
+      const inst = instances.get(m.instance);
+      const n = inst?.hosted?.desistir?.() || 0;
+      send(c, { t: 'ack', ref: m.ref, n });
+      break;
+    }
     case 'verdict': {
       const err = applyVerdict(m.instance, m.request_id, m.behavior, m.note);
       if (err) send(c, { t: 'err', ref: m.ref, msg: err });
@@ -891,6 +904,11 @@ function startSession(m) {
       rows: Number(m.rows) || 32,
       command: ag.id === 'claude' ? testCommand : null,
       onScreen: (snap) => telaDe(inst, snap),
+      onEspera: (n, tela) => {
+        const pedaco = tela.filter((l) => !/^[─━═\-_|│┃\s]+$/.test(l)).slice(-3).join(' · ');
+        sysMsg(inst, `${n === 1 ? 'Sua mensagem está' : `${n} mensagens estão`} esperando: o ${ag.curto} ainda não mostrou a caixa de mensagem${pedaco ? ` (a tela diz: "${clip(pedaco, 160)}")` : ''}. Veja em Controles › Terminal. Se esta conversa estiver aberta no computador, feche-a lá.`);
+        dirty();
+      },
       onExit: () => {
         inst.hosted = null;
         for (const p of [...inst.perms]) p.resolve?.(null);

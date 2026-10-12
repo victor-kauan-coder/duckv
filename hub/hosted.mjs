@@ -353,6 +353,9 @@ export function startHosted(opts) {
   // uma linha que comeca com o marcador de entrada e nao e opcao numerada de menu.
   const fila = [];
   let digitando = false;
+  // Mensagem esperando a caixa ha muito tempo: avisa uma vez, com o que a tela mostra, em vez de esperar calada.
+  let esperaDesde = 0;
+  let avisouEspera = false;
   const CAIXA = opts.caixa || /^\s*[❯>][\s ](?!\d[.)]\s)/;
   // Com um menu aberto (confiar na pasta, permissao...) nao e caixa de mensagem: o Enter escolheria uma opcao.
   const pronto = () => {
@@ -361,7 +364,17 @@ export function startHosted(opts) {
   };
   function esvaziar() {
     if (digitando || !fila.length || !alive) return;
-    if (!pronto()) return void setTimeout(esvaziar, 300);
+    if (!pronto()) {
+      esperaDesde ||= Date.now();
+      if (!avisouEspera && Date.now() - esperaDesde > 12000) {
+        avisouEspera = true;
+        const tela = snapshot().lines.map((l) => l.trim()).filter(Boolean);
+        opts.onEspera?.(fila.length, tela.slice(-6));
+      }
+      return void setTimeout(esvaziar, 300);
+    }
+    esperaDesde = 0;
+    avisouEspera = false;
     digitando = true;
     const t = fila.shift();
     // Limpa a caixa antes: depois de Interromper, o Claude Code devolve a ultima mensagem para ela.
@@ -456,6 +469,15 @@ export function startHosted(opts) {
       fila.push(t);
       esvaziar();
       return true;
+    },
+    pendentes: () => fila.length,
+    // Tira da fila o que ainda nao foi digitado (o celular desistiu de mandar).
+    desistir() {
+      const n = fila.length;
+      fila.length = 0;
+      esperaDesde = 0;
+      avisouEspera = false;
+      return n;
     },
     kill() {
       if (!alive) return;
