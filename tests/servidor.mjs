@@ -145,5 +145,14 @@ ok(confia?.menu && confia.selecionada === 0 && confia.opcoes[1]?.rotulo === 'Yes
 ok(readPrompt(['────', '❯ Try "edit"', '────', '  manual mode on']) === null, 'caixa de mensagem nao e confundida com menu');
 ok(readPrompt(['Do you want to proceed?', '❯ 1. Yes', '  2. No'])?.opcoes.length === 2, 'menu numerado continua reconhecido');
 
+// Mensagens do celular que o Claude Code registra de outro jeito: precisam aparecer na conversa, ou ficam "a caminho" para sempre.
+{
+  const { parseEntry } = await import(pathToFileURL(path.join(ROOT, 'hub', 'transcript.mjs')).href);
+  const textoDe = (e) => parseEntry(e).items.find((i) => i.role === 'user')?.text;
+  ok(textoDe({ type: 'attachment', uuid: 'a1', timestamp: '2026-10-12T21:45:37Z', attachment: { type: 'queued_command', prompt: 'manda no github' } }) === 'manda no github', 'mensagem enviada com o Claude trabalhando aparece na conversa');
+  ok(textoDe({ type: 'attachment', uuid: 'a2', timestamp: '2026-10-12T21:45:37Z', attachment: { type: 'queued_command', prompt: '<task-notification>x</task-notification>' } }) === undefined, 'aviso de tarefa em segundo plano nao vira mensagem');
+  ok(textoDe({ type: 'user', uuid: 'u1', timestamp: '2026-10-12T21:45:37Z', message: { role: 'user', content: '<pasted_content id="ab12">\nlinha um\nlinha dois\n</pasted_content id="ab12">' } }) === 'linha um\nlinha dois', 'texto longo colado aparece como foi enviado');
+}
+
 console.log(process.exitCode ? '\nAlgum teste falhou.' : '\nServidor e canal: tudo certo.');
 process.exit(process.exitCode || 0);

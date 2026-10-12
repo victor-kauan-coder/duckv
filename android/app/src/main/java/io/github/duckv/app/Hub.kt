@@ -239,6 +239,9 @@ object Hub {
     /** Mensagens ja aceitas pelo computador que ainda nao apareceram na conversa: (sessao, texto). */
     val aCaminho = MutableStateFlow<List<Pair<String, String>>>(emptyList())
 
+    /** Mensagem tocada em "Editar": (sessao, texto) que o campo da conversa pega e limpa. */
+    val rascunho = MutableStateFlow<Pair<String, String>?>(null)
+
     // ------------------------------------------------------------ ligacao
 
     fun ligar() {

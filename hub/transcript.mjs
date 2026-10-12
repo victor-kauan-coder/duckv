@@ -117,6 +117,8 @@ export function cleanUserText(raw) {
   let t = String(raw ?? '');
   if (t.includes('<channel source=')) return null; // mensagens do celular: o servidor ja registrou
   t = t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '');
+  // Texto longo chega como colado e o Claude Code o embrulha; o celular procura o texto como foi enviado.
+  t = t.replace(/<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g, '$2');
   const cmd = /<command-name>([\s\S]*?)<\/command-name>/.exec(t);
   if (cmd) {
     const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(t);
@@ -151,6 +153,14 @@ function imagem(b) {
 export function parseEntry(e) {
   const out = { items: [], usage: null, tools: [], results: [] };
   if (!e || typeof e !== 'object') return out;
+  // Mensagem que chegou com o Claude trabalhando: entra no meio da tarefa e fica registrada assim,
+  // nao como mensagem comum. Sem isto, o celular a mostraria "a caminho" para sempre.
+  if (e.type === 'attachment' && e.attachment?.type === 'queued_command' && !e.isSidechain) {
+    const p = e.attachment.prompt;
+    const text = cleanUserText(typeof p === 'string' ? p : Array.isArray(p) ? p.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') : '');
+    if (text) out.items.push({ id: `${e.uuid}:0`, role: 'user', text: clip(text, 8000), ts: Date.parse(e.timestamp) || Date.now() });
+    return out;
+  }
   const msg = e.message;
   if (!msg || typeof msg !== 'object') return out;
   const ts = Date.parse(e.timestamp) || Date.now();

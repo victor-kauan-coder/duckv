@@ -60,6 +60,11 @@ import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
@@ -221,6 +226,8 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
             if (erro != null) aviso(erro) else Hub.aCaminho.value = Hub.aCaminho.value + (s.id to t)
         }
     }
+    // editar: o texto volta para o campo, para mudar e mandar de novo
+    val editar = { t: String -> Hub.rascunho.value = s.id to t }
     val tirarDaFila = { t: String ->
         Hub.aCaminho.value = Hub.aCaminho.value.filterNot { it.first == s.id && it.second == t }
         Hub.mandar(org.json.JSONObject().put("t", "desistir").put("instance", s.id)) { erro, _ -> aviso(erro ?: "Mensagem tirada da fila") }
@@ -256,7 +263,7 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
                 // a resposta ganha "Copiar" no fim de cada vez que o agente fala
                 // o ultimo texto antes da proxima mensagem sua (as ferramentas no meio nao contam)
                 val fimDaFala = msgs.drop(i + 1).firstOrNull { it.first().papel != "tool" }?.first()?.papel.let { it == null || it == "user" }
-                Mensagem(g.first(), cor, aoCopiar = copiar, aoReenviar = if (podeReenviar) reenviar else null, fimDaFala = fimDaFala)
+                Mensagem(g.first(), cor, aoCopiar = copiar, aoReenviar = if (podeReenviar) reenviar else null, aoEditar = if (podeReenviar) editar else null, fimDaFala = fimDaFala)
             }
         }
         // Mensagens aceitas pelo computador que o Claude Code ainda nao registrou: aparecem na hora, esmaecidas.
@@ -442,7 +449,7 @@ private fun Blocos(texto: String, cor: Color) {
 }
 
 @Composable
-private fun Mensagem(m: Msg, cor: Color, aoCopiar: (String) -> Unit = {}, aoReenviar: ((String) -> Unit)? = null, fimDaFala: Boolean = false) {
+private fun Mensagem(m: Msg, cor: Color, aoCopiar: (String) -> Unit = {}, aoReenviar: ((String) -> Unit)? = null, aoEditar: ((String) -> Unit)? = null, fimDaFala: Boolean = false) {
     val c = cores
     when (m.papel) {
         "tool" -> Row(Modifier.padding(start = 4.dp), verticalAlignment = Alignment.Top) {
@@ -477,6 +484,7 @@ private fun Mensagem(m: Msg, cor: Color, aoCopiar: (String) -> Unit = {}, aoReen
             }
             AcoesMensagem(Alignment.End) {
                 AcaoMensagem(Icons.Rounded.ContentCopy, "Copiar") { aoCopiar(m.texto) }
+                if (aoEditar != null) AcaoMensagem(Icons.Rounded.Edit, "Editar") { aoEditar(m.texto) }
                 if (aoReenviar != null) AcaoMensagem(Icons.Rounded.Replay, "Reenviar") { aoReenviar(m.texto) }
             }
         }
@@ -620,7 +628,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
     val anexos = remember(s.id) { androidx.compose.runtime.mutableStateListOf<Pair<String, String>>() }
     var subindo by remember { mutableStateOf(0) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    val escolher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()) { uris ->
+    val subir = { uris: List<android.net.Uri> ->
         for (u in uris.take(10)) {
             subindo++
             kotlin.concurrent.thread {
@@ -629,6 +637,35 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                     subindo--
                     r.onSuccess { anexos.add(it) }.onFailure { aviso(it.message ?: "Não consegui anexar o arquivo.") }
                 }
+            }
+        }
+    }
+    // anexar, como no WhatsApp: camera, galeria ou qualquer arquivo
+    val escolher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()) { subir(it) }
+    val galeria = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(10)) { subir(it) }
+    var foto by rememberSaveable { mutableStateOf<String?>(null) }
+    val camera = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { ok ->
+        foto?.let { if (ok) subir(listOf(android.net.Uri.parse(it))) }
+        foto = null
+    }
+    val tirarFoto = {
+        // a foto fica no cache do app ate subir para o computador
+        val pasta = java.io.File(ctx.cacheDir, "fotos").apply { mkdirs() }
+        val nome = "foto-" + java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date()) + ".jpg"
+        val u = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".arquivos", java.io.File(pasta, nome))
+        foto = u.toString()
+        runCatching { camera.launch(u) }.onFailure { foto = null; aviso("Este celular não tem app de câmera.") }
+    }
+    var verAnexar by remember { mutableStateOf(false) }
+    if (verAnexar) {
+        androidx.compose.material3.ModalBottomSheet({ verAnexar = false }, containerColor = c.fundo) {
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 32.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                OpcaoAnexo(Icons.Rounded.PhotoCamera, "Câmera", cor) { verAnexar = false; tirarFoto() }
+                OpcaoAnexo(Icons.Rounded.PhotoLibrary, "Galeria", cor) {
+                    verAnexar = false
+                    galeria.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                }
+                OpcaoAnexo(Icons.Rounded.Description, "Arquivo", cor) { verAnexar = false; escolher.launch("*/*") }
             }
         }
     }
@@ -644,6 +681,18 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         ditou = true
     }
     val ditado = remember(s.id) { Ditado(ctx, { aviso(it) }, { juntarVoz(it) }) }
+    // "Editar" numa mensagem: o texto volta para o campo, com o teclado aberto
+    val foco = remember { androidx.compose.ui.focus.FocusRequester() }
+    val rascunho by Hub.rascunho.collectAsState()
+    LaunchedEffect(rascunho) {
+        val r = rascunho ?: return@LaunchedEffect
+        if (r.first != s.id) return@LaunchedEffect
+        Hub.rascunho.value = null
+        ditado.cancelar()
+        mudarTexto(semMarcaVoz(r.second))
+        ditou = ehVoz(r.second)
+        runCatching { foco.requestFocus() }
+    }
     androidx.compose.runtime.DisposableEffect(s.id) { onDispose { ditado.cancelar() } }
     val comecar = {
         vibra.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
@@ -755,7 +804,13 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                     val m = if (s.modo == null || s.modo == "default") "manual" else s.modo
                     Botao(nomeDoModo(ag, m), { verModo = true }, icone = Icons.Rounded.Shield, peso = if (m == "manual") Peso.Quieto else Peso.Principal, altura = 38.dp, linhas = 1)
                 }
-                if (trabalhando) item { Botao("Interromper", { Hub.tecla(s.id, "esc") { erro, _ -> aviso(erro ?: "Interrompido") } }, icone = Icons.Rounded.PanTool, altura = 38.dp) }
+                // com algo escrito, interrompe o que o agente esta fazendo e manda na hora
+                if (trabalhando) item {
+                    val comTexto = texto.isNotBlank() || anexos.isNotEmpty()
+                    Botao(if (comTexto) "Interromper e enviar" else "Interromper", {
+                        Hub.tecla(s.id, "esc") { erro, _ -> if (erro != null) aviso(erro) else if (comTexto) enviarTudo() else aviso("Interrompido") }
+                    }, icone = Icons.Rounded.PanTool, altura = 38.dp)
+                }
                 items(e.prefs.rapidas) { r -> Botao(r, { enviar(r, "Enviada") }, Modifier.widthIn(max = 240.dp), peso = Peso.Quieto, altura = 38.dp, linhas = 1) }
             }
         }
@@ -800,10 +855,10 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (gravandoSegurando) FaixaSegurando(ditado, Modifier.weight(1f).padding(start = 4.dp, end = 8.dp))
             else {
-                IconButton({ escolher.launch("*/*") }, Modifier.padding(bottom = 4.dp)) { Icon(Icons.Rounded.AttachFile, "Anexar arquivos", tint = c.apoio) }
+                IconButton({ verAnexar = true }, Modifier.padding(bottom = 4.dp)) { Icon(Icons.Rounded.AttachFile, "Anexar: câmera, galeria ou arquivo", tint = c.apoio) }
                 OutlinedTextField(
-                    campo, { campo = it }, Modifier.weight(1f),
-                    placeholder = { Text(if (s.hospedada) "Mensagem ou /comando" else "Escreva para o ${e.agenteDa(s.conta).curto}", color = c.apoio) },
+                    campo, { campo = it }, Modifier.weight(1f).focusRequester(foco),
+                    placeholder = { Text(if (trabalhando) "Ele lê no meio da tarefa" else if (s.hospedada) "Mensagem ou /comando" else "Escreva para o ${e.agenteDa(s.conta).curto}", color = c.apoio) },
                     textStyle = Texto.corpo.copy(color = c.texto), maxLines = 6,
                     shape = RoundedCornerShape(28.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -991,6 +1046,21 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
             Espaco(10.dp)
             Botao("Ver a tela do terminal", aoTerminal, Modifier.fillMaxWidth(), Icons.Rounded.Terminal, Peso.Quieto)
         }
+    }
+}
+
+/** Uma opcao do menu de anexar: circulo com o icone e o nome embaixo. */
+@Composable
+private fun OpcaoAnexo(icone: ImageVector, nome: String, cor: Color, aoTocar: () -> Unit) {
+    val c = cores
+    Column(
+        Modifier.clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button, onClick = aoTocar).padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(Modifier.size(60.dp).clip(CircleShape).background(cor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+            Icon(icone, null, tint = cor, modifier = Modifier.size(28.dp))
+        }
+        Text(nome, style = Texto.rotulo, color = c.texto)
     }
 }
 

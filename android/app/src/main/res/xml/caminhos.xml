@@ -4,4 +4,6 @@
     <external-files-path name="baixados" path="Download/" />
     <!-- APK da atualizacao do duckV, entregue so ao instalador do Android. -->
     <cache-path name="atualizacao" path="atualizacao/" />
+    <!-- Foto tirada pela camera no compositor, entregue so ao app de camera e depois enviada ao computador. -->
+    <cache-path name="fotos" path="fotos/" />
 </paths>
