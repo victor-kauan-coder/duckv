@@ -636,7 +636,14 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
     // mensagem de voz: o celular transcreve enquanto voce fala
     val vibra = androidx.compose.ui.platform.LocalHapticFeedback.current
     val juntar = { t: String -> mudarTexto(listOf(campo.text.trim(), t).filter { it.isNotBlank() }.joinToString(" ")) }
-    val ditado = remember(s.id) { Ditado(ctx, { aviso(it) }, { juntar(it) }) }
+    // O que voce falou vai para o campo, para conferir antes de enviar; a mensagem sai com o selo de voz.
+    var ditou by remember(s.id) { mutableStateOf(false) }
+    LaunchedEffect(texto.isBlank()) { if (texto.isBlank()) ditou = false }
+    val juntarVoz = { t: String ->
+        juntar(t)
+        ditou = true
+    }
+    val ditado = remember(s.id) { Ditado(ctx, { aviso(it) }, { juntarVoz(it) }) }
     androidx.compose.runtime.DisposableEffect(s.id) { onDispose { ditado.cancelar() } }
     val comecar = {
         vibra.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
@@ -653,24 +660,44 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             comecar()
         } else pedirMic.launch(android.Manifest.permission.RECORD_AUDIO)
     }
+    // O texto do campo e os anexos numa mensagem so. Le o campo na hora, porque a voz acabou de entrar nele.
+    val enviarTudo = enviarTudo@{
+        val agora = campo.text
+        if ((agora.isBlank() && anexos.isEmpty()) || enviando || subindo > 0) return@enviarTudo
+        enviando = true
+        // O caminho vai na mesma linha: o Claude le o arquivo direto do computador.
+        val caminhos = anexos.joinToString(", ") { it.second }
+        val base = when {
+            anexos.isEmpty() -> agora.trim()
+            agora.isBlank() -> "Veja os arquivos que anexei: $caminhos"
+            else -> "${agora.trim()} (arquivos anexados: $caminhos)"
+        }
+        val t = if (ditou && agora.isNotBlank()) base + MARCA_VOZ else base
+        Hub.enviar(s.id, t) { erro, _ ->
+            enviando = false
+            if (erro != null) aviso(erro) else {
+                mudarTexto("")
+                anexos.clear()
+                acaminho(t)
+            }
+        }
+    }
+    val paraOCampo = { t: String ->
+        if (t.isBlank()) aviso("Não entendi nada. Fale mais perto do celular e tente de novo.") else juntarVoz(t)
+    }
+    // No modo travado, o botao de enviar e a confirmacao: manda o que foi falado junto com os anexos.
     val enviarVoz = {
         ditado.parar { t ->
-            if (t.isBlank()) aviso("Não entendi nada. Fale mais perto do celular e tente de novo.")
-            else {
-                val m = t + MARCA_VOZ
-                enviando = true
-                Hub.enviar(s.id, m) { erro, _ ->
-                    enviando = false
-                    if (erro != null) { juntar(t); aviso(erro) } else acaminho(m)
-                }
-            }
+            paraOCampo(t)
+            if (t.isNotBlank()) enviarTudo()
         }
     }
     val soltarMic = { g: Gesto ->
         val estava = segurando
         segurando = false
         if (estava && ditado.ativo) when (g) {
-            Gesto.Soltou -> enviarVoz()
+            // soltou: o texto vai para o campo, e voce confere antes de enviar
+            Gesto.Soltou -> ditado.parar(paraOCampo)
             Gesto.Travou -> vibra.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
             Gesto.Cancelou -> {
                 vibra.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
@@ -678,7 +705,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             }
             Gesto.Toque -> {
                 ditado.cancelar()
-                aviso("Segure o microfone para gravar e solte para enviar.")
+                aviso("Segure o microfone para gravar. Ao soltar, o texto vai para o campo para você conferir.")
             }
         }
     }
@@ -689,6 +716,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         }
     }
     var verContexto by remember { mutableStateOf(false) }
+    var verModo by remember { mutableStateOf(false) }
     if (verContexto) {
         androidx.compose.material3.ModalBottomSheet({ verContexto = false }, containerColor = c.fundo) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -710,8 +738,23 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             return@Column
         }
         val trabalhando = s.hospedada && s.status == "working"
-        if (e.prefs.rapidas.isNotEmpty() || trabalhando) {
+        // o modo de permissao a mao, sem ir aos ajustes (como o rodape do Claude Code)
+        val ag = e.agenteDa(s.conta)
+        val trocaModo = s.hospedada && ag.id == "claude"
+        if (verModo) {
+            androidx.compose.material3.ModalBottomSheet({ verModo = false }, containerColor = c.fundo) {
+                Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TituloSecao("Permissões desta sessão")
+                    EscolhaModo(s, ag, cor) { verModo = false }
+                }
+            }
+        }
+        if (e.prefs.rapidas.isNotEmpty() || trabalhando || trocaModo) {
             LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (trocaModo) item {
+                    val m = if (s.modo == null || s.modo == "default") "manual" else s.modo
+                    Botao(nomeDoModo(ag, m), { verModo = true }, icone = Icons.Rounded.Shield, peso = if (m == "manual") Peso.Quieto else Peso.Principal, altura = 38.dp, linhas = 1)
+                }
                 if (trabalhando) item { Botao("Interromper", { Hub.tecla(s.id, "esc") { erro, _ -> aviso(erro ?: "Interrompido") } }, icone = Icons.Rounded.PanTool, altura = 38.dp) }
                 items(e.prefs.rapidas) { r -> Botao(r, { enviar(r, "Enviada") }, Modifier.widthIn(max = 240.dp), peso = Peso.Quieto, altura = 38.dp, linhas = 1) }
             }
@@ -749,7 +792,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             Gravando(
                 ditado,
                 aoDescartar = { ditado.cancelar() },
-                aoRevisar = { ditado.parar { t -> if (t.isNotBlank()) juntar(t) else aviso("Não entendi nada. Tente de novo.") } },
+                aoRevisar = { ditado.parar(paraOCampo) },
                 aoEnviar = enviarVoz,
             )
             return@Column
@@ -774,28 +817,12 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             if (pctCtx != null) AnelContexto(pctCtx, cor, { verContexto = true }, Modifier.padding(start = 4.dp, bottom = 8.dp))
             EspacoLargo(4.dp)
             val pode = (texto.isNotBlank() || anexos.isNotEmpty()) && !enviando && subindo == 0
-            // campo vazio: o botao redondo grava uma mensagem de voz
-            if (texto.isBlank() && anexos.isEmpty() && subindo == 0 && !enviando) BotaoMicrofone(apertarMic, soltarMic, Modifier.padding(bottom = 4.dp))
-            else Box(
+            // campo vazio: o botao redondo grava uma mensagem de voz; com anexos, ele fica ao lado do enviar
+            val gravarVoz = texto.isBlank() && subindo == 0 && !enviando
+            if (gravarVoz) BotaoMicrofone(apertarMic, soltarMic, Modifier.padding(bottom = 4.dp, end = if (anexos.isNotEmpty()) 6.dp else 0.dp))
+            if (!gravandoSegurando && (!gravarVoz || anexos.isNotEmpty())) Box(
                 Modifier.padding(bottom = 4.dp).size(48.dp).clip(CircleShape).background(if (pode) c.primario else c.elevada)
-                    .clickable(enabled = pode, role = Role.Button) {
-                        enviando = true
-                        // O caminho vai na mesma linha: o Claude le o arquivo direto do computador.
-                        val caminhos = anexos.joinToString(", ") { it.second }
-                        val t = when {
-                            anexos.isEmpty() -> texto.trim()
-                            texto.isBlank() -> "Veja os arquivos que anexei: $caminhos"
-                            else -> "${texto.trim()} (arquivos anexados: $caminhos)"
-                        }
-                        Hub.enviar(s.id, t) { erro, _ ->
-                            enviando = false
-                            if (erro != null) aviso(erro) else {
-                                mudarTexto("")
-                                anexos.clear()
-                                acaminho(t)
-                            }
-                        }
-                    },
+                    .clickable(enabled = pode, role = Role.Button, onClick = enviarTudo),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.AutoMirrored.Rounded.Send, "Enviar", tint = if (pode) c.noPrimario else c.apoio, modifier = Modifier.size(22.dp)) }
         }
@@ -954,20 +981,8 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
             }
             Column {
                 CabecalhoAjuste("Permissões", null)
-                Cartao {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(nomeDoModo(s.modo), style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
-                        Text(
-                            if (s.rodape.isNotBlank()) "O Claude Code mostra agora: ${s.rodape}" else MODOS[if (s.modo == "default") "manual" else s.modo]?.second ?: "Cada toque passa para o modo seguinte.",
-                            style = Texto.apoio, color = c.apoio,
-                        )
-                    }
-                    Divisoria()
-                    Box(Modifier.padding(12.dp)) {
-                        Botao("Passar para o próximo modo", { tecla("shift-tab", "Modo trocado") }, Modifier.fillMaxWidth(), Icons.Rounded.Shield)
-                    }
-                }
-                Text("O Claude Code não deixa escolher o modo direto: cada toque passa para o seguinte, como o Shift+Tab.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 8.dp))
+                EscolhaModo(s, ag, cor)
+                if (s.rodape.isNotBlank()) Text("O Claude Code mostra agora: ${s.rodape}", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 8.dp))
             }
         }
         Column {
@@ -977,6 +992,24 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
             Botao("Ver a tela do terminal", aoTerminal, Modifier.fillMaxWidth(), Icons.Rounded.Terminal, Peso.Quieto)
         }
     }
+}
+
+/** Modo de permissao escolhido direto, na conversa e nos ajustes. Ate o computador confirmar, vale o que voce tocou. */
+@Composable
+private fun EscolhaModo(s: Sessao, ag: io.github.duckv.app.Agente, cor: Color, aoTrocar: () -> Unit = {}) {
+    val aviso = LocalAviso.current
+    val atual = if (s.modo == null || s.modo == "default") "manual" else s.modo
+    var tocado by remember(s.id, s.modo) { mutableStateOf<String?>(null) }
+    ListaEscolha(opcoesModo(ag), tocado ?: atual, { m ->
+        if (m == (tocado ?: atual)) aoTrocar()
+        else {
+            tocado = m
+            Hub.modo(s.id, m) { erro, _ ->
+                if (erro != null) { tocado = null; aviso(erro) }
+                else { aviso("Modo: ${nomeDoModo(ag, m)}"); aoTrocar() }
+            }
+        }
+    }, cor = cor)
 }
 
 @Composable

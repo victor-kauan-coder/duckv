@@ -702,6 +702,23 @@ async function onPhoneMessage(c, m) {
       else send(c, { t: 'ack', ref: m.ref });
       break;
     }
+    // Modo de permissao de uma sessao aberta, trocado pelo Shift+Tab do terminal.
+    case 'modo': {
+      const inst = instances.get(m.instance);
+      const ag = inst && agenteDe(getAccount(inst.account).agente);
+      const alvo = String(m.mode || '');
+      if (!inst?.hosted) send(c, { t: 'err', ref: m.ref, msg: 'O modo só muda nas sessões abertas pelo celular.' });
+      else if (ag.id !== 'claude') send(c, { t: 'err', ref: m.ref, msg: 'Este agente não troca de modo pelo celular.' });
+      else if (!temOpcao(ag.modos, alvo)) send(c, { t: 'err', ref: m.ref, msg: 'Modo de permissão inválido.' });
+      else
+        inst.hosted.modo(alvo).then((ficou) => {
+          if (!ficou) return send(c, { t: 'err', ref: m.ref, msg: 'O Claude Code não mostrou esse modo. Ele pode estar ocupado numa pergunta; tente de novo.' });
+          inst.permMode = ficou === 'manual' ? 'default' : ficou;
+          dirty();
+          send(c, { t: 'ack', ref: m.ref });
+        });
+      break;
+    }
     // Texto digitado onde o cursor estiver (codigo de login, telas do agente que nao sao a caixa de mensagem).
     case 'digitar': {
       const inst = instances.get(m.instance);

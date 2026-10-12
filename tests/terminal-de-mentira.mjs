@@ -4,7 +4,8 @@ const HOOK = process.env.FAKE_HOOK;
 process.stdin.setRawMode?.(true); process.stdin.resume(); process.stdin.setEncoding('utf8');
 process.stdout.write('\x1b[?2004h');
 let sel = 0, line = '', log = [], modo = 0, confia = false;
-const modos = ['perguntar sempre', 'aceitar edicoes', 'planejar'];
+// o rodape como o do Claude Code, que o hub le para saber o modo
+const modos = ['? for shortcuts · shift+tab to cycle', '⏵⏵ accept edits on (shift+tab to cycle)', '⏸ plan mode on (shift+tab to cycle)'];
 const args = process.argv.slice(2).join(' ');
 let modelo = (/--model (\S+)/.exec(args) || [])[1] || 'padrao';
 function draw() {
@@ -27,7 +28,7 @@ function draw() {
   out.push(`> ${line}`);
   const prompt = out.length;
   out.push('');
-  out.push(`  modo: ${modos[modo]} (shift+tab alterna)`);
+  out.push(`  ${modos[modo]}`);
   process.stdout.write(out.join('\r\n') + `\x1b[${prompt};${3 + line.length}H`);
 }
 function submit(text) {
@@ -54,7 +55,7 @@ process.stdin.on('data', (d) => {
   }
   if (d === '\x1b[A') sel = (sel + 2) % 3;
   else if (d === '\x1b[B') sel = (sel + 1) % 3;
-  else if (d === '\x1b[Z') { modo = (modo + 1) % 3; log.push('shift-tab'); }
+  else if (d === '\x1b[Z' || d === '\x1bm') { modo = (modo + 1) % 3; log.push('shift-tab'); }
   else if (d === '\x1b') log.push('esc');
   else if (d.startsWith('\x1b[200~')) line += d.replace('\x1b[200~', '').replace('\x1b[201~', '');
   else if (d.startsWith('\x1b')) { /* resposta do terminal: ignora */ }

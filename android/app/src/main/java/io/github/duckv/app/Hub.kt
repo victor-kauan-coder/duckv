@@ -380,6 +380,10 @@ object Hub {
     fun tecla(sessao: String, k: String, r: Retorno) =
         mandar(JSONObject().put("t", "key").put("instance", sessao).put("key", k), r)
 
+    /** Modo de permissao escolhido direto: o computador aperta Shift+Tab ate o Claude Code mostrar o modo pedido. */
+    fun modo(sessao: String, m: String, r: Retorno) =
+        mandar(JSONObject().put("t", "modo").put("instance", sessao).put("mode", m), r)
+
     fun veredito(sessao: String, pedido: String, aceitar: Boolean, recado: String? = null, r: Retorno) =
         mandar(
             JSONObject().put("t", "verdict").put("instance", sessao).put("request_id", pedido)

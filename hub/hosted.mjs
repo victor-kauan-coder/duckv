@@ -39,6 +39,8 @@ const KEYS = {
   space: ' ',
 };
 const ARROWS = { up: 'A', down: 'B', right: 'C', left: 'D' };
+// No Windows o ConPTY entrega o Shift+Tab como um Tab comum; o Claude Code aceita Alt+M para trocar o modo.
+const TROCA_MODO = process.platform === 'win32' ? '\x1bm' : KEYS['shift-tab'];
 
 const cleanText = (t) => String(t).replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
 
@@ -428,6 +430,7 @@ export function startHosted(opts) {
       // No Windows o terminal (ConPTY) segura um Esc sozinho esperando o resto de uma sequencia;
       // mandado como tecla do Windows (win32-input-mode: aperta e solta), ele chega na hora.
       if (name === 'esc' && process.platform === 'win32' && !opts.command) return write('\x1b[27;1;27;1;0;1_\x1b[27;1;27;0;0;1_'), true;
+      if (name === 'shift-tab') return write(TROCA_MODO), true;
       if (KEYS[name]) return write(KEYS[name]), true;
       // Pergunta de sim ou nao: a letra e o Enter.
       if (/^[yn]$/.test(name) && readPrompt(snapshot().lines)?.simNao) return write(name), setTimeout(() => write('\r'), 120), true;
@@ -442,6 +445,31 @@ export function startHosted(opts) {
       }
       if (/^[a-z0-9]$/i.test(name)) return write(name), true;
       return false;
+    },
+    // Troca o modo de permissao como no teclado: Shift+Tab ate o rodape mostrar o modo pedido.
+    // Resolve com o modo em que parou, ou null se o rodape nunca mostrou o pedido.
+    async modo(alvo) {
+      const atual = () => {
+        // so o rodape: a conversa na tela pode citar esses nomes
+        const t = readFooter(snapshot().lines);
+        if (/bypass permissions on/i.test(t)) return 'bypassPermissions';
+        if (/accept edits on/i.test(t)) return 'acceptEdits';
+        if (/plan mode on/i.test(t)) return 'plan';
+        if (/auto mode on/i.test(t)) return 'auto';
+        return 'manual';
+      };
+      const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+      for (let i = 0; i < 6 && alive; i++) {
+        if (atual() === alvo) return alvo;
+        write(TROCA_MODO);
+        await espera(350);
+        // pular todas as permissoes nunca fica ligado por causa do celular, nem de passagem
+        if (atual() === 'bypassPermissions' && alvo !== 'bypassPermissions') {
+          write(TROCA_MODO);
+          await espera(350);
+        }
+      }
+      return atual() === alvo ? alvo : null;
     },
     // Digita um texto e aperta Enter, como o usuario faria no teclado.
     // Resposta escrita para uma pergunta do Claude: escolhe a opcao de escrever, digita e confirma.
