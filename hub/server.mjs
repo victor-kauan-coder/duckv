@@ -1371,7 +1371,7 @@ function historicoDa(acc) {
 }
 
 // Imagens da conversa, servidas so para celulares pareados. As mais antigas saem primeiro.
-// ponytail: cache em memoria com teto de 60 imagens; reler o historico traz de volta as que sairem.
+// Cache em memoria com teto de 60 imagens; reler o historico traz de volta as que sairem.
 const imagens = new Map();
 function guardarImagem(it) {
   const id = crypto.createHash('sha256').update(it.data).digest('hex').slice(0, 24);
@@ -1383,7 +1383,7 @@ function guardarImagem(it) {
 
 // Uso de cada conta direto da Anthropic, com o login que o Claude Code guardou na pasta da conta.
 // E a mesma consulta do /usage: o numero vale na hora, com ou sem sessao aberta.
-// ponytail: so le o login; se ele venceu, espera o Claude Code renova-lo na proxima sessao.
+// So le o login; se ele venceu, espera o Claude Code renova-lo na proxima sessao.
 const USO_URL = 'https://api.anthropic.com/api/oauth/usage';
 // E-mail do login da conta, para dar nome as contas que ainda se chamam "Conta 1".
 function lerEmail(a) {
@@ -1713,7 +1713,7 @@ const server = http.createServer(async (req, res) => {
         return res.end(img.buf);
       }
       // Arquivo anexado no celular: fica numa pasta do claudeV e a mensagem leva o caminho para o Claude ler.
-      // ponytail: data/anexos nunca e limpa; apagar pastas antigas quando ocupar espaco.
+      // A pasta data/anexos nunca e limpa: apagar pastas antigas quando ocupar espaco.
       if (p === '/api/anexo' && req.method === 'POST') {
         const nome = (url.searchParams.get('nome') || 'arquivo').normalize('NFC').replace(/[^\p{L}\p{N}._-]+/gu, '_').replace(/^[._]+/, '').slice(-80) || 'arquivo';
         const partes = [];

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 // Le o historico inteiro ao abrir (conversas longas inclusive); so um arquivo gigante comeca pelo final.
-// ponytail: teto de 64 MB por historico; acima disso, carregar em pedacos sob demanda.
+// Teto de 64 MB por historico; acima disso, carregar em pedacos sob demanda.
 const MAX_INITIAL = 64 * 1024 * 1024;
 
 // Le apenas o que foi acrescentado ao arquivo desde a ultima leitura.

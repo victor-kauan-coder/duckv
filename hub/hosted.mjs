@@ -328,7 +328,7 @@ export function startHosted(opts) {
     digitando = true;
     const t = fila.shift();
     // Limpa a caixa antes: depois de Interromper, o Claude Code devolve a ultima mensagem para ela.
-    // ponytail: Ctrl+U apaga so a linha atual; sobra de varias linhas ainda grudaria.
+    // Limite: Ctrl+U apaga so a linha atual; sobra de varias linhas ainda grudaria.
     write('\x15');
     if (!t.includes('\n') && t.length <= 400) write(t);
     else if (term.modes.bracketedPasteMode) write(`\x1b[200~${t}\x1b[201~`);
