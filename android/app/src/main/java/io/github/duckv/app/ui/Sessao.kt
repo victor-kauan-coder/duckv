@@ -643,11 +643,15 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         ditado.iniciar()
     }
     val pedirMic = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) comecar() else aviso("Sem o microfone não dá para gravar. Libere em Configurações > Apps > duckV > Permissões.")
+        aviso(if (ok) "Pronto. Agora segure o microfone para gravar." else "Sem o microfone não dá para gravar. Libere em Configurações > Apps > duckV > Permissões.")
     }
-    val falar = {
-        if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) comecar()
-        else pedirMic.launch(android.Manifest.permission.RECORD_AUDIO)
+    // como no WhatsApp: segurando o microfone, a gravacao fica no proprio compositor; ao travar, vira o modo maos livres
+    var segurando by remember { mutableStateOf(false) }
+    val apertarMic = {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            segurando = true
+            comecar()
+        } else pedirMic.launch(android.Manifest.permission.RECORD_AUDIO)
     }
     val enviarVoz = {
         ditado.parar { t ->
@@ -659,6 +663,22 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                     enviando = false
                     if (erro != null) { juntar(t); aviso(erro) } else acaminho(m)
                 }
+            }
+        }
+    }
+    val soltarMic = { g: Gesto ->
+        val estava = segurando
+        segurando = false
+        if (estava && ditado.ativo) when (g) {
+            Gesto.Soltou -> enviarVoz()
+            Gesto.Travou -> vibra.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            Gesto.Cancelou -> {
+                vibra.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                ditado.cancelar()
+            }
+            Gesto.Toque -> {
+                ditado.cancelar()
+                aviso("Segure o microfone para gravar e solte para enviar.")
             }
         }
     }
@@ -722,7 +742,10 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                 if (cmd.bloqueado != null) aviso(cmd.bloqueado) else mudarTexto(cmd.nome + " ")
             }
         }
-        if (ditado.ativo) {
+        // segurando, o microfone continua no mesmo lugar para nao perder o dedo; a transcricao aparece em cima
+        val gravandoSegurando = segurando && ditado.ativo
+        if (gravandoSegurando) Transcricao(ditado)
+        else if (ditado.ativo) {
             Gravando(
                 ditado,
                 aoDescartar = { ditado.cancelar() },
@@ -732,24 +755,27 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             return@Column
         }
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton({ escolher.launch("*/*") }, Modifier.padding(bottom = 4.dp)) { Icon(Icons.Rounded.AttachFile, "Anexar arquivos", tint = c.apoio) }
-            OutlinedTextField(
-                campo, { campo = it }, Modifier.weight(1f),
-                placeholder = { Text(if (s.hospedada) "Mensagem ou /comando" else "Escreva para o ${e.agenteDa(s.conta).curto}", color = c.apoio) },
-                textStyle = Texto.corpo.copy(color = c.texto), maxLines = 6,
-                shape = RoundedCornerShape(28.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, cursorColor = c.primario,
-                    focusedContainerColor = c.elevada, unfocusedContainerColor = c.elevada,
-                ),
-            )
+            if (gravandoSegurando) FaixaSegurando(ditado, Modifier.weight(1f).padding(start = 4.dp, end = 8.dp))
+            else {
+                IconButton({ escolher.launch("*/*") }, Modifier.padding(bottom = 4.dp)) { Icon(Icons.Rounded.AttachFile, "Anexar arquivos", tint = c.apoio) }
+                OutlinedTextField(
+                    campo, { campo = it }, Modifier.weight(1f),
+                    placeholder = { Text(if (s.hospedada) "Mensagem ou /comando" else "Escreva para o ${e.agenteDa(s.conta).curto}", color = c.apoio) },
+                    textStyle = Texto.corpo.copy(color = c.texto), maxLines = 6,
+                    shape = RoundedCornerShape(28.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, cursorColor = c.primario,
+                        focusedContainerColor = c.elevada, unfocusedContainerColor = c.elevada,
+                    ),
+                )
+            }
             // A bolinha do contexto, como no Claude: enche conforme a conversa ocupa a memoria.
             val pctCtx = s.ctx?.pct ?: s.ultima?.let { u -> s.ctx?.tamanho?.takeIf { it > 0 }?.let { (u.entrada + u.cw + u.cr + u.saida) * 100.0 / it } }
             if (pctCtx != null) AnelContexto(pctCtx, cor, { verContexto = true }, Modifier.padding(start = 4.dp, bottom = 8.dp))
             EspacoLargo(4.dp)
             val pode = (texto.isNotBlank() || anexos.isNotEmpty()) && !enviando && subindo == 0
             // campo vazio: o botao redondo grava uma mensagem de voz
-            if (texto.isBlank() && anexos.isEmpty() && subindo == 0 && !enviando) BotaoMicrofone(falar, Modifier.padding(bottom = 4.dp))
+            if (texto.isBlank() && anexos.isEmpty() && subindo == 0 && !enviando) BotaoMicrofone(apertarMic, soltarMic, Modifier.padding(bottom = 4.dp))
             else Box(
                 Modifier.padding(bottom = 4.dp).size(48.dp).clip(CircleShape).background(if (pode) c.primario else c.elevada)
                     .clickable(enabled = pode, role = Role.Button) {

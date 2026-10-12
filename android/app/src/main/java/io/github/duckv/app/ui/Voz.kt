@@ -11,6 +11,16 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -283,6 +293,25 @@ fun Onda(niveis: List<Float>, cor: Color, modifier: Modifier = Modifier) {
     }
 }
 
+/** O que ja foi entendido: firme em Tinta, o trecho ainda em analise em Tinta Variante. */
+@Composable
+fun Transcricao(d: Ditado) {
+    val c = cores
+    Text(
+        buildAnnotatedString {
+            if (d.texto.isBlank() && d.parcial.isBlank()) {
+                withStyle(SpanStyle(color = c.apoio)) { append(if (d.fechando) "Fechando a última frase…" else "Pode falar. O que eu entender aparece aqui.") }
+            } else {
+                withStyle(SpanStyle(color = c.texto)) { append(d.texto) }
+                if (d.parcial.isNotBlank()) withStyle(SpanStyle(color = c.apoio)) { append(if (d.texto.isBlank()) d.parcial else " ${d.parcial}") }
+            }
+        },
+        style = Texto.corpo, maxLines = 5,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp).padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 8.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
+    )
+}
+
 /**
  * O compositor enquanto voce fala: descartar a esquerda, a faixa com o ponto vermelho, o tempo e a onda,
  * e a direita "revisar" (o texto vai para o campo) e enviar direto. O texto entendido aparece em cima, ao vivo.
@@ -294,20 +323,7 @@ fun Gravando(d: Ditado, aoDescartar: () -> Unit, aoRevisar: () -> Unit, aoEnviar
     val pulso = rememberInfiniteTransition(label = "gravando")
     val brilho by pulso.animateFloat(1f, 0.35f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "ponto")
     Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 8.dp)) {
-        // o que ja foi entendido: firme em Tinta, o trecho ainda em analise em Tinta Variante
-        Text(
-            buildAnnotatedString {
-                if (d.texto.isBlank() && d.parcial.isBlank()) {
-                    withStyle(SpanStyle(color = c.apoio)) { append(if (d.fechando) "Fechando a última frase…" else "Pode falar. O que eu entender aparece aqui.") }
-                } else {
-                    withStyle(SpanStyle(color = c.texto)) { append(d.texto) }
-                    if (d.parcial.isNotBlank()) withStyle(SpanStyle(color = c.apoio)) { append(if (d.texto.isBlank()) d.parcial else " ${d.parcial}") }
-                }
-            },
-            style = Texto.corpo, maxLines = 5,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp).padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 8.dp)
-                .semantics { liveRegion = LiveRegionMode.Polite },
-        )
+        Transcricao(d)
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(aoDescartar) { Icon(Icons.Rounded.DeleteOutline, "Descartar áudio", tint = c.perigo) }
             Row(
@@ -330,14 +346,87 @@ fun Gravando(d: Ditado, aoDescartar: () -> Unit, aoRevisar: () -> Unit, aoEnviar
     }
 }
 
-/** O botao redondo do compositor quando o campo esta vazio: o microfone. */
+/** Como o dedo saiu do microfone: soltou (envia), arrastou para a esquerda (descarta), para cima (trava) ou so tocou. */
+enum class Gesto { Soltou, Cancelou, Travou, Toque }
+
+/**
+ * O botao redondo do compositor quando o campo esta vazio: o microfone, como no WhatsApp.
+ * Segure para gravar e solte para enviar; arraste para a esquerda para descartar ou para cima para travar e falar sem segurar.
+ */
 @Composable
-fun BotaoMicrofone(aoTocar: () -> Unit, modifier: Modifier = Modifier) {
+fun BotaoMicrofone(aoApertar: () -> Unit, aoSoltar: (Gesto) -> Unit, modifier: Modifier = Modifier) {
     val c = cores
+    val apertar by rememberUpdatedState(aoApertar)
+    val soltar by rememberUpdatedState(aoSoltar)
+    var preso by remember { mutableStateOf(false) }
+    var arrasto by remember { mutableStateOf(0f) }
+    val escala by animateFloatAsState(if (preso) 1.5f else 1f, label = "mic")
+    val (limiteCancelar, limiteTravar) = with(LocalDensity.current) { 110.dp.toPx() to 80.dp.toPx() }
     Box(
-        modifier.size(48.dp).clip(CircleShape).background(c.elevada).clickable(role = Role.Button, onClick = aoTocar),
+        modifier.size(48.dp)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    down.consume()
+                    preso = true
+                    arrasto = 0f
+                    apertar()
+                    var fim: Gesto? = null
+                    try {
+                        while (fim == null) {
+                            val p = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                            if (p == null) fim = Gesto.Cancelou
+                            else if (!p.pressed) fim = if (p.uptimeMillis - down.uptimeMillis < 400) Gesto.Toque else Gesto.Soltou
+                            else {
+                                p.consume()
+                                val d = p.position - down.position
+                                arrasto = d.x.coerceIn(-limiteCancelar, 0f)
+                                fim = when {
+                                    d.x < -limiteCancelar -> Gesto.Cancelou
+                                    d.y < -limiteTravar -> Gesto.Travou
+                                    else -> null
+                                }
+                            }
+                        }
+                    } finally {
+                        preso = false
+                        arrasto = 0f
+                        // saiu da tela no meio do gesto: descarta
+                        soltar(fim ?: Gesto.Cancelou)
+                    }
+                }
+            }
+            // leitor de tela: um toque abre a gravacao travada, sem precisar segurar
+            .semantics {
+                role = Role.Button
+                contentDescription = "Gravar mensagem de voz. Segure para gravar e solte para enviar."
+                onClick("Gravar sem segurar") { apertar(); soltar(Gesto.Travou); true }
+            }
+            .graphicsLayer { translationX = arrasto; scaleX = escala; scaleY = escala }
+            .clip(CircleShape).background(if (preso) c.primario else c.elevada),
         contentAlignment = Alignment.Center,
-    ) { Icon(Icons.Rounded.Mic, "Gravar mensagem de voz", tint = c.texto, modifier = Modifier.size(24.dp)) }
+    ) { Icon(Icons.Rounded.Mic, null, tint = if (preso) c.noPrimario else c.texto, modifier = Modifier.size(24.dp)) }
+}
+
+/** No lugar do campo enquanto voce segura o microfone: ponto vermelho, tempo, onda e a dica dos gestos. */
+@Composable
+fun FaixaSegurando(d: Ditado, modifier: Modifier = Modifier) {
+    val c = cores
+    val tempo = cronometro(d.inicio, d.gravando)
+    val pulso = rememberInfiniteTransition(label = "segurando")
+    val brilho by pulso.animateFloat(1f, 0.35f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "ponto")
+    Row(
+        modifier.height(52.dp).clip(RoundedCornerShape(28.dp)).background(c.elevada).padding(start = 16.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).alpha(brilho).clip(CircleShape).background(c.perigo))
+        Text(
+            tempo, style = Texto.rotulo.copy(fontFeatureSettings = "tnum"), color = c.texto,
+            modifier = Modifier.padding(start = 10.dp).semantics { contentDescription = "Gravando há $tempo" },
+        )
+        Onda(d.niveis, c.texto, Modifier.weight(1f).height(26.dp).padding(start = 12.dp, end = 12.dp))
+        Text("‹ cancela  ↑ trava", style = Texto.pequeno, color = c.apoio, maxLines = 1)
+    }
 }
 
 /** Cabecalho da bolha de uma mensagem ditada. */
