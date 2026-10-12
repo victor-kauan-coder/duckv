@@ -73,6 +73,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -116,6 +118,9 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
     val conta = s?.let { e.conta(it.conta) }
     val cor = conta?.let { Color(it.cor) } ?: Laranja
     LaunchedEffect(s?.hospedada, aba) { if (aba == "terminal" && s != null && !s.hospedada) aba = "controles" }
+    // Entrar numa conta de outro agente acontece na tela do terminal.
+    LaunchedEffect(s?.login) { if (s?.login == true) aba = "terminal" }
+    val ag = e?.agente(s?.agente ?: conta?.agente)
 
     Column(Modifier.fillMaxSize().background(c.fundo).imePadding()) {
         // topo
@@ -125,9 +130,10 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                 Text(s?.titulo ?: if (e == null) "Carregando" else "Sessão encerrada", style = Texto.titulo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (s != null && conta != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Marca(cor, tamanho = 8.dp)
+                        // o agente desta sessao, sempre a vista
+                        if (ag != null) AgenteIcone(ag, 14.dp) else Marca(cor, tamanho = 8.dp)
                         EspacoLargo(6.dp)
-                        Text(listOfNotNull(conta.nome, s.model, pasta(s.cwd).takeIf { it.isNotEmpty() && it != s.titulo }).joinToString(" · "), style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(listOfNotNull(conta.nome, ag?.curto, s.model, pasta(s.cwd).takeIf { it.isNotEmpty() && it != s.titulo }).joinToString(" · "), style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -218,7 +224,7 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
         if (msgs.isEmpty() && acaminho.isEmpty()) item {
             PixelArte(FAISCA, Modifier.fillMaxWidth().height(40.dp).padding(top = 20.dp), mapOf('o' to cor))
             Text(
-                if (s.hospedada) "A conversa aparece aqui depois da sua primeira mensagem. Se o Claude Code perguntar algo ao abrir, a pergunta surge logo abaixo, com botões."
+                if (s.hospedada) "A conversa aparece aqui depois da sua primeira mensagem. Se o agente perguntar algo ao abrir, a pergunta surge logo abaixo, com botões."
                 else "A conversa aparece aqui assim que a sessão trocar mensagens.",
                 style = Texto.apoio, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
             )
@@ -285,7 +291,7 @@ private fun ContextoDetalhado(s: Sessao, cor: Color, sempreAberto: Boolean = fal
     val ctx = s.ctx
     val u = s.ultima
     if (ctx == null && u == null && s.respostas == 0) {
-        if (sempreAberto) Text("O contexto aparece depois da primeira resposta do Claude nesta sessão.", style = Texto.apoio, color = c.apoio)
+        if (sempreAberto) Text("O contexto aparece depois da primeira resposta nesta sessão.", style = Texto.apoio, color = c.apoio)
         return
     }
     // fechado ao abrir a conversa: as mensagens vem primeiro; o detalhe abre num toque
@@ -321,7 +327,7 @@ private fun ContextoDetalhado(s: Sessao, cor: Color, sempreAberto: Boolean = fal
                     Triple("Lido do cache", u.cr, cor),
                     Triple("Gravado no cache", u.cw, cor.copy(alpha = 0.5f)),
                     Triple("Sem cache", u.entrada, c.apoio),
-                    Triple("Resposta do Claude", u.saida, c.vazio),
+                    Triple("Resposta", u.saida, c.vazio),
                 )
                 val soma = partes.sumOf { it.second }.coerceAtLeast(1)
                 Text("Do que é feita a última resposta", style = Texto.pequeno, color = c.apoio)
@@ -578,7 +584,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         }
         if (!s.viva || !s.podeEnviar) {
             Text(
-                if (!s.viva) "Sessão encerrada." else "Esta sessão não recebe mensagens do celular. Abra-a pelo atalho da conta, com o claudeV ligado.",
+                if (!s.viva) "Sessão encerrada." else "Esta sessão não recebe mensagens do celular. Abra-a pelo atalho da conta, com o duckV ligado.",
                 style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(16.dp),
             )
             return@Column
@@ -610,7 +616,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             IconButton({ escolher.launch("*/*") }, Modifier.padding(bottom = 4.dp)) { Icon(Icons.Rounded.AttachFile, "Anexar arquivos", tint = c.apoio) }
             OutlinedTextField(
                 texto, { texto = it }, Modifier.weight(1f),
-                placeholder = { Text(if (s.hospedada) "Mensagem ou /comando" else "Escreva para o Claude", color = c.apoio) },
+                placeholder = { Text(if (s.hospedada) "Mensagem ou /comando" else "Escreva para o ${e.agenteDa(s.conta).curto}", color = c.apoio) },
                 textStyle = Texto.corpo.copy(color = c.texto), maxLines = 6,
                 shape = RoundedCornerShape(28.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -658,6 +664,7 @@ fun ContinuarDoDesktop(s: Sessao, aoAbriu: (String) -> Unit) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             if (s.status == "working") "Esta sessão está trabalhando no Claude desktop. Espere ela terminar para continuar por aqui."
+            else if (s.agente != "claude") "Conversa salva. Para mandar mensagens, continue a mesma conversa pelo celular. Se ela estiver aberta no computador, feche lá antes, para as duas não escreverem juntas."
             else "Sessão do Claude desktop. Para mandar mensagens, continue a mesma conversa pelo celular. Feche-a no desktop antes, para as duas não escreverem juntas.",
             style = Texto.apoio, color = c.apoio,
         )
@@ -696,7 +703,7 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
             }
             Column {
                 if (s.desktop) {
-                    TituloSecao("Sessão do Claude desktop")
+                    TituloSecao(if (s.agente == "claude") "Conversa do Claude Code" else "Conversa do ${e.agente(s.agente).nome}")
                     Text("Daqui você acompanha a conversa. Para comandar, toque em Continuar pelo celular, na aba Conversa: a mesma conversa passa a rodar por aqui.", style = Texto.apoio, color = c.apoio)
                     return@Column
                 }
@@ -709,22 +716,34 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
             }
             return@Column
         }
+        val ag = e.agenteDa(s.conta)
         Column {
             TituloSecao("Ações")
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Botao("Interromper", { tecla("esc", "Interrompido") }, Modifier.weight(1f), Icons.Rounded.PanTool, vertical = true)
-                    Botao("Compactar conversa", { enviar("/compact", "Compactação pedida") }, Modifier.weight(1f), Icons.Rounded.CloseFullscreen, vertical = true)
+                    // cada agente tem o seu comando para resumir a conversa e liberar contexto
+                    Botao("Compactar conversa", { enviar(if (ag.id == "gemini") "/compress" else "/compact", "Compactação pedida") }, Modifier.weight(1f), Icons.Rounded.CloseFullscreen, vertical = true)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    BotaoConfirma("Limpar conversa", Icons.Rounded.CleaningServices, { enviar("/clear", "Conversa limpa") }, Modifier.weight(1f), vertical = true)
+                    BotaoConfirma("Limpar conversa", Icons.Rounded.CleaningServices, { enviar(if (ag.id == "codex" || ag.id == "opencode") "/new" else "/clear", "Conversa limpa") }, Modifier.weight(1f), vertical = true)
                     BotaoConfirma("Encerrar sessão", Icons.Rounded.PowerSettingsNew, {
                         Hub.mandar(JSONObject().put("t", "stop").put("instance", s.id)) { erro, _ -> aviso(erro ?: "Sessão encerrada") }
                     }, Modifier.weight(1f), Peso.Perigo, vertical = true)
                 }
             }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+        // Os outros agentes guardam o que foi escolhido ao abrir; para trocar, abre-se uma sessao nova.
+        if (ag.id != "claude") Column {
+            TituloSecao("Ajustes desta sessão")
+            Column(Modifier.clip(RoundedCornerShape(16.dp)).background(c.cartao)) {
+                Leitura(Icons.Rounded.Memory, "Modelo", s.model?.let { nomeDoModelo(ag, it) } ?: "Padrão da conta", Modifier)
+                Divisoria(Modifier.padding(start = 56.dp))
+                Leitura(Icons.Rounded.Shield, "Permissões", s.modo?.let { nomeDoModo(ag, it) } ?: ag.modos.firstOrNull()?.rotulo ?: "Perguntar", Modifier)
+            }
+            Text("Para trocar o modelo ou o modo, abra uma sessão nova nesta conta.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 8.dp))
+        }
+        if (ag.id == "claude") Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
             TituloSecao("Ajustes desta sessão", Modifier.padding(bottom = 0.dp))
             val atual = s.model.orEmpty().lowercase()
             // O Claude Code so confirma a troca na proxima leitura; ate la vale o que voce tocou.
@@ -762,7 +781,7 @@ private fun Controles(e: Estado, s: Sessao, cor: Color, aoTerminal: () -> Unit, 
         }
         Column {
             TituloSecao("Avançado")
-            Text("A tela crua do Claude Code, com teclas. Serve para as raras perguntas que não viram botão.", style = Texto.apoio, color = c.apoio)
+            Text("A tela crua do ${ag.nome}, com teclas e um campo para digitar. Serve para as perguntas que não viram botão.", style = Texto.apoio, color = c.apoio)
             Espaco(10.dp)
             Botao("Ver a tela do terminal", aoTerminal, Modifier.fillMaxWidth(), Icons.Rounded.Terminal, Peso.Quieto)
         }
@@ -819,15 +838,38 @@ private fun Terminal(s: Sessao, aoSair: () -> Unit) {
     }
     DisposableEffect(s.id) { onDispose { Hub.mandar(JSONObject().put("t", "term").put("instance", s.id).put("on", false)) } }
 
+    val ctx = LocalContext.current
+    var digitado by rememberSaveable(s.id) { mutableStateOf("") }
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         LazyRow(contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { Botao("Controles", aoSair, icone = Icons.AutoMirrored.Rounded.ArrowBack, peso = Peso.Quieto, altura = 42.dp) }
+            item { Botao(if (s.login) "Conversa" else "Controles", aoSair, icone = Icons.AutoMirrored.Rounded.ArrowBack, peso = Peso.Quieto, altura = 42.dp) }
             items(TECLAS) { (k, rotulo, ic) ->
                 Botao(rotulo, { Hub.tecla(s.id, k) { erro, _ -> if (erro != null) aviso(erro) } }, icone = ic, altura = 42.dp, descricao = rotulo ?: k)
             }
         }
+        // links na tela (o de login, por exemplo) e as opcoes da pergunta aberta, como botoes
+        val links = tela?.links?.takeIf { it.isNotEmpty() } ?: s.links
+        val pergunta = s.pergunta
+        if (links.isNotEmpty() || pergunta != null) {
+            LazyRow(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(links) { u ->
+                    Botao(
+                        "Abrir " + (runCatching { android.net.Uri.parse(u).host }.getOrNull() ?: "link"),
+                        { runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))) } },
+                        icone = Icons.AutoMirrored.Rounded.OpenInNew, peso = Peso.Principal, altura = 42.dp,
+                    )
+                }
+                if (pergunta != null) items(pergunta.opcoes) { o ->
+                    Botao(
+                        if (o.tecla.length == 1 && o.tecla[0].isDigit()) "${o.tecla}. ${o.rotulo}" else o.rotulo,
+                        { Hub.tecla(s.id, o.tecla) { erro, _ -> if (erro != null) aviso(erro) } },
+                        Modifier.widthIn(max = 280.dp), peso = Peso.Comum, altura = 42.dp, linhas = 1,
+                    )
+                }
+            }
+        }
         Box(
-            Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, bottom = 12.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF120D0A))
+            Modifier.weight(1f).fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF120D0A))
                 .onSizeChanged { tamanho = it.width to it.height },
         ) {
             val t = tela
@@ -842,6 +884,18 @@ private fun Terminal(s: Sessao, aoSair: () -> Unit) {
                     )
                 }
             }
+        }
+        // digitar no terminal: o codigo que a pagina de login mostra, ou uma resposta escrita
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                digitado, { digitado = it }, Modifier.weight(1f), singleLine = true,
+                placeholder = { Text("Digitar no terminal (código, resposta…)", color = cores.apoio) },
+                textStyle = Texto.codigo.copy(color = cores.texto), shape = RoundedCornerShape(12.dp), colors = campoCores(),
+            )
+            IconButton({
+                val t = digitado.trim()
+                if (t.isNotEmpty()) Hub.mandar(JSONObject().put("t", "digitar").put("instance", s.id).put("text", t)) { erro, _ -> if (erro != null) aviso(erro) else digitado = "" }
+            }, enabled = digitado.isNotBlank()) { Icon(Icons.AutoMirrored.Rounded.Send, "Digitar e apertar Enter", tint = if (digitado.isNotBlank()) cores.realce else cores.apoio) }
         }
     }
 }

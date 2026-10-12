@@ -94,12 +94,12 @@ fun relogio(e: Estado?): Long {
     return t - (e?.desvio ?: 0)
 }
 
-/** O logo: "claude" na letra do app e o V em pixels, na cor da marca. */
+/** O logo: "duck" na letra do app e o V em pixels, na cor da marca. */
 @Composable
 fun Logo(modifier: Modifier = Modifier, tamanho: Int = 22) {
     Row(modifier) {
-        // as duas partes na mesma linha de base: o V em pixels pousa no chao do "claude"
-        Text("claude", style = Texto.marca.copy(fontSize = tamanho.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.2).sp), color = cores.texto, modifier = Modifier.alignByBaseline())
+        // as duas partes na mesma linha de base: o V em pixels pousa no chao do "duck"
+        Text("duck", style = Texto.marca.copy(fontSize = tamanho.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.2).sp), color = cores.texto, modifier = Modifier.alignByBaseline())
         Text("V", style = Texto.marca.copy(fontFamily = Pixel, fontSize = (tamanho * 1.12f).sp, lineHeight = (tamanho * 1.12f).sp), color = Laranja, modifier = Modifier.alignByBaseline().padding(start = 1.dp))
     }
 }
@@ -131,7 +131,16 @@ fun Inicio(
     val escopo = rememberCoroutineScope()
     var criando by remember { mutableStateOf(false) }
     var entrando by remember { mutableStateOf<Conta?>(null) }
-    entrando?.let { EntrarNaConta(it) { entrando = null } }
+    entrando?.let { ct ->
+        if (e?.agente(ct.agente)?.loginNoTerminal == true) {
+            LaunchedEffect(ct.id) {
+                Hub.mandar(JSONObject().put("t", "login").put("account", ct.id).put("cols", 60).put("rows", 32)) { erro, r ->
+                    entrando = null
+                    if (erro != null) aviso(erro) else r?.optString("instance")?.takeIf { it.isNotEmpty() }?.let(aoAbrirSessao)
+                }
+            }
+        } else EntrarNaConta(ct) { entrando = null }
+    }
     // Volta para a ultima conta vista; so na primeira abertura do app pula para a que precisa de voce.
     LaunchedEffect(e != null) {
         if (e == null) return@LaunchedEffect
@@ -157,7 +166,7 @@ fun Inicio(
                 Aviso(
                     Icons.Rounded.WifiOff,
                     if (ligado == false) "Sem conexão com o computador" else "Conectando ao computador",
-                    "Confira se ele está ligado, com o claudeV aberto, e se o Tailscale está ativo neste celular. O app continua tentando.",
+                    "Confira se ele está ligado, com o duckV aberto, e se o Tailscale está ativo neste celular. O app continua tentando.",
                     erro = ligado == false,
                 )
             }
@@ -181,7 +190,11 @@ fun Inicio(
                 ) {
                     CartaoConta(e, conta, agora, pato, Modifier.padding(horizontal = 16.dp))
                     // conta sem login: um toque para entrar, sem abrir o computador
-                    if (conta.email == null && e.host.disponivel && !e.demo) Botao(
+                    if (!conta.instalado) Aviso(
+                        null, "${e.agente(conta.agente).nome} não está instalado",
+                        "Rode o instalador do duckV de novo no computador, ou instale com npm install -g.", erro = true,
+                    )
+                    if (conta.email == null && conta.instalado && e.host.disponivel && !e.demo) Botao(
                         "Entrar nesta conta", { entrando = conta },
                         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp), Icons.AutoMirrored.Rounded.Login, Peso.Principal,
                     )
@@ -252,8 +265,9 @@ fun Inicio(
     if (criando) {
         NovaConta(
             aoFechar = { criando = false },
-            aoCriar = { nome ->
-                Hub.mandar(JSONObject().put("t", "conta").put("op", "nova").put("nome", nome)) { erro, r ->
+            agentes = e?.host?.agentes.orEmpty(),
+            aoCriar = { nome, agente ->
+                Hub.mandar(JSONObject().put("t", "conta").put("op", "nova").put("nome", nome).put("agente", agente)) { erro, r ->
                     if (erro != null) aviso(erro)
                     else {
                         criando = false
@@ -291,7 +305,10 @@ private fun SeletorConta(e: Estado, contas: List<Conta>, atual: Int, agora: Long
             Row(Modifier.padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Pato(est.bicho, "parado", Color(conta.cor), Modifier.size(width = 40.dp, height = 32.dp), andar = false, tocavel = false, tipo = conta.pato)
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                    Text(conta.nome, style = Texto.conta, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(conta.nome, style = Texto.conta, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        AgenteIcone(e.agente(conta.agente), 14.dp, Modifier.padding(start = 8.dp))
+                    }
                     // o estado so aparece aqui quando pede atencao; o resto as sessoes ja contam
                     if (est.bicho == "pede" || est.bicho == "cansado") Text(est.texto, style = Texto.pequeno, color = if (est.bicho == "pede") c.realce else c.perigo, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -308,7 +325,10 @@ private fun SeletorConta(e: Estado, contas: List<Conta>, atual: Int, agora: Long
                     text = {
                         Column(Modifier.padding(vertical = 6.dp)) {
                             Text(o.nome, style = Texto.corpo.copy(fontWeight = if (i == atual) FontWeight.Medium else FontWeight.Normal), color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(eo.texto, style = Texto.pequeno, color = if (eo.bicho == "pede") c.realce else c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                AgenteIcone(e.agente(o.agente), 12.dp, Modifier.padding(end = 6.dp))
+                                Text("${e.agente(o.agente).curto} · ${eo.texto}", style = Texto.pequeno, color = if (eo.bicho == "pede") c.realce else c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     },
                     onClick = {
@@ -339,7 +359,7 @@ private fun SeletorConta(e: Estado, contas: List<Conta>, atual: Int, agora: Long
 }
 
 /**
- * Entrar numa conta Claude sem tocar no computador: o claudeV pede o link de entrada ao Claude Code,
+ * Entrar numa conta Claude sem tocar no computador: o duckV pede o link de entrada ao Claude Code,
  * o celular abre no navegador, voce entra e cola aqui o codigo que a pagina mostra no fim.
  */
 @Composable
@@ -373,7 +393,7 @@ fun EntrarNaConta(conta: Conta, aoFechar: () -> Unit) {
                     erro != null && url == null -> Text(erro!!, style = Texto.apoio, color = c.perigo)
                     url == null -> Text("Pedindo o link de entrada ao computador…", style = Texto.apoio, color = c.apoio)
                     else -> {
-                        Text("1. No navegador que abriu, entre com a conta Claude que esta conta do claudeV deve usar.", style = Texto.apoio, color = c.apoio)
+                        Text("1. No navegador que abriu, entre com a conta Claude que esta conta do duckV deve usar.", style = Texto.apoio, color = c.apoio)
                         Text("2. No fim, a página mostra um código. Copie e cole aqui.", style = Texto.apoio, color = c.apoio)
                         OutlinedTextField(
                             codigo, { codigo = it.trim() }, Modifier.fillMaxWidth(), singleLine = true,
@@ -410,20 +430,41 @@ fun EntrarNaConta(conta: Conta, aoFechar: () -> Unit) {
 }
 
 @Composable
-private fun NovaConta(aoFechar: () -> Unit, aoCriar: (String) -> Unit) {
+private fun NovaConta(agentes: List<io.github.duckv.app.Agente>, aoFechar: () -> Unit, aoCriar: (String, String) -> Unit) {
     val c = cores
     var nome by remember { mutableStateOf("") }
+    var agente by remember { mutableStateOf("claude") }
     AlertDialog(
         onDismissRequest = aoFechar,
         containerColor = c.elevada,
         title = { Text("Adicionar conta", style = Texto.titulo, color = c.texto) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("O claudeV cria uma pasta própria para a conta no computador, com atalho e canal prontos. Depois, abra uma sessão nela e envie /login para entrar com a conta Claude.", style = Texto.apoio, color = c.apoio)
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Qual agente esta conta usa?", style = Texto.rotulo, color = c.texto)
+                // um agente por linha, com o icone, o nome e de quem e
+                Column(Modifier.clip(RoundedCornerShape(16.dp)).background(c.cartao)) {
+                    agentes.forEachIndexed { i, ag ->
+                        if (i > 0) Divisoria(Modifier.padding(start = 52.dp))
+                        Row(
+                            Modifier.fillMaxWidth().clickable(role = Role.RadioButton) { agente = ag.id }
+                                .background(if (agente == ag.id) Color(ag.cor).copy(alpha = 0.14f) else Color.Transparent)
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AgenteIcone(ag, 24.dp)
+                            Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                                Text(ag.nome, style = Texto.corpo.copy(fontWeight = FontWeight.Medium), color = c.texto)
+                                Text(ag.empresa, style = Texto.pequeno, color = c.apoio)
+                            }
+                            androidx.compose.material3.RadioButton(agente == ag.id, { agente = ag.id }, colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = Color(ag.cor)))
+                        }
+                    }
+                }
                 OutlinedTextField(nome, { nome = it.take(30) }, Modifier.fillMaxWidth(), label = { Text("Nome da conta") }, singleLine = true, colors = campoCores())
+                Text("O duckV cria uma pasta própria para a conta no computador e um atalho. Em seguida, você entra na conta pelo próprio celular.", style = Texto.pequeno, color = c.apoio)
             }
         },
-        confirmButton = { TextButton({ aoCriar(nome.trim()) }) { Text("Criar conta", style = Texto.rotulo, color = c.realce) } },
+        confirmButton = { TextButton({ aoCriar(nome.trim(), agente) }) { Text("Criar conta", style = Texto.rotulo, color = c.realce) } },
         dismissButton = { TextButton(aoFechar) { Text("Cancelar", style = Texto.rotulo, color = c.realce) } },
     )
 }
@@ -477,7 +518,8 @@ private fun CartaoConta(e: Estado, conta: Conta, agora: Long, pato: String, modi
                     listOfNotNull(conta.email, conta.plano?.let { p -> "Plano ${p.replaceFirstChar { it.uppercase() }}" }).joinToString(" · "),
                     style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                EstadoPilula(est, cor, Modifier.padding(top = 12.dp))
+                SeloAgente(e.agente(conta.agente), Modifier.padding(top = 10.dp))
+                EstadoPilula(est, cor, Modifier.padding(top = 8.dp))
             }
             // o pato mora aqui, de pe no chao; um toque e ele reage
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -499,7 +541,7 @@ private fun CartaoConta(e: Estado, conta: Conta, agora: Long, pato: String, modi
             }
         }
         Celulas(100, (cinco ?: 0.0).toInt().coerceIn(0, 100), cor, Modifier.padding(top = 4.dp), quenteDe = 80, altura = 6.dp)
-        if (cinco == null) Text("Aparece depois da primeira resposta do Claude nesta conta.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 8.dp))
+        if (cinco == null) Text(if (conta.agente == "claude" || conta.agente == "codex") "Aparece depois da primeira resposta nesta conta." else "O ${e.agente(conta.agente).nome} não informa limite de uso.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 8.dp))
 
         Row(Modifier.padding(top = 16.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Bloco("Semana", conta.semana?.pct?.let { "${it.toInt()}%" } ?: "—", reinicio("seven_day", conta.semana, conta, agora, curto = true), Modifier.weight(1f).fillMaxHeight()) {

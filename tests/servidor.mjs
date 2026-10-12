@@ -1,5 +1,5 @@
 // Teste ponta a ponta do servidor e do canal, com um cliente real do protocolo e um celular simulado.
-// Usa uma pasta temporaria: nao toca nas suas contas nem nos dados do claudeV.
+// Usa uma pasta temporaria: nao toca nas suas contas nem nos dados do duckV.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'claudev-teste-'));
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'duckv-teste-'));
 fs.writeFileSync(path.join(TMP, 'contas.json'), JSON.stringify([1, 2, 3].map((n) => ({ id: 'conta' + n, nome: 'Conta ' + n, cor: '#ff7a1a', dir: path.join(TMP, 'c' + n) }))));
 const CODIGO = 'codigo-de-teste-0123456789';
 const AMBIENTE = { ...process.env, PAINEL_CODIGO: CODIGO, PAINEL_DATA: TMP, PAINEL_CONTAS: path.join(TMP, 'contas.json') };

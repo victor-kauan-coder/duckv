@@ -108,3 +108,22 @@ fun EscalaEsforco(niveis: List<String>, marcado: String, aoEscolher: (String) ->
 
 fun opcoesModelo(ids: List<String>) = ids.map { Opcao(it, MODELOS[it] ?: it, SOBRE_MODELO[it]) }
 fun opcoesModo(ids: List<String>) = ids.map { Opcao(it, MODOS[it]?.first ?: it, MODOS[it]?.second) }
+
+// As listas de cada agente vem do computador; o Claude Code mantem os textos explicativos daqui.
+fun opcoesModelo(ag: io.github.duckv.app.Agente) = ag.modelos.map { m ->
+    if (ag.id == "claude") Opcao(m.id, MODELOS[m.id] ?: m.rotulo, SOBRE_MODELO[m.id])
+    else Opcao(m.id, m.rotulo, if (m.id == "default") "O que o ${ag.nome} usa quando você não escolhe." else null)
+}
+fun opcoesModo(ag: io.github.duckv.app.Agente) = ag.modos.map { m ->
+    if (ag.id == "claude") Opcao(m.id, MODOS[m.id]?.first ?: m.rotulo, MODOS[m.id]?.second) else Opcao(m.id, m.rotulo, null)
+}
+fun nomeDoModelo(ag: io.github.duckv.app.Agente, id: String) = (if (ag.id == "claude") MODELOS[id] else null) ?: ag.modelos.find { it.id == id }?.rotulo ?: id
+fun nomeDoModo(ag: io.github.duckv.app.Agente, id: String) = (if (ag.id == "claude") MODOS[id]?.first else null) ?: ag.modos.find { it.id == id }?.rotulo ?: id
+
+/** Esforco com as opcoes do agente (o Claude usa os textos explicativos de sempre). */
+@Composable
+fun EscalaEsforco(ag: io.github.duckv.app.Agente, marcado: String, aoEscolher: (String) -> Unit, modifier: Modifier = Modifier, cor: Color = Laranja) {
+    if (ag.id == "claude") return EscalaEsforco(ag.esforcos.map { it.id }, marcado, aoEscolher, modifier, cor = cor)
+    val opcoes = listOf(Opcao("", "Padrão", "O que o ${ag.nome} usa quando você não escolhe.")) + ag.esforcos.map { Opcao(it.id, it.rotulo, null) }
+    ListaEscolha(opcoes, marcado.takeIf { m -> opcoes.any { it.id == m } }, aoEscolher, modifier, cor)
+}

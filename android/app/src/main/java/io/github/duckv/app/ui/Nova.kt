@@ -89,12 +89,15 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
     var lista by remember { mutableStateOf<Listagem?>(null) }
     var erroLista by remember { mutableStateOf<String?>(null) }
 
+    // O agente da conta escolhida define modelos, esforcos e modos.
+    val ag = e.agenteDa(conta.orEmpty())
+    val instalado = e.contas.find { it.id == conta }?.instalado != false
     // Preenche com o jeito de comecar que a conta tem nas Opcoes.
     LaunchedEffect(conta) {
         val p = e.contas.find { it.id == conta }?.padroes ?: return@LaunchedEffect
-        modelo = p.model ?: "default"
-        esforco = p.effort ?: ""
-        modo = p.mode ?: "manual"
+        modelo = p.model?.takeIf { m -> ag.modelos.any { it.id == m } } ?: "default"
+        esforco = p.effort?.takeIf { m -> ag.esforcos.any { it.id == m } } ?: ""
+        modo = p.mode?.takeIf { m -> ag.modos.any { it.id == m } } ?: ag.modos.firstOrNull()?.id ?: "manual"
         if (!p.cwd.isNullOrBlank() && cwd.isBlank()) cwd = p.cwd
     }
 
@@ -124,6 +127,9 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (ct in e.contas) Escolha(ct.nome, ct.id == conta, { conta = ct.id }, marca = androidx.compose.ui.graphics.Color(ct.cor))
                 }
+                // qual agente vai abrir: sem duvida antes de tocar em Abrir sessao
+                SeloAgente(ag, Modifier.padding(top = 10.dp), completo = true)
+                if (!instalado) Text("O ${ag.nome} não está instalado no computador. Rode o instalador do duckV de novo.", style = Texto.apoio, color = c.perigo, modifier = Modifier.padding(top = 6.dp))
             }
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 CabecalhoAjuste("Pasta do projeto", null, Modifier.padding(bottom = 0.dp))
@@ -159,7 +165,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
           Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             TituloSecao("Como começar", Modifier.padding(bottom = 0.dp))
             // Os padroes da conta ja vem escolhidos; o resumo evita tres listas longas no caminho de quem so quer abrir.
-            val resumo = listOf(MODELOS[modelo] ?: modelo, ESFORCOS[esforco] ?: "Esforço padrão").joinToString(" · ")
+            val resumo = listOfNotNull(nomeDoModelo(ag, modelo), if (ag.esforcos.isEmpty()) null else ag.esforcos.find { it.id == esforco }?.rotulo ?: ESFORCOS[esforco] ?: "Esforço padrão").joinToString(" · ")
             Cartao {
                 Row(
                     Modifier.fillMaxWidth().clickable(onClickLabel = if (ajustar) "Esconder ajustes" else "Mudar ajustes") { ajustar = !ajustar }.padding(16.dp),
@@ -167,7 +173,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(resumo, style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
-                        Text(nomeDoModo(modo), style = Texto.apoio, color = c.apoio)
+                        Text(nomeDoModo(ag, modo), style = Texto.apoio, color = c.apoio)
                     }
                     Text(if (ajustar) "Pronto" else "Mudar", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.realce)
                 }
@@ -180,15 +186,15 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                 Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
                     Column {
                         CabecalhoAjuste("Modelo", null)
-                        ListaEscolha(opcoesModelo(e.host.modelos), modelo, { modelo = it })
+                        ListaEscolha(opcoesModelo(ag), modelo, { modelo = it })
                     }
-                    Column {
+                    if (ag.esforcos.isNotEmpty()) Column {
                         CabecalhoAjuste("Esforço de raciocínio", null)
-                        EscalaEsforco(e.host.esforcos, esforco, { esforco = it })
+                        EscalaEsforco(ag, esforco, { esforco = it })
                     }
                     Column {
                         CabecalhoAjuste("Permissões", null)
-                        ListaEscolha(opcoesModo(e.host.modos), modo, { modo = it })
+                        ListaEscolha(opcoesModo(ag), modo, { modo = it })
                     }
                 }
             }
@@ -217,7 +223,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                             if (er != null) erro = er else r?.optString("instance")?.let(aoAbriu)
                         }
                     },
-                    Modifier.fillMaxWidth(), peso = Peso.Principal, habilitado = e.host.disponivel && !abrindo && conta != null,
+                    Modifier.fillMaxWidth(), peso = Peso.Principal, habilitado = e.host.disponivel && !abrindo && conta != null && instalado,
                 )
             }
         }

@@ -1,6 +1,6 @@
 {
-  "name": "claudeV",
-  "short_name": "claudeV",
+  "name": "duckV",
+  "short_name": "duckV",
   "description": "Acompanha e controla as sessoes do Claude Code no computador.",
   "lang": "pt-BR",
   "start_url": "/",

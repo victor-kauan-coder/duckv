@@ -1,5 +1,5 @@
 'use strict';
-// claudeV: app do celular. Mostra as contas, o uso, as sessoes e os pedidos de
+// duckV: app do celular. Mostra as contas, o uso, as sessoes e os pedidos de
 // permissao, e comanda as sessoes abertas por aqui.
 /* global icone */
 
@@ -577,7 +577,7 @@ function criarInicio() {
     'div',
     { class: 'faixa-aviso', role: 'alert', hidden: true },
     el('b', { text: 'Sem conexão com o computador' }),
-    'Confira se ele está ligado, com o claudeV aberto, e se o Tailscale está ativo neste celular. O app continua tentando.',
+    'Confira se ele está ligado, com o duckV aberto, e se o Tailscale está ativo neste celular. O app continua tentando.',
   );
   const demo = el('div', { class: 'faixa-aviso neutra', hidden: true }, el('b', { text: 'Modo demonstração' }), 'As contas, as sessões e os números desta tela são de mentira.');
   const pedidos = el('div', { class: 'pedidos' });
@@ -589,7 +589,7 @@ function criarInicio() {
   const semTerminal = el('p', { hidden: true });
   const rodape = el('footer', { class: 'rodape' }, ligacao, botaoAvisos, notaAvisos, semTerminal);
   const opcoes = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Opções', onclick: () => (location.hash = '#/opcoes') }, icone('gear-six', 24));
-  const raiz = el('div', null, el('header', { class: 'barra' }, el('h1', { text: 'claudeV' }), el('div', { class: 'barra-acoes' }, abrir, opcoes)), semLigacao, demo, pedidos, esqueleto, contas, rodape);
+  const raiz = el('div', null, el('header', { class: 'barra' }, el('h1', { text: 'duckV' }), el('div', { class: 'barra-acoes' }, abrir, opcoes)), semLigacao, demo, pedidos, esqueleto, contas, rodape);
 
   function avisos() {
     const pode = 'serviceWorker' in navigator && 'PushManager' in window && window.isSecureContext;
@@ -1015,7 +1015,7 @@ function criarSessao(id, abaInicial) {
     form.hidden = !viva || aba === 'controles';
     campo.disabled = enviar.disabled = !s.canSend;
     campo.placeholder = s.hosted ? 'Mensagem ou /comando' : 'Escreva para o Claude';
-    nota.textContent = !viva ? 'Sessão encerrada.' : s.canSend ? '' : 'Esta sessão não recebe mensagens do celular. Abra-a pelo atalho da conta, com o claudeV ligado.';
+    nota.textContent = !viva ? 'Sessão encerrada.' : s.canSend ? '' : 'Esta sessão não recebe mensagens do celular. Abra-a pelo atalho da conta, com o duckV ligado.';
     nota.hidden = !nota.textContent || aba === 'controles';
   }
 
@@ -1383,7 +1383,7 @@ function criarOpcoes() {
         seletor('op-limiar', 'Avisar do reinício só se o uso tiver passado de', [[50, '50%'], [80, '80%'], [95, '95%']], a.limiar, (v) => salvar({ op: 'avisos', limiar: Number(v) })),
       ),
       grupo('Mensagens rápidas', el('p', { class: 'ajuda', text: 'Aparecem como botões acima da caixa de mensagem de cada sessão.' }), caixaRapidas, formRapida),
-      grupo('Este celular', el('p', { class: 'ajuda', text: 'Desparear apaga o acesso deste celular. Para voltar, aponte a câmera para o código na janela do claudeV.' }), desparear),
+      grupo('Este celular', el('p', { class: 'ajuda', text: 'Desparear apaga o acesso deste celular. Para voltar, aponte a câmera para o código na janela do duckV.' }), desparear),
     );
   }
   return { raiz, atualizar, id: 'opcoes' };
@@ -1442,7 +1442,7 @@ function desenhar() {
         'div',
         { class: 'inteira' },
         el('h1', { text: 'Este celular ainda não foi pareado' }),
-        el('p', { text: 'No computador, abra a janela do claudeV e aponte a câmera do celular para o código que aparece nela.' }),
+        el('p', { text: 'No computador, abra a janela do duckV e aponte a câmera do celular para o código que aparece nela.' }),
       ),
     );
     return;

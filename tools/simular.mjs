@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Modo demonstracao: liga um claudeV separado (porta 8766) com tres contas de
+// Modo demonstracao: liga um duckV separado (porta 8766) com tres contas de
 // mentira, para ver o app funcionando antes de conectar o Claude Code de verdade.
 // Nada aqui toca nas suas contas nem gasta o seu limite.
 import { spawn } from 'node:child_process';
@@ -15,9 +15,9 @@ fs.rmSync(DEMO, { recursive: true, force: true });
 fs.mkdirSync(DEMO, { recursive: true });
 
 const contas = [
-  { id: 'conta1', nome: 'Conta 1', cor: '#ffb22e', dir: path.join(DEMO, 'conta1') },
-  { id: 'conta2', nome: 'Conta 2', cor: '#ff7a1a', dir: path.join(DEMO, 'conta2') },
-  { id: 'conta3', nome: 'Conta 3', cor: '#c4420a', dir: path.join(DEMO, 'conta3') },
+  { id: 'conta1', nome: 'Trabalho', cor: '#ffb22e', dir: path.join(DEMO, 'conta1'), agente: 'claude' },
+  { id: 'conta2', nome: 'Pessoal', cor: '#ff7a1a', dir: path.join(DEMO, 'conta2'), agente: 'codex' },
+  { id: 'conta3', nome: 'Estudos', cor: '#c4420a', dir: path.join(DEMO, 'conta3'), agente: 'gemini' },
 ];
 fs.writeFileSync(path.join(DEMO, 'contas.json'), JSON.stringify(contas, null, 2));
 
@@ -46,7 +46,7 @@ for (let i = 0; i < 40 && !cfg; i++) {
   }
 }
 if (!cfg) {
-  console.error('O claudeV de demonstracao nao iniciou.');
+  console.error('O duckV de demonstracao nao iniciou.');
   process.exit(1);
 }
 const base = `http://127.0.0.1:${PORT}`;

@@ -90,7 +90,7 @@ const limpa = (l) => String(l || '').replace(BOX, ' ').replace(/\s+$/, '');
 // Menu numerado do Claude Code ("❯ 1. Yes" / "  2. No"). So vale quando uma das linhas
 // tem o marcador de selecao, para nao confundir com listas no texto.
 function menuNumerado(ls, fim) {
-  const opcao = /^\s*([❯›>▶]\s*)?(\d)[.)]\s+(\S.*)$/;
+  const opcao = /^\s*([❯›>▶●]\s*)?(\d)[.)]\s+(\S.*)$/;
   for (let i = fim; i >= Math.max(0, fim - 24); i--) {
     if (!opcao.test(ls[i])) continue;
     // sobe ate o inicio do bloco de opcoes (linhas de descricao indentadas sao toleradas)
@@ -145,11 +145,33 @@ function menuSemNumero(ls, fim) {
   return null;
 }
 
-// Procura, na parte de baixo da tela, uma pergunta do Claude Code para o app oferecer como botoes.
+// Pergunta de sim ou nao no fim da tela, como a do Cline: Approve tool "editor" {...} [y/N]
+function simNao(ls, fim) {
+  for (let i = fim; i >= Math.max(0, fim - 3); i--) {
+    if (!/\[y\/N\]\s*$/i.test(ls[i])) continue;
+    let ini = i;
+    while (ini > 0 && ls[ini - 1].trim() && i - ini < 12) ini--;
+    const titulo = /Approve tool "([^"]+)"/.exec(ls.slice(ini, i + 1).join(' '));
+    return {
+      titulo: titulo ? `Aprovar a ferramenta ${titulo[1]}?` : ls[i].replace(/\[y\/N\]\s*$/i, '').trim().slice(0, 300),
+      opcoes: [
+        { tecla: 'y', rotulo: 'Sim, pode' },
+        { tecla: 'n', rotulo: 'Não' },
+      ],
+      contexto: ls.slice(Math.max(0, ini - 20), i + 1).join('\n').trim().slice(-4000),
+      simNao: true,
+    };
+  }
+  return null;
+}
+
+// Procura, na parte de baixo da tela, uma pergunta do agente para o app oferecer como botoes.
 export function readPrompt(lines) {
   const ls = lines.map(limpa);
   let fim = ls.length - 1;
   while (fim >= 0 && !ls[fim].trim()) fim--;
+  const sn = simNao(ls, fim);
+  if (sn) return sn;
   const achado = menuNumerado(ls, fim) || menuSemNumero(ls, fim);
   if (!achado) return null;
   const { opcoes, topo } = achado;
@@ -236,15 +258,9 @@ export function startHosted(opts) {
   const cols = Math.max(40, Math.min(160, opts.cols || 60));
   const rows = Math.max(16, Math.min(60, opts.rows || 32));
 
-  const args = [];
-  // Retomar uma conversa existente (por exemplo, do Claude desktop) e carregar os ganchos do claudeV
-  // sem mexer nas configuracoes de sempre.
-  if (opts.resume) args.push('--resume', opts.resume);
-  if (opts.settings) args.push('--settings', opts.settings);
-  if (opts.model && opts.model !== 'default') args.push('--model', opts.model);
-  if (opts.effort) args.push('--effort', opts.effort);
-  if (opts.mode) args.push('--permission-mode', opts.mode);
-  if (opts.name) args.push('--name', opts.name);
+  // Programa e argumentos vem montados pelo adaptador do agente (hub/agentes.mjs).
+  const bin = opts.bin || 'claude';
+  const args = opts.args || [];
 
   const custom = opts.command; // [programa, ...argumentos], usado nos testes e em instalacoes fora do padrao
   let file;
@@ -253,12 +269,12 @@ export function startHosted(opts) {
     file = custom[0];
     argv = [...custom.slice(1), ...args];
   } else if (process.platform === 'win32') {
-    // cmd.exe encontra tanto o claude.exe quanto o claude.cmd instalado pelo npm.
+    // cmd.exe encontra tanto o .exe quanto o .cmd instalado pelo npm.
     file = process.env.ComSpec || 'cmd.exe';
     // Sem /s: como o comando nao comeca com aspas, o cmd preserva as aspas dos argumentos.
-    argv = ['/d', '/c', 'claude', ...args];
+    argv = ['/d', '/c', bin, ...args];
   } else {
-    file = 'claude';
+    file = bin;
     argv = args;
   }
 
@@ -283,7 +299,28 @@ export function startHosted(opts) {
       const line = buf.getLine(buf.viewportY + y);
       lines.push(line ? line.translateToString(true) : '');
     }
-    return { lines, cx: buf.cursorX, cy: buf.cursorY, cols: term.cols, rows: term.rows };
+    return { lines, cx: buf.cursorX, cy: buf.cursorY, cols: term.cols, rows: term.rows, links: links() };
+  }
+  // Links que aparecem na tela (o de login, por exemplo). Linhas quebradas pelo terminal sao juntadas
+  // antes, porque um link longo ocupa varias linhas de uma tela estreita.
+  function links() {
+    const buf = term.buffer.active;
+    const juntas = [];
+    for (let y = 0; y < buf.length; y++) {
+      const l = buf.getLine(y);
+      if (!l) continue;
+      const s = l.translateToString(true);
+      if (l.isWrapped && juntas.length) juntas[juntas.length - 1] += s;
+      else juntas.push(s);
+    }
+    const achados = [];
+    for (const s of juntas) {
+      for (const m of s.matchAll(/https?:\/\/[^\s"'<>│┃]+/g)) {
+        const u = m[0].replace(/[.,;)]+$/, '');
+        if (!achados.includes(u)) achados.push(u);
+      }
+    }
+    return achados.slice(-3);
   }
   function emit() {
     timer = null;
@@ -316,7 +353,7 @@ export function startHosted(opts) {
   // uma linha que comeca com o marcador de entrada e nao e opcao numerada de menu.
   const fila = [];
   let digitando = false;
-  const CAIXA = /^\s*[❯>][\s ](?!\d[.)]\s)/;
+  const CAIXA = opts.caixa || /^\s*[❯>][\s ](?!\d[.)]\s)/;
   // Com um menu aberto (confiar na pasta, permissao...) nao e caixa de mensagem: o Enter escolheria uma opcao.
   const pronto = () => {
     const ls = snapshot().lines;
@@ -379,6 +416,8 @@ export function startHosted(opts) {
       // mandado como tecla do Windows (win32-input-mode: aperta e solta), ele chega na hora.
       if (name === 'esc' && process.platform === 'win32' && !opts.command) return write('\x1b[27;1;27;1;0;1_\x1b[27;1;27;0;0;1_'), true;
       if (KEYS[name]) return write(KEYS[name]), true;
+      // Pergunta de sim ou nao: a letra e o Enter.
+      if (/^[yn]$/.test(name) && readPrompt(snapshot().lines)?.simNao) return write(name), setTimeout(() => write('\r'), 120), true;
       // Botao de um menu sem numeros: anda com as setas ate a opcao e confirma.
       const menu = /^[1-9]$/.test(name) ? readPrompt(snapshot().lines) : null;
       if (menu?.menu) {
@@ -399,6 +438,14 @@ export function startHosted(opts) {
       write(tecla);
       setTimeout(() => write(t), 300);
       setTimeout(() => write('\r'), 300 + 250 + Math.min(1500, t.length * 2));
+      return true;
+    },
+    // Digita um texto qualquer onde o cursor estiver e aperta Enter (codigo de login, por exemplo).
+    digitar(texto) {
+      const t = cleanText(texto).replace(/\n/g, ' ').trim().slice(0, 4000);
+      if (!t) return false;
+      write(t);
+      setTimeout(() => write('\r'), 200 + Math.min(1500, t.length * 2));
       return true;
     },
     // Espera a caixa de mensagem existir: logo ao abrir (ou enquanto o Claude Code se atualiza)

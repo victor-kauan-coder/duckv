@@ -19,7 +19,7 @@ import kotlin.concurrent.thread
 
 typealias Retorno = (erro: String?, r: JSONObject?) -> Unit
 
-// Ligacao unica com o claudeV do computador. A tela e o servico de avisos
+// Ligacao unica com o duckV do computador. A tela e o servico de avisos
 // leem os mesmos fluxos daqui.
 object Hub {
     val estado = MutableStateFlow<Estado?>(null)
@@ -70,7 +70,7 @@ object Hub {
 
     // ------------------------------------------------------------ pareamento
 
-    // Aceita o link do QR da janela do claudeV: https://pc.rede.ts.net/parear?k=...
+    // Aceita o link do QR da janela do duckV: https://pc.rede.ts.net/parear?k=...
     fun lerLink(texto: String): Pair<String, String>? {
         val uri = runCatching { Uri.parse(texto.trim()) }.getOrNull() ?: return null
         // texto que nao e link (ex.: "abc:def") faz o Android lancar excecao aqui; vira so "link invalido"
@@ -82,10 +82,10 @@ object Hub {
 
     /**
      * Troca o codigo do QR pela chave propria deste celular. O computador pede confirmacao:
-     * [aoConferir] recebe os 4 numeros que devem aparecer iguais na janela do claudeV.
+     * [aoConferir] recebe os 4 numeros que devem aparecer iguais na janela do duckV.
      */
     fun parear(link: String, aoConferir: (String) -> Unit, pronto: (String?) -> Unit) {
-        val (b, k) = lerLink(link) ?: return pronto("Esse não é o link do claudeV. Use o código da janela do claudeV no computador.")
+        val (b, k) = lerLink(link) ?: return pronto("Esse não é o link do duckV. Use o código da janela do duckV no computador.")
         val json = "application/json".toMediaType()
         thread {
             var chave: String? = null
@@ -112,15 +112,15 @@ object Hub {
                 }
                 when {
                     chave != null -> null
-                    codigo == 403 -> "Esse código não vale mais: ele muda cada vez que o claudeV liga ou pareia um aparelho. Escaneie o código da janela aberta agora."
-                    codigo == 404 -> "O claudeV do computador está desatualizado. Atualize a pasta e rode instalar.cmd de novo."
-                    codigo == 429 -> "Há pedidos demais esperando. Responda os da janela do claudeV."
+                    codigo == 403 -> "Esse código não vale mais: ele muda cada vez que o duckV liga ou pareia um aparelho. Escaneie o código da janela aberta agora."
+                    codigo == 404 -> "O duckV do computador está desatualizado. Atualize a pasta e rode instalar.cmd de novo."
+                    codigo == 429 -> "Há pedidos demais esperando. Responda os da janela do duckV."
                     else -> "O computador respondeu de um jeito estranho (erro $codigo)."
                 }
             } catch (e: IllegalStateException) {
                 e.message
             } catch (e: Exception) {
-                "Não consegui falar com o computador. Confira se o claudeV está aberto e se o Tailscale está ligado neste celular."
+                "Não consegui falar com o computador. Confira se o duckV está aberto e se o Tailscale está ligado neste celular."
             }
             principal.post {
                 if (erro == null) {

@@ -193,7 +193,7 @@ fun CartaoPergunta(conta: Conta, s: Sessao, aoVerTela: () -> Unit) {
             PixelArte(BALAO, Modifier.size(28.dp), mapOf('#' to c.invTexto, 'o' to Laranja))
             EspacoLargo(10.dp)
             Column(Modifier.weight(1f)) {
-                Text("O Claude pergunta", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.invTexto)
+                Text(if (s.agente == "claude") "O Claude pergunta" else "O agente pergunta", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.invTexto)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Marca(Color(conta.cor), tamanho = 8.dp)
                     EspacoLargo(6.dp)

@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-title claudeV - instalacao
+title duckV - instalacao
 echo.
-echo  claudeV - instalacao
+echo  duckV - instalacao
 echo  ====================
 echo  Este assistente instala o que faltar e deixa tudo pronto. Responda as perguntas com S ou N.
 echo.

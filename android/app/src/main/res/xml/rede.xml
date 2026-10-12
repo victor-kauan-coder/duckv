@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- O claudeV fala com o proprio computador: pelo Tailscale (https) ou pela rede de casa (http). -->
+<!-- O duckV fala com o proprio computador: pelo Tailscale (https) ou pela rede de casa (http). -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

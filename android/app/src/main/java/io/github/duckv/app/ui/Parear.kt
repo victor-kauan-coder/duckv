@@ -81,7 +81,7 @@ fun TelaParear(pato: String) {
         Pato(if (ocupado) "trabalha" else "dorme", pato, Laranja, Modifier.widthIn(max = 420.dp).fillMaxWidth().height(150.dp).padding(top = 24.dp))
         Logo(tamanho = 40)
         Text(
-            "Acompanhe e comande as sessões do Claude Code das suas contas, direto do celular.",
+            "Acompanhe e comande seus agentes de código, como Claude Code, Codex e Gemini, direto do celular.",
             style = Texto.corpo, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 420.dp),
         )
         Column(Modifier.widthIn(max = 420.dp).fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -92,11 +92,11 @@ fun TelaParear(pato: String) {
                 PixelArte(CELULAR, Modifier.size(width = 40.dp, height = 46.dp), mapOf('#' to c.texto, 'o' to Laranja))
             }
             Text("Para começar", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
-            Text("No computador, abra o claudeV. Na janela aparece um código QR: escaneie aqui.", style = Texto.apoio, color = c.apoio)
+            Text("No computador, abra o duckV. Na janela aparece um código QR: escaneie aqui.", style = Texto.apoio, color = c.apoio)
             Botao(
                 "Escanear código", {
                     leitor.launch(
-                        ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Aponte para o código na janela do claudeV")
+                        ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Aponte para o código na janela do duckV")
                             .setBeepEnabled(false).setOrientationLocked(false),
                     )
                 },
@@ -125,7 +125,7 @@ fun TelaParear(pato: String) {
                         color = c.invTexto, modifier = Modifier.semantics { contentDescription = "Código ${conferir.toList().joinToString(" ")}" },
                     )
                     Text(
-                        "Na janela do claudeV, digite estes 4 números e aperte Enter. Assim o computador sabe que é este celular.",
+                        "Na janela do duckV, digite estes 4 números e aperte Enter. Assim o computador sabe que é este celular.",
                         style = Texto.apoio, color = c.invApoio, textAlign = TextAlign.Center,
                     )
                 }

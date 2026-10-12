@@ -25,7 +25,24 @@ data class Conta(
     val email: String? = null,
     val pato: String = "classico",
     val plano: String? = null,
+    val agente: String = "claude",
+    val instalado: Boolean = true,
 )
+
+/** Um agente de codigo que o duckV sabe abrir (Claude Code, Codex, Gemini CLI, OpenCode, Cline). */
+data class Escolha(val id: String, val rotulo: String)
+data class Agente(
+    val id: String,
+    val nome: String,
+    val curto: String,
+    val empresa: String,
+    val cor: Long,
+    val modelos: List<Escolha>,
+    val esforcos: List<Escolha>,
+    val modos: List<Escolha>,
+    val loginNoTerminal: Boolean,
+)
+val CLAUDE_PADRAO = Agente("claude", "Claude Code", "Claude", "Anthropic", 0xFFD97757, emptyList(), emptyList(), emptyList(), false)
 
 data class Perm(val id: String, val tool: String, val desc: String, val preview: String, val em: Long)
 data class Opcao(val tecla: String, val rotulo: String, val confirmar: Boolean = false, val detalhe: String? = null, val livre: Boolean = false)
@@ -61,6 +78,9 @@ data class Sessao(
     val ultimoTexto: String,
     val desktop: Boolean = false,
     val sessaoId: String? = null,
+    val agente: String = "claude",
+    val links: List<String> = emptyList(),
+    val login: Boolean = false,
 ) {
     val viva get() = status != "ended"
     val precisa get() = status == "waiting" || perms.isNotEmpty()
@@ -75,6 +95,7 @@ data class Host(
     val pastas: List<String>,
     val home: String,
     val sep: String,
+    val agentes: List<Agente> = emptyList(),
 )
 
 data class AvisosPrefs(val perm: Boolean, val fim: Boolean, val reset: Boolean, val limiar: Int)
@@ -91,10 +112,12 @@ data class Estado(
     fun conta(id: String) = contas.find { it.id == id }
         ?: Conta(id, id, 0xFFFF7A1A, Padroes(null, null, null, null), null, null, null, null, null)
     fun vivas(conta: String) = sessoes.filter { it.conta == conta && it.viva }
+    fun agente(id: String?) = host.agentes.find { it.id == id } ?: host.agentes.find { it.id == "claude" } ?: CLAUDE_PADRAO
+    fun agenteDa(conta: String) = agente(conta(conta).agente)
 }
 
 data class Msg(val id: String, val papel: String, val texto: String, val tool: String?, val doCelular: Boolean, val img: String? = null, val via: String? = null)
-data class Tela(val linhas: List<String>, val cx: Int, val cy: Int)
+data class Tela(val linhas: List<String>, val cx: Int, val cy: Int, val links: List<String> = emptyList())
 
 fun pasta(p: String?) = p.orEmpty().split('\\', '/').lastOrNull { it.isNotEmpty() }.orEmpty()
 
@@ -133,6 +156,8 @@ fun lerEstado(m: JSONObject): Estado {
             lidoEm = u?.l("at"),
             tokens = tokens(a.optJSONObject("tokens")),
             reinicio = a.optJSONObject("lastReset")?.let { Reinicio(it.optString("win"), it.optLong("at"), it.optDouble("was", 0.0)) },
+            agente = a.optString("agente", "claude"),
+            instalado = a.optBoolean("instalado", true),
         )
     }
     val sessoes = m.optJSONArray("instances").mapa { i ->
@@ -167,6 +192,9 @@ fun lerEstado(m: JSONObject): Estado {
             desktop = i.optBoolean("desktop"),
             sessaoId = i.s("sessionId"),
             ultimoTexto = i.optString("lastText"),
+            agente = i.optString("agente", "claude"),
+            links = i.optJSONArray("links").strings(),
+            login = i.optBoolean("login"),
         )
     }
     val h = m.optJSONObject("host") ?: JSONObject()
@@ -183,6 +211,10 @@ fun lerEstado(m: JSONObject): Estado {
             pastas = h.optJSONArray("folders").strings(),
             home = h.optString("home"),
             sep = h.optString("sep", "/"),
+            agentes = h.optJSONArray("agentes").mapa { g ->
+                val es = { k: String -> g.optJSONArray(k).mapa { Escolha(it.optString("id"), it.optString("rotulo")) } }
+                Agente(g.optString("id"), g.optString("nome"), g.optString("curto"), g.optString("empresa"), corDe(g.s("cor")), es("modelos"), es("esforcos"), es("modos"), g.optBoolean("loginNoTerminal"))
+            },
         ),
         prefs = Prefs(
             AvisosPrefs(av.optBoolean("perm", true), av.optBoolean("fim", true), av.optBoolean("reset", true), av.optInt("limiar", 80)),
@@ -197,4 +229,4 @@ fun lerMsgs(a: JSONArray?): List<Msg> = a.mapa {
     Msg(it.optString("id"), it.optString("role"), it.optString("text"), it.s("tool"), it.optString("via") == "celular", it.s("img"), it.s("via"))
 }
 
-fun lerTela(m: JSONObject) = Tela(m.optJSONArray("lines").strings(), m.optInt("cx"), m.optInt("cy"))
+fun lerTela(m: JSONObject) = Tela(m.optJSONArray("lines").strings(), m.optInt("cx"), m.optInt("cy"), m.optJSONArray("links").strings())

@@ -1,12 +1,12 @@
 // Pareamento com confirmacao no computador: o codigo do QR sozinho nao basta, e ele troca depois de usado.
-// Usa uma pasta temporaria: nao toca nas suas contas nem nos dados do claudeV.
+// Usa uma pasta temporaria: nao toca nas suas contas nem nos dados do duckV.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'claudev-teste-'));
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'duckv-teste-'));
 fs.writeFileSync(path.join(TMP, 'contas.json'), JSON.stringify([{ id: 'conta1', nome: 'Conta 1', cor: '#ff7a1a', dir: path.join(TMP, 'c1') }]));
 const PORT = '18767';
 const base = `http://127.0.0.1:${PORT}`;

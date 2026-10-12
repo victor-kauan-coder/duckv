@@ -11,7 +11,7 @@ self.addEventListener('push', (event) => {
   }
   const opts = {
     body: d.body || '',
-    tag: d.tag || 'claudev',
+    tag: d.tag || 'duckv',
     icon: '/icons/icone-192.png',
     badge: '/icons/selo-96.png',
     data: { url: d.url || '/', perm: d.perm || null },
@@ -25,7 +25,7 @@ self.addEventListener('push', (event) => {
       { action: 'ver', title: 'Ver e responder' },
     ];
   }
-  event.waitUntil(self.registration.showNotification(d.title || 'claudeV', opts));
+  event.waitUntil(self.registration.showNotification(d.title || 'duckV', opts));
 });
 
 async function abrir(url) {

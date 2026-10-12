@@ -12,7 +12,8 @@ import webpush from 'web-push';
 import qrcode from 'qrcode-terminal';
 import { ROOT, DATA, CONFIG_FILE, ACCOUNTS_FILE, ensureConfig, loadAccounts, defaultAccounts, readJson, writeJson, DEFAULT_COLORS } from '../lib/config.mjs';
 import { Tail, parseEntry, TaskTracker, scanWindowTokens } from './transcript.mjs';
-import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter, MODELS, EFFORTS, MODES } from './hosted.mjs';
+import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter } from './hosted.mjs';
+import { agenteDe, ehAgente, catalogo, instalado } from './agentes.mjs';
 
 const argv = new Set(process.argv.slice(2));
 const cfg = ensureConfig(() => webpush.generateVAPIDKeys());
@@ -40,19 +41,19 @@ if (argv.has('--novo-token')) {
   writeJson(PUSH_FILE, []);
   console.log('Todos os celulares foram despareados. Escaneie o codigo novo em cada um.');
 }
-// O codigo do QR vive so na memoria, muda a cada vez que o claudeV liga e depois de cada pareamento.
+// O codigo do QR vive so na memoria, muda a cada vez que o duckV liga e depois de cada pareamento.
 // PAINEL_CODIGO existe para os testes: com ele o codigo e fixo e o pareamento dispensa a confirmacao.
 const TESTE_PAREAMENTO = !!process.env.PAINEL_CODIGO;
 let CODIGO = process.env.PAINEL_CODIGO || crypto.randomBytes(24).toString('base64url');
 delete process.env.PAINEL_CODIGO;
 if (HOST === '0.0.0.0') {
-  console.warn('\nATENCAO: --lan abre o claudeV sem criptografia na rede local. Quem estiver na mesma rede pode copiar o codigo de pareamento e comandar o computador. Prefira o Tailscale.\n');
+  console.warn('\nATENCAO: --lan abre o duckV sem criptografia na rede local. Quem estiver na mesma rede pode copiar o codigo de pareamento e comandar o computador. Prefira o Tailscale.\n');
 }
 const PREFS_FILE = path.join(DATA, 'prefs.json');
 const FIVE_H = 5 * 3600 * 1000;
 const WINDOWS = ['five_hour', 'seven_day'];
 
-webpush.setVapidDetails('mailto:claudev@localhost', cfg.vapid.publicKey, cfg.vapid.privateKey);
+webpush.setVapidDetails('mailto:duckv@localhost', cfg.vapid.publicKey, cfg.vapid.privateKey);
 
 const now = () => Date.now();
 const clip = (s, n) => {
@@ -85,6 +86,8 @@ prefs.avisos = { perm: true, fim: true, reset: true, limiar: 80, ...(prefs.aviso
 if (!prefs.contas || typeof prefs.contas !== 'object') prefs.contas = {};
 if (!Array.isArray(prefs.rapidas)) prefs.rapidas = RAPIDAS_PADRAO;
 const savePrefs = () => writeJson(PREFS_FILE, prefs);
+// O celular so escolhe valores das listas fechadas de cada agente.
+const temOpcao = (lista, v) => lista.some(([id]) => id === v);
 const texto = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
 
 function setPrefs(m) {
@@ -108,17 +111,18 @@ function setPrefs(m) {
     }
     if (m.padroes && typeof m.padroes === 'object') {
       const p = m.padroes;
+      const ag = agenteDe(acc.agente);
       const novo = { ...(atual.padroes || {}) };
       if (p.model != null) {
-        if (!MODELS.includes(p.model)) return 'Modelo inválido.';
+        if (!temOpcao(ag.modelos, p.model)) return 'Modelo inválido.';
         novo.model = p.model;
       }
       if (p.effort !== undefined) {
-        if (p.effort && !EFFORTS.includes(p.effort)) return 'Nível de esforço inválido.';
+        if (p.effort && !temOpcao(ag.esforcos, p.effort)) return 'Nível de esforço inválido.';
         novo.effort = p.effort || null;
       }
       if (p.mode != null) {
-        if (!MODES.includes(p.mode)) return 'Modo de permissão inválido.';
+        if (!temOpcao(ag.modos, p.mode)) return 'Modo de permissão inválido.';
         novo.mode = p.mode;
       }
       if (p.cwd !== undefined) novo.cwd = texto(p.cwd, 400);
@@ -159,11 +163,13 @@ function rodarSetup() {
     if (denovo) rodarSetup();
   });
 }
-function novaConta(nomePedido) {
+function novaConta(nomePedido, agentePedido) {
+  const agente = ehAgente(agentePedido) ? agentePedido : 'claude';
   const lista = listaContas();
   const ids = new Set(lista.map((a) => a.id));
-  const modelo = lista.find((a) => a.dir);
-  const base = modelo ? path.dirname(modelo.dir) : path.join(os.homedir(), '.claude-contas');
+  const modelo = lista.find((a) => a.dir && (a.agente || 'claude') === 'claude');
+  // Contas do Claude ficam junto das que ja existem; as dos outros agentes, numa pasta do duckV.
+  const base = agente !== 'claude' ? path.join(os.homedir(), '.duckv-contas') : modelo ? path.dirname(modelo.dir) : path.join(os.homedir(), '.claude-contas');
   // Pula pastas que ja existem: uma conta removida deixa o login la, e a conta nova nao pode herdar.
   let n = lista.length + 1;
   while (ids.has(`conta${n}`) || fs.existsSync(path.join(base, `conta${n}`))) n++;
@@ -173,15 +179,16 @@ function novaConta(nomePedido) {
   const usadas = new Set([...accounts.values()].map((a) => (prefs.contas[a.id]?.cor || a.cor).toLowerCase()));
   const cor = [...DEFAULT_COLORS, '#3d8bfd', '#2fb37a', '#9b6bff', '#e0569a', '#f26b4e', '#8a3b12'].find((c) => !usadas.has(c)) || DEFAULT_COLORS[0];
   fs.mkdirSync(dir, { recursive: true });
-  writeJson(ACCOUNTS_FILE, [...lista, { id, nome, cor, dir }]);
-  accounts.set(id, { id, nome, cor, dir, padrao: false, usage: {}, lastReset: null, tokens: null, tokCache: new Map() });
+  agenteDe(agente).preparar?.(dir);
+  writeJson(ACCOUNTS_FILE, [...lista, { id, nome, cor, dir, agente }]);
+  accounts.set(id, { id, nome, cor, dir, padrao: false, agente, usage: {}, lastReset: null, tokens: null, tokCache: new Map() });
   rodarSetup();
   dirty();
   return id;
 }
 function removerConta(id) {
   if (!accounts.has(id)) return 'Conta não encontrada.';
-  if (accounts.size <= 1) return 'O claudeV precisa de pelo menos uma conta.';
+  if (accounts.size <= 1) return 'O duckV precisa de pelo menos uma conta.';
   if ([...instances.values()].some((i) => i.account === id && i.status !== 'ended')) return 'Encerre as sessões desta conta antes de removê-la.';
   writeJson(ACCOUNTS_FILE, listaContas().filter((a) => a.id !== id));
   accounts.delete(id);
@@ -319,7 +326,10 @@ function pubInst(i) {
     rodape: i.hosted ? i.rodape : '',
     effort: i.effort,
     permMode: i.permMode,
-    canSend: (!!i.agent || !!i.hosted) && i.status !== 'ended',
+    canSend: (!!i.agent || !!i.hosted) && i.status !== 'ended' && !i.login,
+    agente: getAccount(i.account).agente || 'claude',
+    links: i.hosted ? i.links || [] : [],
+    login: !!i.login,
     desktop: !!(i.desktop || i.historico),
     sessionId: i.desktop || i.historico ? i.sessionId : undefined,
     lastText: i.lastText,
@@ -343,14 +353,18 @@ function snapshot() {
       usage: a.usage,
       tokens: a.tokens,
       lastReset: a.lastReset,
+      agente: a.agente || 'claude',
+      instalado: instalado(agenteDe(a.agente)),
     })),
     instances: [...instances.values()].map(pubInst),
     host: {
       available: hostedAvailable(),
       error: hostedAvailable() ? null : hostedError(),
-      models: MODELS,
-      efforts: EFFORTS,
-      modes: MODES,
+      // Listas do Claude Code, para os apps antigos; as de cada agente vem em "agentes".
+      models: agenteDe('claude').modelos.map(([id]) => id),
+      efforts: agenteDe('claude').esforcos.map(([id]) => id),
+      modes: agenteDe('claude').modos.map(([id]) => id),
+      agentes: catalogo(),
       folders,
       home: os.homedir(),
       sep: path.sep,
@@ -461,7 +475,7 @@ function applyVerdict(instId, requestId, behavior, recado) {
   const idx = inst.perms.findIndex((p) => p.id === requestId);
   if (idx < 0) return 'Esse pedido já foi respondido.';
   const waiting = inst.perms[idx];
-  if (!waiting.resolve && (!inst.agent || inst.agent.readyState !== 1)) return 'A sessão não está conectada ao claudeV.';
+  if (!waiting.resolve && (!inst.agent || inst.agent.readyState !== 1)) return 'A sessão não está conectada ao duckV.';
   const [perm] = inst.perms.splice(idx, 1);
   if (perm.resolve) perm.resolve(behavior, nota);
   else {
@@ -505,9 +519,9 @@ async function onPhoneMessage(c, m) {
       if (!inst) err = 'Sessão não encontrada.';
       else if (!text) err = 'Mensagem vazia.';
       else if (text.length > 8000) err = 'Mensagem longa demais (máximo de 8000 caracteres).';
-      else if (!inst.hosted && (!inst.agent || inst.agent.readyState !== 1)) err = 'Essa sessão não está conectada ao claudeV.';
+      else if (!inst.hosted && (!inst.agent || inst.agent.readyState !== 1)) err = 'Essa sessão não está conectada ao duckV.';
       else if (!inst.hosted && inst.semCanal) err = SEM_CANAL;
-      else if (inst.hosted) err = textoPerigoso(text);
+      else if (inst.hosted) err = textoPerigoso(text, agenteDe(getAccount(inst.account).agente));
       if (err) {
         send(c, { t: 'err', ref: m.ref, msg: err });
         break;
@@ -552,6 +566,18 @@ async function onPhoneMessage(c, m) {
       if (!inst?.hosted) send(c, { t: 'err', ref: m.ref, msg: 'Teclas só funcionam em sessões abertas pelo celular.' });
       else if (!inst.hosted.key(String(m.key || ''))) send(c, { t: 'err', ref: m.ref, msg: 'Tecla desconhecida.' });
       else send(c, { t: 'ack', ref: m.ref });
+      break;
+    }
+    // Texto digitado onde o cursor estiver (codigo de login, telas do agente que nao sao a caixa de mensagem).
+    case 'digitar': {
+      const inst = instances.get(m.instance);
+      const txt = typeof m.text === 'string' ? m.text.trim() : '';
+      const err = !inst?.hosted ? 'Só dá para digitar nas sessões abertas pelo celular.' : !txt ? 'Escreva o texto.' : textoPerigoso(txt, agenteDe(getAccount(inst.account).agente));
+      if (err) send(c, { t: 'err', ref: m.ref, msg: err });
+      else {
+        inst.hosted.digitar(txt);
+        send(c, { t: 'ack', ref: m.ref });
+      }
       break;
     }
     case 'responder': {
@@ -606,6 +632,11 @@ async function onPhoneMessage(c, m) {
     // e cola aqui o codigo que a pagina mostra no fim.
     case 'login': {
       const acc = accounts.get(m.account);
+      if (acc && (acc.agente || 'claude') !== 'claude') {
+        const r = iniciarLogin(acc, m);
+        send(c, r.err ? { t: 'err', ref: m.ref, msg: r.err } : { t: 'ack', ref: m.ref, instance: r.id, terminal: true });
+        break;
+      }
       if (!acc?.dir || acc.padrao) {
         send(c, { t: 'err', ref: m.ref, msg: 'Essa conta entra pelo Claude Code de sempre, no computador.' });
         break;
@@ -659,6 +690,20 @@ async function onPhoneMessage(c, m) {
     case 'abrirHistorico': {
       const acc = accounts.get(m.account);
       const item = acc && historicoDa(acc).find((x) => x.sid === m.sid);
+      if (item && (acc.agente || 'claude') !== 'claude') {
+        const viva = [...instances.values()].find((i) => i.sessionId === item.sid && i.status !== 'ended');
+        if (viva) {
+          send(c, { t: 'ack', ref: m.ref, instance: viva.id });
+          break;
+        }
+        const ag = agenteDe(acc.agente);
+        const inst = getInst(`hist-${idCurto(item.sid)}`, acc.id);
+        Object.assign(inst, { historico: true, agente: ag.id, sessionId: item.sid, cwd: item.cwd, name: item.titulo, startedAt: item.mtime, leitor: { file: item.file, mtime: 0 } });
+        lerLeitor(inst, ag, acc);
+        dirty();
+        send(c, { t: 'ack', ref: m.ref, instance: inst.id });
+        break;
+      }
       if (!item) {
         send(c, { t: 'err', ref: m.ref, msg: 'Essa conversa não foi encontrada.' });
         break;
@@ -669,7 +714,7 @@ async function onPhoneMessage(c, m) {
         send(c, { t: 'ack', ref: m.ref, instance: viva.id });
         break;
       }
-      const inst = getInst(`hist-${item.sid.slice(0, 8)}`, acc.id);
+      const inst = getInst(`hist-${idCurto(item.sid)}`, acc.id);
       inst.historico = true;
       inst.sessionId = item.sid;
       inst.configDir = item.origem === 'conta' ? acc.dir : null;
@@ -684,7 +729,7 @@ async function onPhoneMessage(c, m) {
     case 'conta': {
       if (m.op === 'nova') {
         try {
-          send(c, { t: 'ack', ref: m.ref, id: novaConta(m.nome) });
+          send(c, { t: 'ack', ref: m.ref, id: novaConta(m.nome, m.agente) });
         } catch (e) {
           send(c, { t: 'err', ref: m.ref, msg: `Não consegui criar a conta: ${e.message}` });
         }
@@ -767,19 +812,21 @@ function startSession(m) {
   // Continuar pelo celular uma sessao do Claude desktop: mesma conversa, mesma pasta, login padrao.
   // Continuar pelo celular uma conversa do desktop ou do historico: mesma conversa, mesma pasta, mesmo login.
   const desk = m.resume ? [...instances.values()].find((i) => (i.desktop || i.historico) && i.sessionId === m.resume) : null;
-  if (m.resume && (!desk || !/^[0-9a-f-]{36}$/.test(m.resume))) return { err: 'Essa conversa não foi encontrada.' };
+  if (m.resume && (!desk || !/^[\w.-]{6,80}$/.test(m.resume))) return { err: 'Essa conversa não foi encontrada.' };
   const acc = accounts.get(desk ? desk.account : m.account);
   if (!acc) return { err: 'Conta não encontrada.' };
+  const ag = agenteDe(acc.agente);
+  if (!testCommand && !instalado(ag)) return { err: `O ${ag.nome} não está instalado neste computador. Rode o instalador do duckV de novo ou instale com: npm install -g ${ag.pacote}` };
   const cwd = folderAllowed(String(desk ? desk.cwd : m.cwd || ''), cfg.pastasPermitidas || [], desk ? [...folders, desk.cwd] : folders);
   if (!cwd) {
     return { err: 'Pasta não encontrada ou fora das pastas permitidas. Abra uma sessão nela pelo computador uma vez, ou inclua a pasta em "pastasPermitidas" no arquivo data/config.json.' };
   }
   const model = String(m.model || 'default');
-  if (!MODELS.includes(model) && !/^claude-[a-z0-9.\-]{1,60}(\[1m\])?$/.test(model)) return { err: 'Modelo inválido.' };
+  if (!temOpcao(ag.modelos, model) && !(ag.id === 'claude' && /^claude-[a-z0-9.\-]{1,60}(\[1m\])?$/.test(model))) return { err: 'Modelo inválido.' };
   const effort = m.effort ? String(m.effort) : null;
-  if (effort && !EFFORTS.includes(effort)) return { err: 'Nível de esforço inválido.' };
+  if (effort && !temOpcao(ag.esforcos, effort)) return { err: 'Nível de esforço inválido.' };
   const mode = m.mode ? String(m.mode) : null;
-  if (mode && !MODES.includes(mode)) return { err: 'Modo de permissão inválido.' };
+  if (mode && !temOpcao(ag.modos, mode)) return { err: 'Modo de permissão inválido.' };
   const name = String(m.name || '').replace(/[^\p{L}\p{N} _.-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 50) || null;
   if ([...instances.values()].filter((i) => i.hosted).length >= 8) return { err: 'Já existem 8 sessões abertas pelo celular. Encerre uma antes de abrir outra.' };
 
@@ -789,8 +836,26 @@ function startSession(m) {
   inst.name = name;
   inst.permMode = mode === 'manual' ? 'default' : mode;
   inst.effort = effort;
+  inst.agente = ag.id;
   if (model !== 'default') inst.model = model;
-  const env = { PAINEL_ACCOUNT: acc.id, PAINEL_ACCOUNT_NAME: pubAccount(acc.id).nome, PAINEL_INSTANCE: id, PAINEL_HOSTED: '1', PAINEL_PORT: String(PORT) };
+  let env;
+  let args;
+  if (ag.id !== 'claude') {
+    // Os outros agentes: pasta da conta, argumentos de listas fechadas e a conversa lida do que ele grava.
+    env = ag.env(acc.dir, acc.padrao);
+    const sessao = desk ? null : ag.novaSessao?.() || null;
+    args = ag.args({ model, effort, mode, name, resume: desk?.sessionId, sessao });
+    inst.busca = { desde: now() - 3000, cwd, sessao: desk ? desk.sessionId : sessao, resume: !!desk };
+    if (desk) {
+      inst.sessionId = desk.sessionId;
+      inst.name = inst.name || desk.name;
+      inst.leitor = desk.leitor;
+      inst.messages = desk.messages;
+      inst.msgIds = desk.msgIds;
+      instances.delete(desk.id);
+    }
+  } else {
+  env = { PAINEL_ACCOUNT: acc.id, PAINEL_ACCOUNT_NAME: pubAccount(acc.id).nome, PAINEL_INSTANCE: id, PAINEL_HOSTED: '1', PAINEL_PORT: String(PORT) };
   // A conversa mora na pasta da conta (historico da conta) ou na pasta padrao (Claude desktop).
   // Conversa do desktop de outra conta (nao a logada no Claude Code padrao): copia para a pasta da conta e
   // continua de la, com o login certo. A continuacao fica no historico da conta.
@@ -806,36 +871,26 @@ function startSession(m) {
   }
   const pastaConfig = desk ? desk.configDir : !acc.padrao ? acc.dir : null;
   if (pastaConfig) env.CLAUDE_CONFIG_DIR = pastaConfig;
-  // Na pasta padrao nao ha ganchos do claudeV: vao pela linha de comando, sem mexer nas configuracoes de sempre.
+  // Na pasta padrao nao ha ganchos do duckV: vao pela linha de comando, sem mexer nas configuracoes de sempre.
   const ajustes = desk && !desk.configDir && acc.dir ? path.join(acc.dir, 'settings.json') : null;
   if (desk) {
     inst.sessionId = desk.sessionId;
     inst.name = inst.name || desk.name;
     instances.delete(desk.id);
   }
+  args = ag.args({ model, effort, mode, name, resume: desk?.sessionId, settings: ajustes && fs.existsSync(ajustes) ? ajustes : null });
+  }
   try {
     inst.hosted = startHosted({
       cwd,
       env,
-      resume: desk?.sessionId,
-      settings: ajustes && fs.existsSync(ajustes) ? ajustes : null,
-      model,
-      effort,
-      mode,
-      name,
+      bin: ag.bin,
+      args,
+      caixa: ag.caixa,
       cols: Number(m.cols) || 60,
       rows: Number(m.rows) || 32,
-      command: testCommand,
-      onScreen: (snap) => {
-        for (const c of phones) if (c.term === id) send(c, { t: 'screen', instance: id, ...snap });
-        const pergunta = readPrompt(snap.lines);
-        const rodape = readFooter(snap.lines);
-        if (JSON.stringify(pergunta) !== JSON.stringify(inst.pergunta) || rodape !== inst.rodape) {
-          inst.pergunta = pergunta;
-          inst.rodape = rodape;
-          dirty();
-        }
-      },
+      command: ag.id === 'claude' ? testCommand : null,
+      onScreen: (snap) => telaDe(inst, snap),
       onExit: () => {
         inst.hosted = null;
         for (const p of [...inst.perms]) p.resolve?.(null);
@@ -846,12 +901,134 @@ function startSession(m) {
     });
   } catch (e) {
     instances.delete(id);
-    return { err: `Não consegui abrir o Claude Code: ${e.message}` };
+    return { err: `Não consegui abrir o ${ag.nome}: ${e.message}` };
   }
   rememberFolder(cwd);
   dirty();
   return { id };
 }
+
+// A tela do terminal virtual mudou: manda para quem esta olhando, le a pergunta aberta e,
+// nos agentes sem ganchos, deduz da tela se ele trabalha, espera ou pede voce.
+function telaDe(inst, snap) {
+  for (const c of phones) if (c.term === inst.id) send(c, { t: 'screen', instance: inst.id, ...snap });
+  const pergunta = readPrompt(snap.lines);
+  const rodape = readFooter(snap.lines);
+  const links = snap.links || [];
+  let mudou = JSON.stringify(pergunta) !== JSON.stringify(inst.pergunta) || rodape !== inst.rodape || JSON.stringify(links) !== JSON.stringify(inst.links || []);
+  inst.pergunta = pergunta;
+  inst.rodape = rodape;
+  inst.links = links;
+  if (inst.agente && inst.agente !== 'claude') {
+    const tela = snap.lines.join('\n');
+    const status = pergunta ? 'waiting' : /\besc\b.{0,4}(to )?(interrupt|cancel|stop)/i.test(tela) ? 'working' : 'idle';
+    if (status !== inst.status) {
+      const antes = inst.status;
+      inst.status = status;
+      inst.activity = status === 'waiting' ? clip(pergunta.titulo || 'Esperando sua resposta', 120) : status === 'working' ? 'Trabalhando' : '';
+      inst.updatedAt = now();
+      mudou = true;
+      const nome = pubAccount(inst.account).nome;
+      const url = `/#/s/${encodeURIComponent(inst.id)}`;
+      if (status === 'waiting' && prefs.avisos.perm && !inst.login) {
+        pushNotify({ title: `${nome} precisa de você`, body: clip(pergunta.titulo || 'Uma pergunta espera sua resposta.', 160), tag: `perg-${inst.id}`, url });
+      } else if (antes === 'working' && status === 'idle' && prefs.avisos.fim) {
+        pushNotify({ title: `${nome} terminou`, body: clip(inst.lastText || 'A sessão está esperando você.', 160), tag: `fim-${inst.id}`, url });
+      }
+    }
+  }
+  if (mudou) dirty();
+}
+
+// Entrar numa conta de outro agente: o proprio programa de login roda no terminal virtual e o
+// celular ve a tela, com os links para tocar, os menus como botoes e um campo para colar codigos.
+function iniciarLogin(acc, m) {
+  if (!hostedAvailable()) return { err: `Este computador não conseguiu carregar o terminal virtual (${hostedError()}).` };
+  const ag = agenteDe(acc.agente);
+  if (!instalado(ag)) return { err: `O ${ag.nome} não está instalado neste computador. Instale com: npm install -g ${ag.pacote}` };
+  for (const i of instances.values()) if (i.login && i.account === acc.id && i.hosted) i.hosted.kill();
+  const pasta = acc.padrao ? os.homedir() : acc.dir;
+  try {
+    fs.mkdirSync(pasta, { recursive: true });
+    if (!acc.padrao) ag.preparar?.(acc.dir);
+  } catch (e) {
+    return { err: `Não consegui preparar a pasta da conta: ${e.message}` };
+  }
+  const id = `${acc.id}-entrar${crypto.randomBytes(3).toString('hex')}`;
+  const inst = getInst(id, acc.id);
+  Object.assign(inst, { agente: ag.id, login: true, name: `Entrar no ${ag.nome}`, cwd: pasta });
+  try {
+    inst.hosted = startHosted({
+      cwd: pasta,
+      env: ag.env(acc.dir, acc.padrao),
+      bin: ag.bin,
+      // O Gemini entra na primeira abertura; nela, a pergunta de confiar na pasta da conta nao faz sentido.
+      args: ag.id === 'gemini' ? ['--skip-trust'] : ag.login,
+      caixa: ag.caixa,
+      cols: Number(m.cols) || 60,
+      rows: Number(m.rows) || 32,
+      onScreen: (snap) => telaDe(inst, snap),
+      onExit: () => {
+        inst.hosted = null;
+        for (const c of phones) if (c.term === id) c.term = null;
+        markEnded(inst);
+        consultarUso(acc)
+          .catch(() => false)
+          .finally(dirty);
+      },
+    });
+  } catch (e) {
+    instances.delete(id);
+    return { err: `Não consegui abrir o ${ag.nome}: ${e.message}` };
+  }
+  dirty();
+  return { id };
+}
+
+// Conversa dos agentes sem ganchos: le o que cada um grava (arquivo ou banco) e passa ao celular.
+function lerLeitor(inst, ag, acc) {
+  const file = inst.leitor.file;
+  let mtime = 0;
+  if (!String(file).startsWith('opencode:')) {
+    try {
+      mtime = fs.statSync(file).mtimeMs;
+    } catch {
+      return;
+    }
+    if (mtime === inst.leitor.mtime) return;
+  }
+  inst.leitor.mtime = mtime;
+  let r;
+  try {
+    r = ag.sessoes.ler(file, acc.dir, acc.padrao);
+  } catch {
+    return;
+  }
+  pushMsgs(inst, r.items);
+  if (r.uso) {
+    inst.tokens = { in: r.uso.in || 0, out: r.uso.out || 0, cw: r.uso.cw || 0, cr: r.uso.cr || 0 };
+    inst.turns = r.items.filter((x) => x.role === 'assistant').length;
+  }
+  dirty();
+}
+function lerSessoesAgentes() {
+  for (const inst of instances.values()) {
+    if (!inst.agente || inst.agente === 'claude' || inst.login) continue;
+    const ag = agenteDe(inst.agente);
+    const acc = getAccount(inst.account);
+    if (!ag.sessoes) continue;
+    if (!inst.leitor && inst.busca && inst.hosted) {
+      const b = inst.busca;
+      const s = b.resume ? ag.sessoes.lista(acc.dir, acc.padrao).find((x) => x.sid === b.sessao) : ag.sessoes.nova(acc.dir, acc.padrao, b.cwd, b.desde, b.sessao);
+      if (s) {
+        inst.leitor = { file: s.file, mtime: 0 };
+        inst.sessionId = s.sid;
+      }
+    }
+    if (inst.leitor && (inst.hosted || inst.historico)) lerLeitor(inst, ag, acc);
+  }
+}
+setInterval(lerSessoesAgentes, 2000).unref();
 
 function clearPerm(inst, tool, toolUseId) {
   if (!tool && !toolUseId) {
@@ -1131,7 +1308,7 @@ function scanTokens() {
   scanTimer = null;
   let changed = false;
   for (const a of accounts.values()) {
-    if (!a.dir) continue;
+    if (!a.dir || (a.agente || 'claude') !== 'claude') continue;
     try {
       // Sem leitura do limite ainda, conta as ultimas 5 horas: o numero aparece desde o primeiro uso.
       const r = a.usage.five_hour?.resetsAt;
@@ -1227,7 +1404,7 @@ function donosDoDesktop() {
 // Conta dona de uma conversa da pasta padrao: a do app desktop, ou a logada no Claude Code padrao.
 function donoDaConversa(sid) {
   const uuid = donosDoDesktop().get(sid)?.uuid;
-  const contas = [...accounts.values()];
+  const contas = [...accounts.values()].filter((a) => (a.agente || 'claude') === 'claude');
   return (uuid && contas.find((a) => a.uuid === uuid)) || contas.find((a) => a.email && a.email === emailDesktop) || contas[0];
 }
 
@@ -1340,7 +1517,21 @@ function tituloDaSessao(file, mtime) {
   cacheTitulo.set(file, { mtime, titulo });
   return titulo;
 }
+// Id curto e estavel para a sessao de leitura de uma conversa (os ids variam de formato por agente).
+const idCurto = (sid) => crypto.createHash('sha1').update(String(sid)).digest('hex').slice(0, 10);
 function historicoDa(acc) {
+  if ((acc.agente || 'claude') !== 'claude') {
+    const ag = agenteDe(acc.agente);
+    return (ag.sessoes?.lista(acc.dir, acc.padrao) || []).slice(0, 120).map((s) => {
+      let titulo = s.titulo;
+      if (!titulo) {
+        const k = cacheTitulo.get(s.file);
+        titulo = k && k.mtime === s.mtime ? k.titulo : ag.sessoes.titulo(s.file);
+        cacheTitulo.set(s.file, { mtime: s.mtime, titulo });
+      }
+      return { sid: s.sid, file: s.file, origem: ag.id, mtime: s.mtime, cwd: s.cwd, titulo: titulo || 'Conversa sem título' };
+    });
+  }
   const pastas = [];
   if (acc.dir && !acc.padrao) pastas.push([path.join(acc.dir, 'projects'), 'conta']);
   pastas.push([PROJETOS_DESKTOP, 'desktop']);
@@ -1399,6 +1590,21 @@ function lerEmail(a) {
 const nomeDe = (a) => prefs.contas[a.id]?.nome || (/^Conta \d+$/.test(a.nome) && a.email ? a.email.split('@')[0] : a.nome);
 
 async function consultarUso(a) {
+  const ag = agenteDe(a.agente);
+  if (ag.id !== 'claude') {
+    const c = ag.conta(a.dir, a.padrao);
+    a.email = c?.email || null;
+    a.plano = c?.plano || null;
+    // O Codex grava o uso de 5 horas e da semana junto com as conversas.
+    const r = ag.limites?.(a.dir, a.padrao);
+    if (r) {
+      const conv = (x) => x && { pct: Math.max(0, Math.min(100, Number(x.used_percent) || 0)), resetsAt: x.resets_at ? x.resets_at * 1000 : null };
+      if (r.primary) a.usage.five_hour = conv(r.primary);
+      if (r.secondary) a.usage.seven_day = conv(r.secondary);
+      a.usage.at = now();
+    }
+    return true;
+  }
   lerEmail(a);
   let k;
   try {
@@ -1459,16 +1665,16 @@ const SEC_HEADERS = {
 let tailnetHost = null;
 
 // Numa sessao aberta pelo celular o texto e digitado no terminal. "!" roda um comando
-// sem pedir permissao e alguns comandos de barra mudam as permissoes; por isso so
-// passam os comandos de barra desta lista. Pedidos em texto comum continuam livres.
-const COMANDOS_DO_CELULAR = new Set(['model', 'effort', 'compact', 'clear', 'login', 'status', 'cost', 'usage', 'context', 'help', 'init', 'resume', 'rename', 'review']);
-function textoPerigoso(text) {
+// sem pedir permissao e alguns comandos de barra mudam as permissoes (/permissions, /yolo,
+// /approvals...); por isso so passam os comandos de barra da lista de cada agente.
+// Pedidos em texto comum continuam livres.
+function textoPerigoso(text, ag = agenteDe('claude')) {
   const t = text.trimStart();
-  if (t.startsWith('!')) return 'Comandos com ! rodam no computador sem pedir permissão, então não valem pelo celular. Peça ao Claude em texto comum.';
+  if (t.startsWith('!')) return `Comandos com ! rodam no computador sem pedir permissão, então não valem pelo celular. Peça ao ${ag.curto} em texto comum.`;
   if (!t.startsWith('/')) return null;
-  const nome = t.slice(1).split(/\s/)[0].toLowerCase();
-  if (COMANDOS_DO_CELULAR.has(nome)) return null;
-  return `Pelo celular valem só estes comandos: ${[...COMANDOS_DO_CELULAR].map((c) => '/' + c).join(', ')}. Os outros, como /permissions, ficam no computador.`;
+  const nome = '/' + t.slice(1).split(/\s/)[0].toLowerCase();
+  if (ag.comandos.includes(nome)) return null;
+  return `Pelo celular valem só estes comandos: ${ag.comandos.join(', ')}. Os outros mexem em permissões ou no computador e ficam lá.`;
 }
 
 function cookieToken(req) {
@@ -1519,7 +1725,7 @@ function aprovarPareamento(p) {
     mostrarPareamento();
   }
 }
-// Resposta no teclado do computador (a janela que ligou o claudeV). Os 4 numeros liberam so o
+// Resposta no teclado do computador (a janela que ligou o duckV). Os 4 numeros liberam so o
 // pedido que os mostrou; N recusa todos os pedidos abertos. Tres numeros errados derrubam os pedidos.
 let errosPar = 0;
 if (!TESTE_PAREAMENTO) {
@@ -1654,11 +1860,11 @@ const server = http.createServer(async (req, res) => {
       const k = url.searchParams.get('k') || '';
       if (!k || !safeEq(k, CODIGO)) {
         res.writeHead(403, { ...SEC_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('Codigo de pareamento invalido. Abra o link mostrado na janela do claudeV, no computador.');
+        res.end('Codigo de pareamento invalido. Abra o link mostrado na janela do duckV, no computador.');
         return;
       }
       const pd = pedirPareamento('Navegador');
-      if (!pd) return json(res, 429, { erro: 'Pedidos demais. Responda os que estao na janela do claudeV.' });
+      if (!pd) return json(res, 429, { erro: 'Pedidos demais. Responda os que estao na janela do duckV.' });
       if (pd.estado === 'ok') {
         pedidosPar.delete(pd.espera);
         res.writeHead(302, { ...SEC_HEADERS, 'Set-Cookie': cookiePainel(req, pd.chave), Location: '/', 'Cache-Control': 'no-store' });
@@ -1693,7 +1899,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req, 4096);
       if (typeof b?.k !== 'string' || !safeEq(b.k, CODIGO)) return json(res, 403, { erro: 'codigo invalido' });
       const pd = pedirPareamento(b.nome);
-      if (!pd) return json(res, 429, { erro: 'Pedidos demais. Responda os que estao na janela do claudeV.' });
+      if (!pd) return json(res, 429, { erro: 'Pedidos demais. Responda os que estao na janela do duckV.' });
       if (pd.estado === 'ok') {
         pedidosPar.delete(pd.espera);
         return json(res, 200, { chave: pd.chave });
@@ -1712,7 +1918,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': img.media, 'Cache-Control': 'private, max-age=86400' });
         return res.end(img.buf);
       }
-      // Arquivo anexado no celular: fica numa pasta do claudeV e a mensagem leva o caminho para o Claude ler.
+      // Arquivo anexado no celular: fica numa pasta do duckV e a mensagem leva o caminho para o Claude ler.
       // A pasta data/anexos nunca e limpa: apagar pastas antigas quando ocupar espaco.
       if (p === '/api/anexo' && req.method === 'POST') {
         const nome = (url.searchParams.get('nome') || 'arquivo').normalize('NFC').replace(/[^\p{L}\p{N}._-]+/gu, '_').replace(/^[._]+/, '').slice(-80) || 'arquivo';
@@ -1886,12 +2092,12 @@ function lanAddresses() {
 }
 
 server.on('error', (e) => {
-  if (e.code === 'EADDRINUSE') console.error(`A porta ${PORT} ja esta em uso. O claudeV ja esta aberto em outra janela?`);
+  if (e.code === 'EADDRINUSE') console.error(`A porta ${PORT} ja esta em uso. O duckV ja esta aberto em outra janela?`);
   else console.error(e.message);
   process.exit(1);
 });
 
-// Publica o claudeV so dentro da rede do Tailscale: HTTPS se os certificados estiverem ligados
+// Publica o duckV so dentro da rede do Tailscale: HTTPS se os certificados estiverem ligados
 // no painel do Tailscale, senao HTTP (a rede do Tailscale ja e criptografada de ponta a ponta).
 let tailscaleBin = 'tailscale';
 function publicarNoTailscale() {
@@ -1903,7 +2109,7 @@ let basePareamento = `http://localhost:${PORT}`;
 function mostrarPareamento() {
   const link = `${basePareamento}/parear?k=${CODIGO}`;
   if (!argv.has('--sem-qr')) {
-    console.log('Para conectar um celular, abra o app claudeV e aponte a camera para o codigo abaixo:\n');
+    console.log('Para conectar um celular, abra o app duckV e aponte a camera para o codigo abaixo:\n');
     qrcode.generate(link, { small: true });
   }
   console.log(`\nLink de pareamento (nao compartilhe):\n${link}\n`);
@@ -1916,11 +2122,11 @@ server.listen(PORT, HOST, async () => {
   const esquema = tailnetHost && !TESTE_PAREAMENTO && !process.env.PAINEL_DATA ? await publicarNoTailscale() : null;
   if (tailnetHost && esquema) basePareamento = `${esquema}://${tailnetHost}`;
   else if (HOST === '0.0.0.0' && lanAddresses().length) basePareamento = `http://${lanAddresses()[0]}:${PORT}`;
-  console.log('\nclaudeV ligado.\n');
+  console.log('\nduckV ligado.\n');
   mostrarPareamento();
   if (!esquema && HOST !== '0.0.0.0') {
-    console.log(tailnetHost ? 'O Tailscale nao aceitou publicar o claudeV; confira se ele esta conectado.' : 'Tailscale nao encontrado: por enquanto o claudeV so abre neste computador.');
-    console.log('Instale o Tailscale no computador e no celular, entre com a mesma conta e abra o claudeV de novo.\n');
+    console.log(tailnetHost ? 'O Tailscale nao aceitou publicar o duckV; confira se ele esta conectado.' : 'Tailscale nao encontrado: por enquanto o duckV so abre neste computador.');
+    console.log('Instale o Tailscale no computador e no celular, entre com a mesma conta e abra o duckV de novo.\n');
   }
   console.log(`Contas: ${[...accounts.values()].map((a) => nomeDe(a)).join(', ')}`);
   console.log('Deixe esta janela aberta. Ctrl+C para desligar.\n');

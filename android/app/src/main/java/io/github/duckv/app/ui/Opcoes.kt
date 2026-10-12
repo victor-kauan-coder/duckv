@@ -93,7 +93,7 @@ fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     for ((v, t) in listOf("animado" to "Animado, com gracinhas", "calmo" to "Sem gracinhas", "parado" to "Parado")) Escolha(t, local.pato == v, { Hub.guardar(local.copy(pato = v)) })
                 }
-                Chave("Mostrar na conversa as ferramentas que o Claude usa", local.ferramentas) { Hub.guardar(local.copy(ferramentas = it)) }
+                Chave("Mostrar na conversa as ferramentas que o agente usa", local.ferramentas) { Hub.guardar(local.copy(ferramentas = it)) }
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -105,7 +105,7 @@ fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
                 val pm = ctx.getSystemService(PowerManager::class.java)
                 var livre by remember { mutableStateOf(pm.isIgnoringBatteryOptimizations(ctx.packageName)) }
                 if (local.segundoPlano && !livre) {
-                    Text("O Android pode pausar o claudeV para economizar bateria e atrasar os avisos.", style = Texto.apoio, color = c.apoio)
+                    Text("O Android pode pausar o duckV para economizar bateria e atrasar os avisos.", style = Texto.apoio, color = c.apoio)
                     Botao("Liberar da economia de bateria", {
                         @SuppressLint("BatteryLife")
                         val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))
@@ -140,7 +140,7 @@ fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TituloSecao("Este celular")
-                Text("Ligado a ${Hub.base ?: "nenhum computador"}. Desparear apaga o acesso deste celular; para voltar, escaneie de novo o código da janela do claudeV.", style = Texto.apoio, color = c.apoio)
+                Text("Ligado a ${Hub.base ?: "nenhum computador"}. Desparear apaga o acesso deste celular; para voltar, escaneie de novo o código da janela do duckV.", style = Texto.apoio, color = c.apoio)
                 BotaoConfirma("Desparear este celular", Icons.AutoMirrored.Rounded.Logout, {
                     Hub.desparear()
                     Vigia.ajustar(ctx)
@@ -207,17 +207,19 @@ private fun BlocoConta(e: Estado, conta: Conta, salvar: (JSONObject) -> Unit, po
                 // O patinho escolhe a cara do pato e a cor da conta de uma vez so.
                 EscolhaPatinho(conta) { tp -> salvar(JSONObject().put("op", "conta").put("id", conta.id).put("pato", tp.id).put("cor", tp.cor)) }
                 Divisoria()
+                val ag = e.agente(conta.agente)
+                SeloAgente(ag, completo = true)
                 Column {
                     CabecalhoAjuste("Modelo inicial", null)
-                    ListaEscolha(opcoesModelo(e.host.modelos), conta.padroes.model ?: "default", { padrao(JSONObject().put("model", it)) }, cor = Color(conta.cor))
+                    ListaEscolha(opcoesModelo(ag), conta.padroes.model ?: "default", { padrao(JSONObject().put("model", it)) }, cor = Color(conta.cor))
                 }
-                Column {
+                if (ag.esforcos.isNotEmpty()) Column {
                     CabecalhoAjuste("Esforço inicial", null)
-                    EscalaEsforco(e.host.esforcos, conta.padroes.effort.orEmpty(), { padrao(JSONObject().put("effort", it.ifEmpty { JSONObject.NULL })) }, cor = Color(conta.cor))
+                    EscalaEsforco(ag, conta.padroes.effort.orEmpty(), { padrao(JSONObject().put("effort", it.ifEmpty { JSONObject.NULL })) }, cor = Color(conta.cor))
                 }
                 Column {
                     CabecalhoAjuste("Permissões iniciais", null)
-                    ListaEscolha(opcoesModo(e.host.modos), conta.padroes.mode ?: "manual", { padrao(JSONObject().put("mode", it)) }, cor = Color(conta.cor))
+                    ListaEscolha(opcoesModo(ag), conta.padroes.mode ?: ag.modos.firstOrNull()?.id ?: "manual", { padrao(JSONObject().put("mode", it)) }, cor = Color(conta.cor))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
@@ -227,7 +229,7 @@ private fun BlocoConta(e: Estado, conta: Conta, salvar: (JSONObject) -> Unit, po
                     if (pasta != conta.padroes.cwd.orEmpty()) IconButton({ padrao(JSONObject().put("cwd", pasta.trim())) }) { Icon(Icons.Rounded.Check, "Salvar pasta", tint = c.ok) }
                 }
                 if (podeRemover) {
-                    Text("Remover tira a conta do claudeV. O login e o histórico continuam guardados no computador.", style = Texto.apoio, color = c.apoio)
+                    Text("Remover tira a conta do duckV. O login e o histórico continuam guardados no computador.", style = Texto.apoio, color = c.apoio)
                     BotaoConfirma("Remover ${conta.nome}", Icons.Rounded.DeleteOutline, {
                         Hub.mandar(JSONObject().put("t", "conta").put("op", "remover").put("id", conta.id)) { erro, _ -> aviso(erro ?: "Conta removida") }
                     }, Modifier.fillMaxWidth(), Peso.Perigo)

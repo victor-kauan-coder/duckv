@@ -5,7 +5,7 @@ const msg = document.getElementById('msg');
 document.getElementById('sas').textContent = sas || '····';
 
 async function esperar() {
-  if (!espera) return (msg.textContent = 'Abra de novo o link de pareamento da janela do claudeV.');
+  if (!espera) return (msg.textContent = 'Abra de novo o link de pareamento da janela do duckV.');
   for (;;) {
     let r;
     try {

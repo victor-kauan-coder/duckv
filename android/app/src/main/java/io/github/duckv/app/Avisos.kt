@@ -76,7 +76,7 @@ object Avisos {
                 },
                 NotificationChannel(LIMITE, "Limite reiniciado", NotificationManager.IMPORTANCE_DEFAULT),
                 NotificationChannel(LIGACAO, "Ligação com o computador", NotificationManager.IMPORTANCE_MIN).apply {
-                    description = "Mantém o claudeV atento enquanto o app está fechado."
+                    description = "Mantém o duckV atento enquanto o app está fechado."
                     setShowBadge(false)
                 },
             ),
@@ -189,7 +189,7 @@ object Avisos {
 
     fun ligacao(ctx: Context) = NotificationCompat.Builder(ctx, LIGACAO)
         .setSmallIcon(R.drawable.ic_aviso)
-        .setContentTitle("claudeV atento às suas contas")
+        .setContentTitle("duckV atento às suas contas")
         .setContentText("Avisa quando uma conta pedir permissão ou terminar.")
         .setOngoing(true)
         .setSilent(true)
