@@ -56,7 +56,9 @@ fun TelaParear(pato: String) {
     val rolagem = rememberScrollState()
     // os 4 numeros aparecem no fim da tela: rola ate eles
     androidx.compose.runtime.LaunchedEffect(sas) { if (sas != null) rolagem.animateScrollTo(rolagem.maxValue) }
+    val teclado = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val parear = { l: String ->
+        teclado?.hide() // os 4 numeros precisam ficar a vista
         ocupado = true
         erro = null
         Hub.parear(l, { sas = it }) { er ->

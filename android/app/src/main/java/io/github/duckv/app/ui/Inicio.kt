@@ -181,7 +181,7 @@ fun Inicio(
                 ) {
                     CartaoConta(e, conta, agora, pato, Modifier.padding(horizontal = 16.dp))
                     // conta sem login: um toque para entrar, sem abrir o computador
-                    if (conta.email == null && e.host.disponivel) Botao(
+                    if (conta.email == null && e.host.disponivel && !e.demo) Botao(
                         "Entrar nesta conta", { entrando = conta },
                         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp), Icons.AutoMirrored.Rounded.Login, Peso.Principal,
                     )
