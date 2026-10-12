@@ -33,9 +33,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Settings
@@ -69,6 +66,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -178,9 +177,28 @@ fun Inicio(
                 return@Column
             }
 
-            // contas: menu suspenso com todas; deslizar a tela tambem troca
-            SeletorConta(e, contas, pager.currentPage, agora, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), aoNovaConta = { criando = true }) { i ->
+            // contas: uma fileira de chips, cada um com o patinho da conta; deslizar a tela tambem troca
+            ChipsContas(e, contas, pager.currentPage, agora, aoNovaConta = { criando = true }) { i ->
                 escopo.launch { pager.animateScrollToPage(i) }
+            }
+            // outra conta pedindo voce: aparece em cima, no tom de "precisa de voce", a um toque
+            val outras = contas.withIndex().filter { (i, o) -> i != pager.currentPage && estadoDaConta(e, o, agora).bicho == "pede" }
+            if (outras.isNotEmpty()) {
+                val nomes = outras.map { it.value.nome }
+                Row(
+                    Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.invFundo)
+                        .clickable(role = Role.Button) { escopo.launch { pager.animateScrollToPage(outras.first().index) } }
+                        .heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.NotificationsActive, null, tint = c.invTexto, modifier = Modifier.size(20.dp))
+                    Text(
+                        if (nomes.size == 1) "${nomes[0]} precisa de você" else "${nomes.dropLast(1).joinToString(", ")} e ${nomes.last()} precisam de você",
+                        style = Texto.rotulo, color = c.invTexto, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(start = 12.dp),
+                    )
+                    Text("Ver", style = Texto.rotulo, color = c.invTexto, modifier = Modifier.padding(start = 12.dp))
+                }
             }
 
             HorizontalPager(pager, Modifier.fillMaxSize(), key = { contas.getOrNull(it)?.id ?: it }, beyondViewportPageCount = 1) { i ->
@@ -194,7 +212,7 @@ fun Inicio(
                         null, "${e.agente(conta.agente).nome} não está instalado",
                         "Rode o instalador do duckV de novo no computador, ou instale com npm install -g.", erro = true,
                     )
-                    if (conta.email == null && conta.instalado && e.host.disponivel && !e.demo) Botao(
+                    if ((conta.email == null || conta.semLogin) && conta.instalado && e.host.disponivel && !e.demo) Botao(
                         "Entrar nesta conta", { entrando = conta },
                         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp), Icons.AutoMirrored.Rounded.Login, Peso.Principal,
                     )
@@ -202,7 +220,7 @@ fun Inicio(
                     val ss = minhas.sortedWith(compareByDescending<Sessao> { it.precisa }.thenByDescending { it.status == "working" }.thenBy { it.inicio })
                     // cabecalho das sessoes, com a contagem e o atalho para todas as conversas
                     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 24.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Sessões", style = Texto.conta, color = c.texto)
+                        Text("Sessões", style = Texto.secao, color = c.apoio)
                         if (ss.isNotEmpty()) Text(
                             "${ss.size}", style = Texto.pequeno.copy(fontWeight = FontWeight.Medium), color = c.apoio,
                             modifier = Modifier.padding(start = 8.dp).clip(CircleShape).background(c.cartaoAlto).padding(horizontal = 8.dp, vertical = 1.dp),
@@ -214,7 +232,7 @@ fun Inicio(
                         }
                     }
                     if (temPedidos(minhas)) Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { Pedidos(e, minhas, aoVerTela) }
-                    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(c.cartao).padding(vertical = 6.dp)) {
+                    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.cartao).padding(vertical = 4.dp)) {
                         if (ss.isEmpty()) {
                             // estado vazio: o computador em pixels e o proximo passo
                             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -231,11 +249,6 @@ fun Inicio(
                             if (n > 0) Divisoria(Modifier.padding(start = 72.dp, end = 16.dp))
                             LinhaSessao(s, Color(conta.cor)) { aoAbrirSessao(s.id) }
                         }
-                    }
-                    // outras contas pedindo permissao: um atalho, sem precisar procurar
-                    val outras = contas.filter { it.id != conta.id && estadoDaConta(e, it, agora).bicho == "pede" }
-                    for (o in outras) {
-                        Botao("${o.nome} precisa de você", { escopo.launch { pager.animateScrollToPage(contas.indexOf(o)) } }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), Icons.Rounded.NotificationsActive, Peso.Comum)
                     }
                     if (!podeAvisar) Box(Modifier.padding(16.dp)) {
                         Aviso(Icons.Rounded.NotificationsActive, "Avisos desligados", "Ative para saber quando uma conta pedir permissão, terminar ou reiniciar o limite.", erro = false) {
@@ -288,71 +301,53 @@ fun Inicio(
 @Composable
 private fun Spacer8() = Box(Modifier.width(12.dp))
 
-/** Seletor de conta: mostra a conta atual e abre um menu com todas, cada uma com o patinho, o estado e o limite. */
+/**
+ * As contas numa fileira de chips: o patinho de cada uma, o nome e, a direita, o limite de 5 horas
+ * ou o ponto de "precisa de voce". A marcada fica em pessego. O ultimo chip adiciona uma conta.
+ */
 @Composable
-private fun SeletorConta(e: Estado, contas: List<Conta>, atual: Int, agora: Long, modifier: Modifier, aoNovaConta: () -> Unit, aoEscolher: (Int) -> Unit) {
+private fun ChipsContas(e: Estado, contas: List<Conta>, atual: Int, agora: Long, aoNovaConta: () -> Unit, aoEscolher: (Int) -> Unit) {
     val c = cores
-    val conta = contas.getOrNull(atual) ?: return
-    val est = estadoDaConta(e, conta, agora)
-    var aberto by remember { mutableStateOf(false) }
-    // outra conta precisa de voce: o seletor avisa mesmo fechado
-    val outraPede = contas.withIndex().any { (i, o) -> i != atual && estadoDaConta(e, o, agora).bicho == "pede" }
-    Box(modifier) {
-        androidx.compose.material3.Surface(
-            { aberto = true }, Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(12.dp), color = Color.Transparent,
-            border = androidx.compose.foundation.BorderStroke(1.dp, c.vazio),
-        ) {
-            Row(Modifier.padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Pato(est.bicho, "parado", Color(conta.cor), Modifier.size(width = 40.dp, height = 32.dp), andar = false, tocavel = false, tipo = conta.pato)
-                Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(conta.nome, style = Texto.conta, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        AgenteIcone(e.agente(conta.agente), 14.dp, Modifier.padding(start = 8.dp))
-                    }
-                    // o estado so aparece aqui quando pede atencao; o resto as sessoes ja contam
-                    if (est.bicho == "pede" || est.bicho == "cansado") Text(est.texto, style = Texto.pequeno, color = if (est.bicho == "pede") c.realce else c.perigo, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                if (outraPede) Box(Modifier.padding(end = 8.dp).size(8.dp).clip(CircleShape).background(c.perigo))
-                Icon(if (aberto) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown, "Trocar de conta", tint = c.apoio)
-            }
-        }
-        androidx.compose.material3.DropdownMenu(
-            aberto, { aberto = false }, Modifier.fillMaxWidth(0.92f), shape = RoundedCornerShape(16.dp), containerColor = c.elevada,
-        ) {
-            contas.forEachIndexed { i, o ->
-                val eo = estadoDaConta(e, o, agora)
-                androidx.compose.material3.DropdownMenuItem(
-                    text = {
-                        Column(Modifier.padding(vertical = 6.dp)) {
-                            Text(o.nome, style = Texto.corpo.copy(fontWeight = if (i == atual) FontWeight.Medium else FontWeight.Normal), color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                AgenteIcone(e.agente(o.agente), 12.dp, Modifier.padding(end = 6.dp))
-                                Text("${e.agente(o.agente).curto} · ${eo.texto}", style = Texto.pequeno, color = if (eo.bicho == "pede") c.realce else c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    },
-                    onClick = {
-                        aberto = false
-                        aoEscolher(i)
-                    },
-                    leadingIcon = { Pato(eo.bicho, "parado", Color(o.cor), Modifier.size(width = 44.dp, height = 36.dp), andar = false, tocavel = false, tipo = o.pato) },
-                    trailingIcon = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            o.cinco?.pct?.let { Text("${it.toInt()}%", style = Texto.rotulo, color = if (it >= 100) c.perigo else c.apoio) }
-                            if (i == atual) Icon(Icons.Rounded.Check, "Conta atual", tint = c.realce, modifier = Modifier.padding(start = 8.dp).size(20.dp))
-                        }
-                    },
-                    modifier = Modifier.background(if (i == atual) c.invFundo.copy(alpha = 0.5f) else Color.Transparent),
-                )
-            }
-            androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 4.dp), color = c.linha)
-            androidx.compose.material3.DropdownMenuItem(
-                text = { Text("Adicionar conta", style = Texto.corpo, color = c.texto) },
-                onClick = {
-                    aberto = false
-                    aoNovaConta()
+    val lista = rememberLazyListState()
+    // a conta marcada sempre a vista quando o pager troca
+    LaunchedEffect(atual) {
+        if (atual < 0) return@LaunchedEffect
+        val info = lista.layoutInfo
+        val visivel = info.visibleItemsInfo.any { it.index == atual && it.offset >= info.viewportStartOffset && it.offset + it.size <= info.viewportEndOffset }
+        if (!visivel) lista.animateScrollToItem(atual)
+    }
+    LazyRow(state = lista, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        itemsIndexed(contas, key = { _, o -> o.id }) { i, o ->
+            val eo = estadoDaConta(e, o, agora)
+            val marcada = i == atual
+            val pct = o.cinco?.pct
+            FilterChip(
+                selected = marcada,
+                onClick = { aoEscolher(i) },
+                label = { Text(o.nome, style = Texto.rotulo, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp)) },
+                leadingIcon = { Pato(eo.bicho, "parado", Color(o.cor), Modifier.size(width = 28.dp, height = 22.dp), andar = false, tocavel = false, tipo = o.pato) },
+                trailingIcon = when {
+                    eo.bicho == "pede" -> { { Box(Modifier.size(8.dp).clip(CircleShape).background(c.perigo).semantics { contentDescription = "precisa de você" }) } }
+                    pct != null -> { { Text("${pct.toInt()}%", style = Texto.pequeno.copy(fontWeight = FontWeight.Medium), color = if (pct >= 100) c.perigo else if (marcada) c.invApoio else c.apoio) } }
+                    else -> null
                 },
-                leadingIcon = { Icon(Icons.Rounded.Add, null, tint = c.apoio) },
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.height(40.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = Color.Transparent, labelColor = c.texto,
+                    selectedContainerColor = c.invFundo, selectedLabelColor = c.invTexto,
+                ),
+                border = FilterChipDefaults.filterChipBorder(enabled = true, selected = marcada, borderColor = c.vazio, selectedBorderColor = Color.Transparent),
+            )
+        }
+        item(key = "nova") {
+            FilterChip(
+                selected = false, onClick = aoNovaConta,
+                label = { Text("Conta", style = Texto.rotulo) },
+                leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp), tint = c.apoio) },
+                shape = RoundedCornerShape(8.dp), modifier = Modifier.height(40.dp).semantics { contentDescription = "Adicionar conta" },
+                colors = FilterChipDefaults.filterChipColors(containerColor = Color.Transparent, labelColor = c.texto),
+                border = FilterChipDefaults.filterChipBorder(enabled = true, selected = false, borderColor = c.linha),
             )
         }
     }
@@ -500,35 +495,31 @@ private fun Esqueleto() {
 }
 
 /**
- * A conta em destaque: um cartao tingido com a cor dela, o pato de pe no chao de pixels,
- * o limite de 5 horas grande e, embaixo, semana e tokens em dois blocos.
+ * A conta em destaque: nome e agente no topo, a pista onde o pato vive (ele anda de ponta a ponta
+ * enquanto a conta trabalha), o estado escrito, o limite de 5 horas grande e, embaixo, semana e tokens.
  */
 @Composable
 private fun CartaoConta(e: Estado, conta: Conta, agora: Long, pato: String, modifier: Modifier) {
     val c = cores
     val cor = Color(conta.cor)
     val est = estadoDaConta(e, conta, agora)
-    val fundo = cor.copy(alpha = if (c.escuro) 0.16f else 0.13f).compositeOver(c.cartao)
     val cinco = conta.cinco?.pct
-    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(fundo).padding(start = 20.dp, end = 16.dp, top = 18.dp, bottom = 16.dp)) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.weight(1f).padding(bottom = 6.dp)) {
-                Text(conta.nome, style = Texto.titulo.copy(fontWeight = FontWeight.Medium), color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    listOfNotNull(conta.email, conta.plano?.let { p -> "Plano ${p.replaceFirstChar { it.uppercase() }}" }).joinToString(" · "),
-                    style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-                SeloAgente(e.agente(conta.agente), Modifier.padding(top = 10.dp))
-                EstadoPilula(est, cor, Modifier.padding(top = 8.dp))
-            }
-            // o pato mora aqui, de pe no chao; um toque e ele reage
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Pato(est.bicho, pato, cor, Modifier.size(width = 104.dp, height = 82.dp), andar = false, tipo = conta.pato)
-                Chao(cor, Modifier.width(96.dp))
-            }
+    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.cartao).padding(bottom = 16.dp)) {
+        Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(conta.nome, style = Texto.titulo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            SeloAgente(e.agente(conta.agente), Modifier.padding(start = 10.dp))
         }
+        val sub = listOfNotNull(conta.email, conta.plano?.let { p -> "Plano ${p.replaceFirstChar { it.uppercase() }}" }).joinToString(" · ")
+        if (sub.isNotEmpty()) Text(sub, style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp))
 
-        Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.Bottom) {
+        // a pista: o chao de pixels na cor da conta e o pato em cima; um toque e ele reage
+        Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp).height(78.dp)) {
+            Chao(cor, Modifier.align(Alignment.BottomCenter).fillMaxWidth())
+            Pato(est.bicho, pato, cor, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(72.dp).padding(bottom = 3.dp), andar = true, tipo = conta.pato)
+        }
+        EstadoPilula(est, cor, Modifier.padding(start = 16.dp, top = 10.dp))
+
+        Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalAlignment = Alignment.Bottom) {
             if (cinco == null) {
                 Text("—", style = Texto.numero.copy(fontSize = 52.sp, lineHeight = 56.sp), color = c.apoio)
             } else {
@@ -540,10 +531,10 @@ private fun CartaoConta(e: Estado, conta: Conta, agora: Long, pato: String, modi
                 Text(reinicio("five_hour", conta.cinco, conta, agora, curto = true), style = Texto.rotulo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Celulas(100, (cinco ?: 0.0).toInt().coerceIn(0, 100), cor, Modifier.padding(top = 4.dp), quenteDe = 80, altura = 6.dp)
-        if (cinco == null) Text(if (conta.agente == "claude" || conta.agente == "codex") "Aparece depois da primeira resposta nesta conta." else "O ${e.agente(conta.agente).nome} não informa limite de uso.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 8.dp))
+        Celulas(100, (cinco ?: 0.0).toInt().coerceIn(0, 100), cor, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp), quenteDe = 80, altura = 6.dp)
+        if (cinco == null) Text(if (conta.semLogin) "A conta saiu do login. Entre de novo nela para ver o limite." else if (conta.agente == "claude" || conta.agente == "codex") "Aparece depois da primeira resposta nesta conta." else "O ${e.agente(conta.agente).nome} não informa limite de uso.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
 
-        Row(Modifier.padding(top = 16.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.padding(start = 12.dp, end = 12.dp, top = 16.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Bloco("Semana", conta.semana?.pct?.let { "${it.toInt()}%" } ?: "—", reinicio("seven_day", conta.semana, conta, agora, curto = true), Modifier.weight(1f).fillMaxHeight()) {
                 Celulas(100, (conta.semana?.pct ?: 0.0).toInt().coerceIn(0, 100), cor, Modifier.padding(top = 8.dp), quenteDe = 80, altura = 4.dp)
             }
@@ -554,7 +545,7 @@ private fun CartaoConta(e: Estado, conta: Conta, agora: Long, pato: String, modi
             )
         }
         conta.lidoEm?.takeIf { conta.cinco?.pct != null && agora - it > 5 * 60_000 }?.let {
-            Text("Leitura de ${falta(agora - it)} atrás", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 10.dp))
+            Text("Leitura de ${falta(agora - it)} atrás", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp))
         }
     }
 }
@@ -575,7 +566,7 @@ private fun reinicio(janela: String, u: Uso?, conta: Conta, agora: Long, curto: 
 @Composable
 private fun Bloco(rotulo: String, valor: String, apoio: String, modifier: Modifier, extra: @Composable () -> Unit = {}) {
     val c = cores
-    Column(modifier.clip(RoundedCornerShape(18.dp)).background(c.fundo.copy(alpha = if (c.escuro) 0.55f else 0.75f)).padding(horizontal = 14.dp, vertical = 12.dp)) {
+    Column(modifier.clip(RoundedCornerShape(12.dp)).background(c.fundo).padding(horizontal = 14.dp, vertical = 12.dp)) {
         Text(rotulo, style = Texto.pequeno, color = c.apoio)
         Text(valor, style = Texto.titulo.copy(fontWeight = FontWeight.Medium), color = c.texto, modifier = Modifier.padding(top = 2.dp))
         extra()
@@ -590,7 +581,7 @@ private fun EstadoPilula(est: EstadoConta, cor: Color, modifier: Modifier = Modi
     val pede = est.bicho == "pede"
     val cansado = est.bicho == "cansado"
     Row(
-        modifier.clip(CircleShape).background(if (pede) c.invFundo else c.fundo.copy(alpha = if (c.escuro) 0.55f else 0.75f)).padding(start = 10.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+        modifier.clip(CircleShape).background(if (pede) c.invFundo else c.fundo).padding(start = 10.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(if (pede) c.realce else if (cansado) c.perigo else if (est.acesa) cor else c.ok))

@@ -1574,8 +1574,41 @@ function guardarImagem(it) {
 
 // Uso de cada conta direto da Anthropic, com o login que o Claude Code guardou na pasta da conta.
 // E a mesma consulta do /usage: o numero vale na hora, com ou sem sessao aberta.
-// So le o login; se ele venceu, espera o Claude Code renova-lo na proxima sessao.
+// Se o login venceu, renova como o proprio Claude Code faz: o token so vence no arquivo quando
+// nenhuma sessao daquela conta esta aberta cuidando dele, entao nao ha disputa pela renovacao.
 const USO_URL = 'https://api.anthropic.com/api/oauth/usage';
+const TOKEN_URL = 'https://platform.claude.com/v1/oauth/token';
+const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e'; // o do Claude Code
+
+async function renovarLogin(f) {
+  const lido = JSON.parse(fs.readFileSync(f, 'utf8'));
+  const k = lido.claudeAiOauth;
+  if (!k?.refreshToken) return null;
+  const r = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: k.refreshToken, client_id: CLIENT_ID, scope: (k.scopes || []).join(' ') }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (r.status === 400 || r.status === 401) return null; // login recusado: precisa entrar de novo
+  if (!r.ok) throw new Error(`renovacao ${r.status}`);
+  const j = await r.json();
+  if (!j?.access_token) return null;
+  // Rele antes de gravar: se uma sessao renovou enquanto isso, o arquivo dela vale.
+  const atual = JSON.parse(fs.readFileSync(f, 'utf8'));
+  if (atual.claudeAiOauth?.accessToken && atual.claudeAiOauth.expiresAt > now()) return atual.claudeAiOauth;
+  const novo = {
+    ...k,
+    accessToken: j.access_token,
+    refreshToken: j.refresh_token || k.refreshToken,
+    expiresAt: now() + (Number(j.expires_in) || 3600) * 1000,
+    ...(j.refresh_token_expires_in ? { refreshTokenExpiresAt: now() + Number(j.refresh_token_expires_in) * 1000 } : {}),
+  };
+  const tmp = `${f}.duckv-${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify({ ...atual, claudeAiOauth: novo }), { mode: 0o600 });
+  fs.renameSync(tmp, f);
+  return novo;
+}
 // E-mail do login da conta, para dar nome as contas que ainda se chamam "Conta 1".
 function lerEmail(a) {
   const f = a.padrao ? path.join(os.homedir(), '.claude.json') : path.join(a.dir, '.claude.json');
@@ -1606,21 +1639,41 @@ async function consultarUso(a) {
     return true;
   }
   lerEmail(a);
+  const f = path.join(a.dir || path.join(os.homedir(), '.claude'), '.credentials.json');
   let k;
   try {
-    k = JSON.parse(fs.readFileSync(path.join(a.dir, '.credentials.json'), 'utf8')).claudeAiOauth;
+    k = JSON.parse(fs.readFileSync(f, 'utf8')).claudeAiOauth;
   } catch {
     return false;
   }
   // plano da assinatura (pro, max, team...), para o app mostrar no cartao da conta
   if (typeof k?.subscriptionType === 'string') a.plano = k.subscriptionType;
-  if (!k?.accessToken || (k.expiresAt && k.expiresAt < now())) return false;
-  const r = await fetch(USO_URL, {
-    headers: { Authorization: `Bearer ${k.accessToken}`, 'anthropic-beta': 'oauth-2025-04-20' },
+  // Sem login nenhum (saiu da conta): o numero velho nao vale mais; o app pede para entrar de novo.
+  const semLogin = () => {
+    const mudou = a.usage.erro !== 'login';
+    a.usage = { erro: 'login', at: a.usage.at };
+    return mudou;
+  };
+  if (!k?.accessToken && !k?.refreshToken) return semLogin();
+  if (!k.accessToken || (k.expiresAt && k.expiresAt < now() + 60000)) {
+    k = await renovarLogin(f).catch(() => undefined); // rede fora: tenta no proximo minuto
+    if (k === undefined) return false;
+    if (!k) return semLogin();
+  }
+  const pedir = (token) => fetch(USO_URL, {
+    headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' },
     signal: AbortSignal.timeout(10000),
   });
+  let r = await pedir(k.accessToken);
+  if (r.status === 401) {
+    k = await renovarLogin(f).catch(() => undefined); // rede fora: tenta no proximo minuto
+    if (k === undefined) return false;
+    if (!k) return semLogin();
+    r = await pedir(k.accessToken);
+  }
   if (!r.ok) return false;
   const j = await r.json();
+  delete a.usage.erro;
   for (const w of WINDOWS) {
     const x = j?.[w];
     // Janela sem nenhum uso vem vazia: a contagem recomeca no proximo uso.

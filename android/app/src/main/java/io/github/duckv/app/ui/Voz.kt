@@ -1,0 +1,316 @@
+package io.github.duckv.app.ui
+
+import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+
+/** Fim que marca a mensagem como ditada: o agente sabe que pode haver erro de transcricao, e a bolha mostra o selo de voz. */
+const val MARCA_VOZ = "\n\n(mensagem de voz, transcrita no celular)"
+
+fun ehVoz(t: String) = t.trimEnd().endsWith(MARCA_VOZ.trim())
+fun semMarcaVoz(t: String) = if (ehVoz(t)) t.trimEnd().removeSuffix(MARCA_VOZ.trim()).trimEnd() else t
+
+/**
+ * Ditado continuo com o reconhecedor de fala do Android, em portugues.
+ * O reconhecedor para sozinho a cada pausa; enquanto voce nao toca em parar, ele recomeca e o texto vai se somando.
+ * O nivel do microfone alimenta a onda na tela.
+ */
+/** [aoSobrar] recebe o que ja tinha sido entendido quando um erro interrompe a gravacao, para nao se perder. */
+class Ditado(private val ctx: Context, private val aoErro: (String) -> Unit, private val aoSobrar: (String) -> Unit) {
+    var gravando by mutableStateOf(false)
+        private set
+    var fechando by mutableStateOf(false)
+        private set
+    var texto by mutableStateOf("")
+        private set
+    var parcial by mutableStateOf("")
+        private set
+    val niveis = mutableStateListOf<Float>()
+    var inicio = 0L
+        private set
+
+    private var rec: SpeechRecognizer? = null
+    private var aoFim: ((String) -> Unit)? = null
+    private var ultimoNivel = 0L
+    private val main = Handler(Looper.getMainLooper())
+
+    val ativo get() = gravando || fechando
+    val completo get() = listOf(texto, parcial).filter { it.isNotBlank() }.joinToString(" ").trim()
+
+    fun iniciar() {
+        if (!SpeechRecognizer.isRecognitionAvailable(ctx)) {
+            aoErro("Este celular não tem reconhecimento de voz. Instale ou ative o app Google e tente de novo.")
+            return
+        }
+        texto = ""
+        parcial = ""
+        niveis.clear()
+        inicio = SystemClock.elapsedRealtime()
+        gravando = true
+        fechando = false
+        ouvir()
+    }
+
+    /** Para de ouvir e entrega o texto final (espera o reconhecedor fechar a ultima frase, no maximo 2 s). */
+    fun parar(entregar: (String) -> Unit) {
+        if (!gravando) return
+        gravando = false
+        fechando = true
+        aoFim = entregar
+        runCatching { rec?.stopListening() }
+        main.postDelayed({ finalizar() }, 2000)
+    }
+
+    fun cancelar() {
+        gravando = false
+        fechando = false
+        aoFim = null
+        main.removeCallbacksAndMessages(null)
+        runCatching { rec?.cancel(); rec?.destroy() }
+        rec = null
+        texto = ""
+        parcial = ""
+        niveis.clear()
+    }
+
+    private fun ouvir() {
+        runCatching { rec?.destroy() }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L)
+        }
+        rec = SpeechRecognizer.createSpeechRecognizer(ctx).apply {
+            setRecognitionListener(ouvinte)
+            startListening(intent)
+        }
+    }
+
+    private fun primeiro(b: Bundle?) = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
+
+    private fun finalizar() {
+        main.removeCallbacksAndMessages(null)
+        val cb = aoFim ?: return
+        aoFim = null
+        val t = completo
+        runCatching { rec?.destroy() }
+        rec = null
+        fechando = false
+        cb(t)
+    }
+
+    private val ouvinte = object : RecognitionListener {
+        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onBeginningOfSpeech() {}
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {}
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+
+        override fun onRmsChanged(rmsdB: Float) {
+            val agora = SystemClock.elapsedRealtime()
+            if (agora - ultimoNivel < 70) return
+            ultimoNivel = agora
+            niveis.add(((rmsdB + 2f) / 12f).coerceIn(0.04f, 1f))
+            while (niveis.size > 64) niveis.removeAt(0)
+        }
+
+        override fun onPartialResults(partialResults: Bundle?) {
+            primeiro(partialResults).takeIf { it.isNotEmpty() }?.let { parcial = it }
+        }
+
+        override fun onResults(results: Bundle?) {
+            val t = primeiro(results).ifEmpty { parcial }
+            if (t.isNotEmpty()) texto = listOf(texto, t).filter { it.isNotBlank() }.joinToString(" ")
+            parcial = ""
+            if (gravando) ouvir() else finalizar()
+        }
+
+        override fun onError(error: Int) {
+            when (error) {
+                // pausa longa ou nada entendido: continua ouvindo enquanto voce nao parar
+                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
+                    if (gravando) ouvir() else finalizar()
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
+                    if (gravando) main.postDelayed({ if (gravando) ouvir() }, 300) else finalizar()
+                SpeechRecognizer.ERROR_CLIENT -> if (!gravando) finalizar()
+                else -> {
+                    val msg = when (error) {
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "O duckV não tem acesso ao microfone. Libere em Configurações > Apps > duckV > Permissões."
+                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
+                            "O reconhecimento de voz precisa de internet. Confira a conexão e tente de novo."
+                        SpeechRecognizer.ERROR_AUDIO -> "O microfone não respondeu. Feche outro app que esteja usando ele e tente de novo."
+                        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+                            "O reconhecimento de voz deste celular não tem português instalado."
+                        else -> "O reconhecimento de voz parou (erro $error). Tente de novo."
+                    }
+                    val tinha = completo
+                    cancelar()
+                    // o que ja foi entendido nao se perde: vai para o campo, para revisar antes de mandar
+                    if (tinha.isNotEmpty()) aoSobrar(tinha)
+                    aoErro(msg)
+                }
+            }
+        }
+    }
+}
+
+/** Duracao da gravacao, em m:ss. */
+@Composable
+private fun cronometro(inicio: Long, ativo: Boolean): String {
+    val ms by produceState(0L, inicio, ativo) {
+        while (ativo) {
+            value = SystemClock.elapsedRealtime() - inicio
+            delay(250)
+        }
+    }
+    val s = ms / 1000
+    return "%d:%02d".format(s / 60, s % 60)
+}
+
+/** A onda do microfone: barras finas que entram pela direita, como o nivel da sua voz. */
+@Composable
+fun Onda(niveis: List<Float>, cor: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val barra = 3.dp.toPx()
+        val vao = 2.5.dp.toPx()
+        val cabe = ((size.width + vao) / (barra + vao)).toInt().coerceAtLeast(1)
+        val ultimos = niveis.takeLast(cabe)
+        val sobra = cabe - ultimos.size
+        val minimo = 3.dp.toPx()
+        for (i in 0 until cabe) {
+            val n = if (i < sobra) 0f else ultimos[i - sobra]
+            val h = (minimo + (size.height - minimo) * n)
+            val x = i * (barra + vao)
+            drawRoundRect(
+                if (i < sobra) cor.copy(alpha = 0.25f) else cor,
+                Offset(x, (size.height - h) / 2), Size(barra, h), CornerRadius(barra / 2, barra / 2),
+            )
+        }
+    }
+}
+
+/**
+ * O compositor enquanto voce fala: descartar a esquerda, a faixa com o ponto vermelho, o tempo e a onda,
+ * e a direita "revisar" (o texto vai para o campo) e enviar direto. O texto entendido aparece em cima, ao vivo.
+ */
+@Composable
+fun Gravando(d: Ditado, aoDescartar: () -> Unit, aoRevisar: () -> Unit, aoEnviar: () -> Unit) {
+    val c = cores
+    val tempo = cronometro(d.inicio, d.gravando)
+    val pulso = rememberInfiniteTransition(label = "gravando")
+    val brilho by pulso.animateFloat(1f, 0.35f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "ponto")
+    Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 8.dp)) {
+        // o que ja foi entendido: firme em Tinta, o trecho ainda em analise em Tinta Variante
+        Text(
+            buildAnnotatedString {
+                if (d.texto.isBlank() && d.parcial.isBlank()) {
+                    withStyle(SpanStyle(color = c.apoio)) { append(if (d.fechando) "Fechando a última frase…" else "Pode falar. O que eu entender aparece aqui.") }
+                } else {
+                    withStyle(SpanStyle(color = c.texto)) { append(d.texto) }
+                    if (d.parcial.isNotBlank()) withStyle(SpanStyle(color = c.apoio)) { append(if (d.texto.isBlank()) d.parcial else " ${d.parcial}") }
+                }
+            },
+            style = Texto.corpo, maxLines = 5,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp).padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 8.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(aoDescartar) { Icon(Icons.Rounded.DeleteOutline, "Descartar áudio", tint = c.perigo) }
+            Row(
+                Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(28.dp)).background(c.elevada).padding(start = 16.dp, end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(10.dp).alpha(if (d.gravando) brilho else 0.35f).clip(CircleShape).background(c.perigo))
+                Text(
+                    tempo, style = Texto.rotulo.copy(fontFeatureSettings = "tnum"), color = c.texto,
+                    modifier = Modifier.padding(start = 10.dp).semantics { contentDescription = "Gravando há $tempo" },
+                )
+                Onda(d.niveis, c.texto, Modifier.weight(1f).height(26.dp).padding(start = 14.dp))
+            }
+            IconButton(aoRevisar, enabled = d.gravando) { Icon(Icons.Rounded.EditNote, "Parar e revisar o texto", tint = c.apoio) }
+            Box(
+                Modifier.size(48.dp).clip(CircleShape).background(c.primario).clickable(enabled = d.gravando, role = Role.Button, onClick = aoEnviar),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.AutoMirrored.Rounded.Send, "Enviar áudio", tint = c.noPrimario, modifier = Modifier.size(22.dp)) }
+        }
+    }
+}
+
+/** O botao redondo do compositor quando o campo esta vazio: o microfone. */
+@Composable
+fun BotaoMicrofone(aoTocar: () -> Unit, modifier: Modifier = Modifier) {
+    val c = cores
+    Box(
+        modifier.size(48.dp).clip(CircleShape).background(c.elevada).clickable(role = Role.Button, onClick = aoTocar),
+        contentAlignment = Alignment.Center,
+    ) { Icon(Icons.Rounded.Mic, "Gravar mensagem de voz", tint = c.texto, modifier = Modifier.size(24.dp)) }
+}
+
+/** Cabecalho da bolha de uma mensagem ditada. */
+@Composable
+fun SeloVoz(cor: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 4.dp)) {
+        Icon(Icons.Rounded.Mic, null, tint = cor, modifier = Modifier.size(16.dp))
+        Text("Mensagem de voz", style = Texto.pequeno, color = cor)
+    }
+}

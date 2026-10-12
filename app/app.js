@@ -481,7 +481,7 @@ function criarConta(conta) {
   const vazio = el('p', { class: 'vazio' });
   const raiz = el('section', { class: 'conta', 'aria-label': conta.nome }, faixa, caixaMedidores, gasto, lista, vazio);
 
-  function medidor(chave, u, lidoEm) {
+  function medidor(chave, u, lidoEm, erro) {
     const m = medidores[chave];
     const t = agora();
     if (!u || typeof u.pct !== 'number') {
@@ -489,7 +489,7 @@ function criarConta(conta) {
       m.valor.textContent = 'sem leitura';
       celulas(m.cels, 20, 0);
       m.cels.removeAttribute('aria-valuenow');
-      m.quando.textContent = 'O número aparece depois da primeira resposta do Claude nesta conta.';
+      m.quando.textContent = erro === 'login' ? 'A conta saiu do login. Entre de novo nela para ver o limite.' : 'O número aparece depois da primeira resposta do Claude nesta conta.';
       return;
     }
     const pct = Math.round(u.pct);
@@ -540,8 +540,8 @@ function criarConta(conta) {
     pista.definir(e.bicho);
     faixa.dataset.vida = e.vida;
     estado.textContent = e.texto;
-    medidor('five_hour', c.usage?.five_hour, c.usage?.at);
-    medidor('seven_day', c.usage?.seven_day, c.usage?.at);
+    medidor('five_hour', c.usage?.five_hour, c.usage?.at, c.usage?.erro);
+    medidor('seven_day', c.usage?.seven_day, c.usage?.at, c.usage?.erro);
 
     if (c.tokens) {
       const novos = c.tokens.in + c.tokens.cw + c.tokens.out;

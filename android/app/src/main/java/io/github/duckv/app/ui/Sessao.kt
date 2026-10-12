@@ -435,7 +435,8 @@ private fun Mensagem(m: Msg, cor: Color) {
                 Modifier.widthIn(max = 520.dp).fillMaxWidth(0.86f).wrapIfShort().clip(forma).background(c.invFundo).padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalAlignment = Alignment.End,
             ) {
-                SelectionContainer { Blocos(m.texto, cor) }
+                if (ehVoz(m.texto)) SeloVoz(c.invApoio)
+                SelectionContainer { Blocos(semMarcaVoz(m.texto), cor) }
                 if (m.doCelular) Text("Enviada do celular", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
             }
         }
@@ -494,7 +495,8 @@ private fun MensagemACaminho(t: String, cor: Color) {
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.End,
         ) {
-            Text(t, style = Texto.corpo, color = c.texto.copy(alpha = 0.75f))
+            if (ehVoz(t)) SeloVoz(c.apoio)
+            Text(semMarcaVoz(t), style = Texto.corpo, color = c.texto.copy(alpha = 0.75f))
             Text("Enviando", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
         }
     }
@@ -562,6 +564,35 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         }
     }
     val acaminho = { t: String -> Hub.aCaminho.value = Hub.aCaminho.value + (s.id to t) }
+    // mensagem de voz: o celular transcreve enquanto voce fala
+    val vibra = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val juntar = { t: String -> texto = listOf(texto.trim(), t).filter { it.isNotBlank() }.joinToString(" ") }
+    val ditado = remember(s.id) { Ditado(ctx, { aviso(it) }, { juntar(it) }) }
+    androidx.compose.runtime.DisposableEffect(s.id) { onDispose { ditado.cancelar() } }
+    val comecar = {
+        vibra.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        ditado.iniciar()
+    }
+    val pedirMic = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) comecar() else aviso("Sem o microfone não dá para gravar. Libere em Configurações > Apps > duckV > Permissões.")
+    }
+    val falar = {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) comecar()
+        else pedirMic.launch(android.Manifest.permission.RECORD_AUDIO)
+    }
+    val enviarVoz = {
+        ditado.parar { t ->
+            if (t.isBlank()) aviso("Não entendi nada. Fale mais perto do celular e tente de novo.")
+            else {
+                val m = t + MARCA_VOZ
+                enviando = true
+                Hub.enviar(s.id, m) { erro, _ ->
+                    enviando = false
+                    if (erro != null) { juntar(t); aviso(erro) } else acaminho(m)
+                }
+            }
+        }
+    }
     val enviar = { t: String, ok: String? ->
         Hub.enviar(s.id, t) { erro, _ ->
             if (erro == null) acaminho(t)
@@ -612,6 +643,15 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                 if (subindo > 0) item { Text("Enviando $subindo ${if (subindo == 1) "arquivo" else "arquivos"}…", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 10.dp)) }
             }
         }
+        if (ditado.ativo) {
+            Gravando(
+                ditado,
+                aoDescartar = { ditado.cancelar() },
+                aoRevisar = { ditado.parar { t -> if (t.isNotBlank()) juntar(t) else aviso("Não entendi nada. Tente de novo.") } },
+                aoEnviar = enviarVoz,
+            )
+            return@Column
+        }
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
             IconButton({ escolher.launch("*/*") }, Modifier.padding(bottom = 4.dp)) { Icon(Icons.Rounded.AttachFile, "Anexar arquivos", tint = c.apoio) }
             OutlinedTextField(
@@ -629,7 +669,9 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             if (pctCtx != null) AnelContexto(pctCtx, cor, { verContexto = true }, Modifier.padding(start = 4.dp, bottom = 8.dp))
             EspacoLargo(4.dp)
             val pode = (texto.isNotBlank() || anexos.isNotEmpty()) && !enviando && subindo == 0
-            Box(
+            // campo vazio: o botao redondo grava uma mensagem de voz
+            if (texto.isBlank() && anexos.isEmpty() && subindo == 0 && !enviando) BotaoMicrofone(falar, Modifier.padding(bottom = 4.dp))
+            else Box(
                 Modifier.padding(bottom = 4.dp).size(48.dp).clip(CircleShape).background(if (pode) c.primario else c.elevada)
                     .clickable(enabled = pode, role = Role.Button) {
                         enviando = true

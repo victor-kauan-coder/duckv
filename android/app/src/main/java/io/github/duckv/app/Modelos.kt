@@ -27,6 +27,8 @@ data class Conta(
     val plano: String? = null,
     val agente: String = "claude",
     val instalado: Boolean = true,
+    /** O login da conta saiu ou foi recusado: o limite nao tem como ser lido. */
+    val semLogin: Boolean = false,
 )
 
 /** Um agente de codigo que o duckV sabe abrir (Claude Code, Codex, Gemini CLI, OpenCode, Cline). */
@@ -158,6 +160,7 @@ fun lerEstado(m: JSONObject): Estado {
             reinicio = a.optJSONObject("lastReset")?.let { Reinicio(it.optString("win"), it.optLong("at"), it.optDouble("was", 0.0)) },
             agente = a.optString("agente", "claude"),
             instalado = a.optBoolean("instalado", true),
+            semLogin = u?.optString("erro") == "login",
         )
     }
     val sessoes = m.optJSONArray("instances").mapa { i ->
