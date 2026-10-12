@@ -95,6 +95,11 @@ fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
                     for ((v, t) in listOf("animado" to "Animado, com gracinhas", "calmo" to "Sem gracinhas", "parado" to "Parado")) Escolha(t, local.pato == v, { Hub.guardar(local.copy(pato = v)) })
                 }
                 Chave("Mostrar na conversa as ferramentas que o agente usa", local.ferramentas) { Hub.guardar(local.copy(ferramentas = it)) }
+                Chave("Sons dos botões", local.somBotoes) { Hub.guardar(local.copy(somBotoes = it)) }
+                Chave("Sons dos patinhos", local.somPato) {
+                    Hub.guardar(local.copy(somPato = it))
+                    if (it) io.github.duckv.app.Sons.pato("quaa") // amostra ao ligar
+                }
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

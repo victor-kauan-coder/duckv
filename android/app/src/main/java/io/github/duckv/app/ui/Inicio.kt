@@ -206,6 +206,9 @@ fun Inicio(
                 return@Column
             }
 
+            // o patinho do lobby: bom dia, boa tarde ou boa noite, e como o bando esta
+            Saudacao(e, agora, pato, Modifier.padding(start = 12.dp, end = 16.dp, top = 2.dp, bottom = 10.dp))
+
             // contas: uma fileira de chips, cada um com o patinho da conta; deslizar a tela tambem troca
             SeletorConta(e, contas, pager.currentPage, agora, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), aoNovaConta = { criando = true }) { i ->
                 escopo.launch { pager.animateScrollToPage(i) }

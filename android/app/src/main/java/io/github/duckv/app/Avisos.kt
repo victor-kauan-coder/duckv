@@ -32,6 +32,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         Hub.iniciar(this)
+        Sons.iniciar(this)
         Avisos.iniciar(this)
         Hub.aoMudarEstado = Avisos::observar
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {

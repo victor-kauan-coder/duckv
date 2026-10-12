@@ -134,6 +134,8 @@ fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier
             vibra.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
             truque = if (toques.size >= 4) "bravo" else REACOES.filter { it != truque }.random()
             truqueDesde = agora
+            // a voz do pato para cada reacao (se os sons dos patinhos estiverem ligados)
+            io.github.duckv.app.Sons.pato(truque ?: "quaa")
         }
     }
     // a reacao ao toque some sozinha no fim

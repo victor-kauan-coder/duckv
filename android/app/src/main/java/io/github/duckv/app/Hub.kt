@@ -403,10 +403,13 @@ data class OpcoesLocais(
     val pato: String = "animado",
     val ferramentas: Boolean = true,
     val segundoPlano: Boolean = true,
+    val somBotoes: Boolean = true,
+    val somPato: Boolean = true,
 ) {
     fun gravar(p: SharedPreferences) = p.edit()
         .putString("tema", tema).putString("pato", pato)
-        .putBoolean("ferramentas", ferramentas).putBoolean("segundoPlano", segundoPlano).apply()
+        .putBoolean("ferramentas", ferramentas).putBoolean("segundoPlano", segundoPlano)
+        .putBoolean("somBotoes", somBotoes).putBoolean("somPato", somPato).apply()
 
     companion object {
         fun ler(p: SharedPreferences) = OpcoesLocais(
@@ -414,6 +417,8 @@ data class OpcoesLocais(
             p.getString("pato", "animado")!!,
             p.getBoolean("ferramentas", true),
             p.getBoolean("segundoPlano", true),
+            p.getBoolean("somBotoes", true),
+            p.getBoolean("somPato", true),
         )
     }
 }

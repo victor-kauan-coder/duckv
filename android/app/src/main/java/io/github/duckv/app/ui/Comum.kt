@@ -151,6 +151,9 @@ fun Botao(
     linhas: Int = 2,
 ) {
     val c = cores
+    // todo botao faz o "tic" (se os sons dos botoes estiverem ligados nas Opcoes)
+    val toqueOriginal = aoTocar
+    val aoTocar: () -> Unit = { io.github.duckv.app.Sons.clique(); toqueOriginal() }
     val alto = altura.coerceIn(36.dp, 56.dp)
     if (vertical) {
         val (fundo, frente) = when (peso) {
@@ -231,7 +234,7 @@ fun BotaoConfirma(texto: String, icone: ImageVector, aoConfirmar: () -> Unit, mo
 fun Escolha(texto: String, marcado: Boolean, aoTocar: () -> Unit, modifier: Modifier = Modifier, marca: Color? = null) {
     val c = cores
     FilterChip(
-        marcado, aoTocar, { Text(texto, style = Texto.rotulo) }, modifier.heightIn(min = 32.dp),
+        marcado, { io.github.duckv.app.Sons.clique(); aoTocar() }, { Text(texto, style = Texto.rotulo) }, modifier.heightIn(min = 32.dp),
         leadingIcon = when {
             marca != null -> { { Marca(marca, tamanho = 10.dp) } }
             marcado -> { { Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) } }
