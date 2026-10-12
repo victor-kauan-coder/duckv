@@ -7,7 +7,7 @@
 
 **Acompanhe e comande, pelo celular, as sessões do Claude Code de várias contas.**
 
-[![Versão](https://img.shields.io/github/v/release/victor-kauan-coder/claudev?label=vers%C3%A3o&color=ff7a1a)](https://github.com/victor-kauan-coder/claudev/releases/latest)
+[![Baixar o app](https://img.shields.io/badge/baixar-claudeV.apk-ff7a1a?logo=android&logoColor=white)](https://github.com/victor-kauan-coder/claudev/releases/latest)
 ![Android](https://img.shields.io/badge/celular-Android%208%2B-3ddc84?logo=android&logoColor=white)
 ![Windows](https://img.shields.io/badge/computador-Windows%2010%20%7C%2011-0078d4)
 ![Node.js](https://img.shields.io/badge/Node.js-20%2B-5fa04e?logo=nodedotjs&logoColor=white)
