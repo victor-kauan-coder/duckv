@@ -62,6 +62,7 @@ O **duckV** junta num app só os agentes de código que rodam no seu computador,
 | **Arquivos do computador** | Peça ao agente "manda esse arquivo para o meu celular" (ou rode `node tools\enviar.mjs arquivo`): ele aparece no app, com aviso, para baixar em Downloads/duckV, abrir ou compartilhar. |
 | **Comandos e skills ao digitar /** | Digite `/` na conversa e aparecem os comandos do agente e as skills e comandos personalizados do computador, com descrição; tocar completa o nome. |
 | **Responder pela notificação** | Quando uma sessão termina, responda direto na notificação, como no WhatsApp, sem abrir o app. |
+| **Atualização pelo app** | Quando sai uma versão nova, o computador a traz do GitHub (funciona com o repositório privado, pelo `gh` logado), confere o SHA-256 e o app mostra o que mudou e instala com um toque. Também em Opções > Procurar atualização. |
 | **Pareamento verificado** | O QR sozinho não dá acesso: os 4 números do celular precisam ser digitados no computador. |
 | **Instalação em um clique** | O instalador cuida do que faltar e faz o login das contas. |
 | **Um pato por conta** | Ele mostra, em pixels, se a conta trabalha, espera, dorme ou precisa de você. |

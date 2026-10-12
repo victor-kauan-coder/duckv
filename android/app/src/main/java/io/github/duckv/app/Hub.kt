@@ -183,9 +183,16 @@ object Hub {
      * Baixa um arquivo que o computador mandou, em pedacos, avisando o progresso (0..1).
      * Escreve em [destino]; se ja houver [jaTem] bytes la, continua de onde parou. Fora da thread principal.
      */
-    fun baixarArquivo(id: String, jaTem: Long, destino: java.io.OutputStream, cancelado: () -> Boolean, progresso: (Long, Long) -> Unit): Result<Unit> = runCatching {
+    fun baixarArquivo(id: String, jaTem: Long, destino: java.io.OutputStream, cancelado: () -> Boolean, progresso: (Long, Long) -> Unit): Result<Unit> =
+        baixar("/api/arquivo/$id", jaTem, destino, cancelado, progresso)
+
+    /** O APK da versao nova que o computador trouxe do GitHub. Mesmas regras de [baixarArquivo]. */
+    fun baixarAtualizacao(jaTem: Long, destino: java.io.OutputStream, cancelado: () -> Boolean, progresso: (Long, Long) -> Unit): Result<Unit> =
+        baixar("/api/atualizacao/apk", jaTem, destino, cancelado, progresso)
+
+    private fun baixar(caminho: String, jaTem: Long, destino: java.io.OutputStream, cancelado: () -> Boolean, progresso: (Long, Long) -> Unit): Result<Unit> = runCatching {
         val b = base ?: error("Sem conexão com o computador.")
-        val req = Request.Builder().url("$b/api/arquivo/$id").header("Cookie", "painel=$token")
+        val req = Request.Builder().url("$b$caminho").header("Cookie", "painel=$token")
             .apply { if (jaTem > 0) header("Range", "bytes=$jaTem-") }.build()
         cliente.newCall(req).execute().use { r ->
             if (!r.isSuccessful) error(runCatching { JSONObject(r.body?.string() ?: "{}").optString("erro") }.getOrNull()?.ifBlank { null } ?: "O computador recusou o download (${r.code}).")

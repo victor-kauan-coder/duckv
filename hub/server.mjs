@@ -15,6 +15,7 @@ import { Tail, parseEntry, TaskTracker, scanWindowTokens } from './transcript.mj
 import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter } from './hosted.mjs';
 import { agenteDe, ehAgente, catalogo, instalado } from './agentes.mjs';
 import { listarComandos } from './comandos.mjs';
+import { criarAtualizacao } from './atualizacao.mjs';
 
 // Aberto de dentro de uma sessao do Claude Code (o app desktop, um terminal do agente), o duckV herdaria as
 // marcas dela, e cada agente que ele abre se acharia uma sessao filha: sem salvar o historico, a conversa nunca
@@ -351,6 +352,7 @@ function snapshot() {
     demo: process.env.PAINEL_DEMO === '1',
     prefs: { avisos: prefs.avisos, rapidas: prefs.rapidas },
     arquivos: arquivos.slice(-50).reverse().map(pubArquivo),
+    app: atualizacao.publico(),
     accounts: [...accounts.values()].map((a) => ({
       id: a.id,
       nome: nomeDe(a),
@@ -470,6 +472,9 @@ const TIPOS_ARQ = {
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 };
+// Versao nova do app do celular, vinda das Releases do GitHub (hubs de teste nao consultam sozinhos).
+const atualizacao = criarAtualizacao({ raiz: ROOT, dados: DATA, aoMudar: () => dirty(), automatico: !process.env.PAINEL_DATA });
+
 let arquivos = (readJson(ARQUIVOS_FILE, []) || []).filter((a) => a?.id && a.caminho && fs.existsSync(a.caminho));
 const pubArquivo = (a) => ({ id: a.id, nome: a.nome, tamanho: a.tamanho, tipo: a.tipo, em: a.em, nota: a.nota || '', conta: a.conta || null, instancia: a.instancia || null });
 const tamanhoLegivel = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`).replace('.', ',');
@@ -510,8 +515,7 @@ function registrarArquivo(b) {
 }
 
 // Manda o arquivo ao celular, com pedacos (Range) para o download continuar de onde parou.
-function servirArquivo(req, res, id) {
-  const a = arquivos.find((x) => x.id === id);
+function servirArquivo(req, res, id, a = arquivos.find((x) => x.id === id)) {
   if (!a) return json(res, 404, { erro: 'Esse arquivo saiu da lista do duckV.' });
   let st;
   try {
@@ -654,6 +658,12 @@ async function onPhoneMessage(c, m) {
     case 'send': {
       const err = enviarMensagem(instances.get(m.instance), typeof m.text === 'string' ? m.text.trim() : '');
       send(c, err ? { t: 'err', ref: m.ref, msg: err } : { t: 'ack', ref: m.ref });
+      break;
+    }
+    // "Procurar atualizacao" nas opcoes do app: consulta o GitHub agora.
+    case 'atualizacao': {
+      await atualizacao.procurar(true);
+      send(c, { t: 'ack', ref: m.ref, app: atualizacao.publico() });
       break;
     }
     // Lista para o "/" da caixa de mensagem: comandos do agente, skills e comandos personalizados.
@@ -2102,6 +2112,10 @@ const server = http.createServer(async (req, res) => {
       if (!originOk(req)) return json(res, 403, { erro: 'origem' });
       if (p === '/api/state' && req.method === 'GET') return json(res, 200, snapshot());
       if (p.startsWith('/api/arquivo/') && (req.method === 'GET' || req.method === 'HEAD')) return servirArquivo(req, res, p.slice(13));
+      if (p === '/api/atualizacao/apk' && (req.method === 'GET' || req.method === 'HEAD')) {
+        const a = atualizacao.arquivo();
+        return a ? servirArquivo(req, res, null, a) : json(res, 404, { erro: 'Nenhuma versão nova pronta no computador.' });
+      }
       if (p.startsWith('/api/img/') && req.method === 'GET') {
         const img = imagens.get(p.slice(9));
         if (!img) return json(res, 404, { erro: 'imagem' });

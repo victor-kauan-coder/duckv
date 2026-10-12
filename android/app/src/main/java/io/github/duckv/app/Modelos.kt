@@ -112,6 +112,8 @@ data class Estado(
     val desvio: Long,
     /** Arquivos que o computador mandou para o celular, do mais novo ao mais antigo. */
     val arquivos: List<Arquivo> = emptyList(),
+    /** Ultima versao do app publicada no GitHub, ja baixada no computador (null se ainda nao olhou ou deu erro). */
+    val app: VersaoApp? = null,
 ) {
     fun conta(id: String) = contas.find { it.id == id }
         ?: Conta(id, id, 0xFFFF7A1A, Padroes(null, null, null, null), null, null, null, null, null)
@@ -233,6 +235,7 @@ fun lerEstado(m: JSONObject): Estado {
         arquivos = m.optJSONArray("arquivos").mapa {
             Arquivo(it.optString("id"), it.optString("nome"), it.optLong("tamanho"), it.optString("tipo"), it.optLong("em"), it.optString("nota"), it.s("conta"))
         },
+        app = lerVersaoApp(m.optJSONObject("app")),
     )
 }
 
@@ -247,4 +250,12 @@ data class Comando(val nome: String, val desc: String, val tipo: String, val ori
 
 fun lerComandos(a: JSONArray?): List<Comando> = a.mapa {
     Comando(it.optString("nome"), it.optString("desc"), it.optString("tipo"), it.optString("origem"), it.s("bloqueado"))
+}
+
+/** Versao do app publicada nas Releases do GitHub, que o computador baixou e confere pelo SHA-256. */
+data class VersaoApp(val versao: String, val titulo: String, val notas: String, val publicada: Long, val tamanho: Long, val sha256: String)
+
+fun lerVersaoApp(o: JSONObject?): VersaoApp? {
+    val v = o?.optString("versao")?.takeIf { it.isNotEmpty() } ?: return null
+    return VersaoApp(v, o.optString("titulo"), o.optString("notas"), o.optLong("publicada"), o.optLong("tamanho"), o.optString("sha256"))
 }

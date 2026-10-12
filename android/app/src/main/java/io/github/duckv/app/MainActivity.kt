@@ -112,6 +112,10 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
+                        // versao nova: a folha fica na raiz para abrir do inicio, das opcoes e da notificacao
+                        val folha by Atualizacao.folha.collectAsState()
+                        val nova = Atualizacao.disponivel(this@MainActivity, e)
+                        if (pareado && folha && nova != null) io.github.duckv.app.ui.FolhaAtualizacao(nova, opcoes.pato) { Atualizacao.folha.value = false }
                         SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 80.dp)) {
                             Snackbar(containerColor = c.invFundo, contentColor = c.invTexto) { Text(it.visuals.message, style = Texto.rotulo) }
                         }
@@ -126,8 +130,12 @@ class MainActivity : ComponentActivity() {
         abrirDoAviso(intent)
     }
 
-    // Toque numa notificacao: abre a sessao dela.
+    // Toque numa notificacao: abre a sessao dela (ou a folha da versao nova).
     private fun abrirDoAviso(i: Intent?) {
+        if (i?.getBooleanExtra("atualizar", false) == true) {
+            i.removeExtra("atualizar")
+            Atualizacao.folha.value = true
+        }
         val id = i?.getStringExtra("sessao") ?: return
         i.removeExtra("sessao")
         pilha.clear()

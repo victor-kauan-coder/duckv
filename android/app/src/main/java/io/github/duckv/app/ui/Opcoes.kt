@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BatteryChargingFull
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -136,6 +137,29 @@ fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
                 }
 
                 Rapidas(e.prefs.rapidas, salvar)
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TituloSecao("Versão do app")
+                val nova = io.github.duckv.app.Atualizacao.disponivel(ctx, e)
+                var procurando by remember { mutableStateOf(false) }
+                Text(
+                    if (nova != null) "Você está na ${io.github.duckv.app.Atualizacao.instalada(ctx)}. A ${nova.versao} já está no computador, pronta para instalar."
+                    else "Você está na ${io.github.duckv.app.Atualizacao.instalada(ctx)}. O computador olha as versões novas no GitHub a cada 6 horas.",
+                    style = Texto.apoio, color = c.apoio,
+                )
+                if (nova != null) Botao("Ver a versão ${nova.versao}", { io.github.duckv.app.Atualizacao.folha.value = true }, Modifier.fillMaxWidth(), Icons.Rounded.SystemUpdate, Peso.Principal)
+                else Botao(if (procurando) "Procurando…" else "Procurar atualização", {
+                    procurando = true
+                    io.github.duckv.app.Atualizacao.procurar(ctx) { erro, v ->
+                        procurando = false
+                        when {
+                            erro != null -> aviso(erro)
+                            v != null -> io.github.duckv.app.Atualizacao.folha.value = true
+                            else -> aviso("Você já está na versão mais nova.")
+                        }
+                    }
+                }, Modifier.fillMaxWidth(), Icons.Rounded.SystemUpdate, Peso.Quieto, habilitado = !procurando)
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

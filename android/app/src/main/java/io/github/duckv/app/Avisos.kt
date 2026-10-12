@@ -58,6 +58,7 @@ object Avisos {
     private const val PEDIDOS = "pedidos"
     private const val FIM = "fim"
     private const val LIMITE = "limite"
+    private const val VERSAO = "versao"
     const val LIGACAO = "ligacao"
 
     @Volatile var appVisivel = false
@@ -77,6 +78,9 @@ object Avisos {
                     description = "Quando uma sessão termina a vez e espera você."
                 },
                 NotificationChannel(LIMITE, "Limite reiniciado", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel(VERSAO, "Versão nova do app", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Quando o computador trouxer uma versão nova do duckV para instalar."
+                },
                 NotificationChannel(LIGACAO, "Ligação com o computador", NotificationManager.IMPORTANCE_MIN).apply {
                     description = "Mantém o duckV atento enquanto o app está fechado."
                     setShowBadge(false)
@@ -199,6 +203,26 @@ object Avisos {
                     .addAction(acao("Recusar", responder(s, p, false)))
             if (daPraVer) b.addAction(acao("Aceitar", responder(s, p, true)))
             mostrar(p.id.hashCode(), b.setAutoCancel(true))
+        }
+        // Versao nova do app: um aviso por versao, so com o app fora da tela (dentro dele, o cartao do inicio avisa).
+        Atualizacao.disponivel(ctx, e)?.let { v ->
+            if (!appVisivel && Atualizacao.avisarUmaVez(ctx, v)) {
+                val abrir = PendingIntent.getActivity(
+                    ctx, 3,
+                    Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra("atualizar", true),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                mostrar(
+                    "versao".hashCode(),
+                    NotificationCompat.Builder(ctx, VERSAO)
+                        .setSmallIcon(R.drawable.ic_aviso)
+                        .setColor(0xFFFF7A1A.toInt())
+                        .setContentTitle("duckV ${v.versao} chegou")
+                        .setContentText("Toque para ver o que mudou e instalar.")
+                        .setContentIntent(abrir)
+                        .setAutoCancel(true),
+                )
+            }
         }
         if (antes == null) return
 

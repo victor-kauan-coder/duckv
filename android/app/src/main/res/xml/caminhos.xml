@@ -2,4 +2,6 @@
 <!-- Arquivos baixados do computador no Android 9 e anteriores: pasta do app, compartilhada so com o app que abre o arquivo. -->
 <paths>
     <external-files-path name="baixados" path="Download/" />
+    <!-- APK da atualizacao do duckV, entregue so ao instalador do Android. -->
+    <cache-path name="atualizacao" path="atualizacao/" />
 </paths>

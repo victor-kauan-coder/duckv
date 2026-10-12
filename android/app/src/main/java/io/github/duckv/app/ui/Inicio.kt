@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import io.github.duckv.app.Conta
 import io.github.duckv.app.Estado
+import io.github.duckv.app.Atualizacao
 import io.github.duckv.app.Hub
 import io.github.duckv.app.Sessao
 import io.github.duckv.app.Uso
@@ -187,6 +188,15 @@ fun Inicio(
                     "Confira se ele está ligado, com o duckV aberto, e se o Tailscale está ativo neste celular. O app continua tentando.",
                     erro = ligado == false,
                 )
+            }
+            // versao nova do app, trazida pelo computador; "Depois" esconde ate a proxima
+            val nova = Atualizacao.disponivel(ctx, e)
+            var adiou by remember(nova?.versao) { mutableStateOf(nova?.let { Atualizacao.adiada(ctx, it) } ?: true) }
+            if (nova != null && !adiou) Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                CartaoAtualizacao(nova, pato, { Atualizacao.folha.value = true }) {
+                    Atualizacao.adiar(ctx, nova)
+                    adiou = true
+                }
             }
             if (e?.demo == true) Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                 Aviso(null, "Modo demonstração", "As contas, as sessões e os números desta tela são de mentira.", erro = false)
