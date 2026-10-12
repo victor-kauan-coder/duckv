@@ -55,6 +55,20 @@ const bang = await ask({ t: 'send', instance: id, text: '!whoami' });
 ok(bang.t === 'err', 'comando com ! e recusado pelo celular');
 const perms = await ask({ t: 'send', instance: id, text: '/permissions' });
 ok(perms.t === 'err', 'comando de barra fora da lista e recusado');
+for (const [nome, cab] of [['resumir', 'description: Resume o projeto'], ['faxina', 'description: Limpa tudo\nallowed-tools: Bash(rm:*)']]) {
+  fs.mkdirSync(path.join(TMP, 'c1', 'skills', nome), { recursive: true });
+  fs.writeFileSync(path.join(TMP, 'c1', 'skills', nome, 'SKILL.md'), `---\nname: ${nome}\n${cab}\n---\nCorpo da skill.\n`);
+}
+const lista = await ask({ t: 'comandos', instance: id });
+const achar = (n) => lista.itens?.find((x) => x.nome === n);
+ok(achar('/model')?.desc && achar('/resumir')?.tipo === 'skill' && achar('/resumir').desc === 'Resume o projeto', 'lista do "/" traz comandos do agente e skills com descricao');
+ok(!!achar('/faxina')?.bloqueado && !achar('/resumir').bloqueado, 'skill que libera o terminal sozinha aparece marcada');
+ok((await ask({ t: 'send', instance: id, text: '/faxina' })).t === 'err', 'skill que libera o terminal e recusada pelo celular');
+const pelaNotificacao = await fetch(`http://127.0.0.1:${PORT}/api/send`, { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ instance: id, text: '/resumir' }) });
+await sleep(500);
+ok(pelaNotificacao.status === 200 && /resumir/.test(text()), 'resposta da notificacao chega a sessao por HTTP');
+const semSessao = await fetch(`http://127.0.0.1:${PORT}/api/send`, { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ instance: 'nao-existe', text: 'oi' }) });
+ok(semSessao.status === 409 && (await semSessao.json()).erro, 'resposta da notificacao para sessao que sumiu devolve o erro');
 await ask({ t: 'key', instance: id, key: 'down' }); await sleep(400);
 ok(/❯ Opcao B/.test(text()), 'seta para baixo move a selecao');
 await ask({ t: 'key', instance: id, key: 'shift-tab' }); await sleep(300); await ask({ t: 'key', instance: id, key: 'esc' }); await sleep(500);

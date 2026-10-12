@@ -241,3 +241,10 @@ fun lerMsgs(a: JSONArray?): List<Msg> = a.mapa {
 }
 
 fun lerTela(m: JSONObject) = Tela(m.optJSONArray("lines").strings(), m.optInt("cx"), m.optInt("cy"), m.optJSONArray("links").strings())
+
+/** Item da lista que abre ao digitar "/": comando do agente, skill ou comando personalizado do computador. */
+data class Comando(val nome: String, val desc: String, val tipo: String, val origem: String, val bloqueado: String?)
+
+fun lerComandos(a: JSONArray?): List<Comando> = a.mapa {
+    Comando(it.optString("nome"), it.optString("desc"), it.optString("tipo"), it.optString("origem"), it.s("bloqueado"))
+}

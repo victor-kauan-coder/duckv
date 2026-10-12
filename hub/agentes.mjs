@@ -102,7 +102,22 @@ const claude = {
     ['plan', 'Só planejar'],
     ['auto', 'Automático'],
   ],
-  comandos: ['/model', '/effort', '/compact', '/clear', '/login', '/status', '/cost', '/usage', '/context', '/help', '/init', '/resume', '/rename', '/review'],
+  comandos: [
+    ['/model', 'Trocar o modelo'],
+    ['/effort', 'Trocar o esforço de raciocínio'],
+    ['/compact', 'Resumir a conversa para liberar contexto'],
+    ['/clear', 'Começar uma conversa nova, do zero'],
+    ['/login', 'Entrar com outra conta'],
+    ['/status', 'Versão, conta e modelo em uso'],
+    ['/cost', 'Gasto e duração desta sessão'],
+    ['/usage', 'Quanto do limite já foi usado'],
+    ['/context', 'O que está ocupando o contexto'],
+    ['/help', 'Ajuda e lista de comandos'],
+    ['/init', 'Criar o CLAUDE.md deste projeto'],
+    ['/resume', 'Retomar uma conversa anterior'],
+    ['/rename', 'Dar um nome a esta sessão'],
+    ['/review', 'Revisar um pull request'],
+  ],
   args({ model, effort, mode, resume, name, settings }) {
     const a = [];
     if (resume) a.push('--resume', resume);
@@ -121,7 +136,7 @@ const claude = {
 };
 
 // ------------------------------------------------------------------ Codex (OpenAI)
-const codexHome = (dir, padrao) => (padrao ? path.join(os.homedir(), '.codex') : dir);
+export const codexHome = (dir, padrao) => (padrao ? path.join(os.homedir(), '.codex') : dir);
 const codex = {
   id: 'codex',
   nome: 'Codex',
@@ -154,7 +169,17 @@ const codex = {
     ['manual', 'Perguntar, pode editar a pasta'],
     ['leitura', 'Só ler, sem editar'],
   ],
-  comandos: ['/model', '/status', '/compact', '/new', '/diff', '/review', '/init', '/mention', '/help'],
+  comandos: [
+    ['/model', 'Trocar o modelo e o esforço'],
+    ['/status', 'Configuração e uso de tokens'],
+    ['/compact', 'Resumir a conversa para liberar contexto'],
+    ['/new', 'Começar uma conversa nova'],
+    ['/diff', 'Ver as mudanças nos arquivos'],
+    ['/review', 'Revisar as mudanças atuais'],
+    ['/init', 'Criar o AGENTS.md deste projeto'],
+    ['/mention', 'Citar um arquivo na conversa'],
+    ['/help', 'Ajuda e lista de comandos'],
+  ],
   args({ model, effort, mode, resume }) {
     const a = [];
     if (resume) a.push('resume', resume);
@@ -235,7 +260,7 @@ function lerJson1(file) {
 }
 
 // ------------------------------------------------------------------ Gemini CLI (Google)
-const geminiHome = (dir, padrao) => path.join(padrao ? os.homedir() : dir, '.gemini');
+export const geminiHome = (dir, padrao) => path.join(padrao ? os.homedir() : dir, '.gemini');
 const gemini = {
   id: 'gemini',
   nome: 'Gemini CLI',
@@ -269,7 +294,19 @@ const gemini = {
     ['auto_edit', 'Aceitar edições'],
     ['plan', 'Só planejar'],
   ],
-  comandos: ['/model', '/stats', '/compress', '/clear', '/chat', '/memory', '/tools', '/help', '/about', '/auth', '/resume'],
+  comandos: [
+    ['/model', 'Trocar o modelo'],
+    ['/stats', 'Uso de tokens e duração da sessão'],
+    ['/compress', 'Resumir a conversa para liberar contexto'],
+    ['/clear', 'Limpar a conversa'],
+    ['/chat', 'Salvar ou retomar conversas'],
+    ['/memory', 'Ver ou recarregar o GEMINI.md'],
+    ['/tools', 'Ferramentas disponíveis'],
+    ['/help', 'Ajuda e lista de comandos'],
+    ['/about', 'Versão e informações'],
+    ['/auth', 'Trocar o jeito de entrar'],
+    ['/resume', 'Retomar uma conversa anterior'],
+  ],
   args({ model, mode, resume, sessao }) {
     const a = [];
     if (resume) a.push('--resume', resume);
@@ -397,7 +434,17 @@ const opencode = {
     ['build', 'Construir (pede permissão)'],
     ['plan', 'Só planejar'],
   ],
-  comandos: ['/models', '/new', '/sessions', '/compact', '/help', '/undo', '/redo', '/init', '/connect'],
+  comandos: [
+    ['/models', 'Trocar o modelo'],
+    ['/new', 'Começar uma conversa nova'],
+    ['/sessions', 'Ver e trocar de conversa'],
+    ['/compact', 'Resumir a conversa para liberar contexto'],
+    ['/help', 'Ajuda e lista de comandos'],
+    ['/undo', 'Desfazer a última mudança'],
+    ['/redo', 'Refazer o que foi desfeito'],
+    ['/init', 'Criar o AGENTS.md deste projeto'],
+    ['/connect', 'Ligar um provedor de modelos'],
+  ],
   args({ mode, resume }) {
     const a = [];
     if (resume) a.push('-s', resume);
@@ -490,7 +537,14 @@ const cline = {
     ['act', 'Agir (pede permissão)'],
     ['plan', 'Só planejar'],
   ],
-  comandos: ['/help', '/clear', '/compact', '/model', '/settings', '/history'],
+  comandos: [
+    ['/help', 'Ajuda e lista de comandos'],
+    ['/clear', 'Limpar a conversa'],
+    ['/compact', 'Resumir a conversa para liberar contexto'],
+    ['/model', 'Trocar o modelo'],
+    ['/settings', 'Configurações do Cline'],
+    ['/history', 'Conversas anteriores'],
+  ],
   // O Cline aprova tudo sozinho por padrao: aqui a aprovacao automatica e sempre desligada.
   args({ effort, mode, resume }) {
     const a = ['--auto-approve', 'false'];

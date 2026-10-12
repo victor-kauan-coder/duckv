@@ -14,6 +14,8 @@ import android.os.IBinder
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
+import androidx.core.app.RemoteInput
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -107,6 +109,60 @@ object Avisos {
 
     fun cancelarPedido(pedido: String) = NotificationManagerCompat.from(ctx).cancel(pedido.hashCode())
 
+    // ------------------------------------------------------------ conversa na notificacao
+
+    const val TEXTO = "texto"
+    private val VOCE = Person.Builder().setName("Você").build()
+
+    // A notificacao de fim de vez funciona como a de um app de mensagens: mostra a fala da conta,
+    // aceita resposta escrita ali mesmo e guarda as ultimas falas enquanto a notificacao existe.
+    private class Papo(val titulo: String, val conta: String, val cor: Int, val falas: MutableList<NotificationCompat.MessagingStyle.Message>)
+    private val papos = HashMap<String, Papo>()
+
+    private fun idPapo(sessao: String) = ("fim" + sessao).hashCode()
+
+    private fun acaoResponder(sessao: String, conta: String): NotificationCompat.Action {
+        val i = Intent(ctx, RespostaTexto::class.java).putExtra("sessao", sessao)
+        // O campo de texto precisa de PendingIntent mutavel: o Android escreve a resposta dentro dele.
+        val pi = PendingIntent.getBroadcast(ctx, idPapo(sessao), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+        return NotificationCompat.Action.Builder(0, "Responder", pi)
+            .addRemoteInput(RemoteInput.Builder(TEXTO).setLabel("Escreva para ${conta}").build())
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+            .setShowsUserInterface(false)
+            // mandar mensagem para um agente exige desbloquear, como Aceitar
+            .setAuthenticationRequired(true)
+            .build()
+    }
+
+    private fun mostrarPapo(sessao: String, alertar: Boolean, podeResponder: Boolean = true) {
+        val p = papos[sessao] ?: return
+        val estilo = NotificationCompat.MessagingStyle(VOCE).setConversationTitle(p.titulo).setGroupConversation(false)
+        p.falas.forEach { estilo.addMessage(it) }
+        val ultima = p.falas.lastOrNull()
+        val b = NotificationCompat.Builder(ctx, FIM)
+            .setSmallIcon(R.drawable.ic_aviso)
+            .setColor(p.cor)
+            .setContentTitle("${p.conta} terminou em ${p.titulo}")
+            .setContentText(ultima?.text ?: "A sessão está esperando você.")
+            .setStyle(estilo)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(abrirApp(sessao, sessao.hashCode()))
+            .setOnlyAlertOnce(!alertar)
+            .setAutoCancel(true)
+        if (podeResponder) b.addAction(acaoResponder(sessao, p.conta))
+        mostrar(idPapo(sessao), b)
+    }
+
+    /** A resposta escrita na notificacao saiu (ou nao): entra na conversa da notificacao, sem tocar de novo. */
+    fun respondido(sessao: String, texto: String, erro: String?) {
+        val p = papos[sessao] ?: return
+        val agora = System.currentTimeMillis()
+        p.falas += NotificationCompat.MessagingStyle.Message(texto, agora, null as Person?)
+        if (erro != null) p.falas += NotificationCompat.MessagingStyle.Message("Não foi: $erro", agora, Person.Builder().setName("duckV").build())
+        while (p.falas.size > 8) p.falas.removeAt(0)
+        mostrarPapo(sessao, alertar = false)
+    }
+
     fun observar(e: Estado) {
         val antes = anterior
         anterior = e
@@ -152,17 +208,14 @@ object Avisos {
                 val velha = antes.sessoes.find { it.id == s.id } ?: continue
                 if (velha.status == "working" && s.status == "idle") {
                     val conta = e.conta(s.conta)
-                    mostrar(
-                        ("fim" + s.id).hashCode(),
-                        NotificationCompat.Builder(ctx, FIM)
-                            .setSmallIcon(R.drawable.ic_aviso)
-                            .setColor(conta.cor.toInt())
-                            .setContentTitle("${conta.nome} terminou em ${s.titulo}")
-                            .setContentText(s.ultimoTexto.ifBlank { "A sessão está esperando você." })
-                            .setStyle(NotificationCompat.BigTextStyle().bigText(s.ultimoTexto.ifBlank { "A sessão está esperando você." }))
-                            .setContentIntent(abrirApp(s.id, s.id.hashCode()))
-                            .setAutoCancel(true),
+                    // Notificacao que ja sumiu da barra comeca uma conversa nova.
+                    val aberta = ctx.getSystemService(NotificationManager::class.java).activeNotifications.any { it.id == idPapo(s.id) }
+                    val p = papos[s.id]?.takeIf { aberta } ?: Papo(s.titulo, conta.nome, conta.cor.toInt(), mutableListOf()).also { papos[s.id] = it }
+                    p.falas += NotificationCompat.MessagingStyle.Message(
+                        s.ultimoTexto.ifBlank { "A sessão está esperando você." }, System.currentTimeMillis(), Person.Builder().setName(conta.nome).build(),
                     )
+                    while (p.falas.size > 8) p.falas.removeAt(0)
+                    mostrarPapo(s.id, alertar = true, podeResponder = s.podeEnviar && !s.desktop)
                 }
             }
         }
@@ -226,6 +279,24 @@ class Vigia : Service() {
 // mesmo se a ligacao do app ainda estiver voltando.
 private fun acao(rotulo: String, intent: android.app.PendingIntent) =
     NotificationCompat.Action.Builder(0, rotulo, intent).setAuthenticationRequired(true).build()
+
+// "Responder" da notificacao de fim de vez: manda o texto por HTTP e poe a resposta na conversa da notificacao.
+class RespostaTexto : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val sessao = intent.getStringExtra("sessao") ?: return
+        val texto = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(Avisos.TEXTO)?.toString()?.trim().orEmpty()
+        if (texto.isEmpty()) return
+        val pendente = goAsync()
+        thread {
+            val erro = Hub.enviarDireto(sessao, texto)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                Avisos.respondido(sessao, texto, erro)
+                if (erro == null) Hub.aCaminho.value = Hub.aCaminho.value + (sessao to texto)
+                pendente.finish()
+            }
+        }
+    }
+}
 
 class Resposta : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

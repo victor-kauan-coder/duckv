@@ -81,6 +81,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -611,7 +612,10 @@ private fun Modifier.wrapIfShort() = this.then(Modifier.width(androidx.compose.f
 private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Unit) {
     val c = cores
     val aviso = LocalAviso.current
-    var texto by rememberSaveable(s.id) { mutableStateOf("") }
+    // TextFieldValue para escolher um comando da lista e deixar o cursor no fim
+    var campo by rememberSaveable(s.id, stateSaver = androidx.compose.ui.text.input.TextFieldValue.Saver) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
+    val texto = campo.text
+    val mudarTexto = { t: String -> campo = androidx.compose.ui.text.input.TextFieldValue(t, androidx.compose.ui.text.TextRange(t.length)) }
     var enviando by remember { mutableStateOf(false) }
     val anexos = remember(s.id) { androidx.compose.runtime.mutableStateListOf<Pair<String, String>>() }
     var subindo by remember { mutableStateOf(0) }
@@ -631,7 +635,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
     val acaminho = { t: String -> Hub.aCaminho.value = Hub.aCaminho.value + (s.id to t) }
     // mensagem de voz: o celular transcreve enquanto voce fala
     val vibra = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val juntar = { t: String -> texto = listOf(texto.trim(), t).filter { it.isNotBlank() }.joinToString(" ") }
+    val juntar = { t: String -> mudarTexto(listOf(campo.text.trim(), t).filter { it.isNotBlank() }.joinToString(" ")) }
     val ditado = remember(s.id) { Ditado(ctx, { aviso(it) }, { juntar(it) }) }
     androidx.compose.runtime.DisposableEffect(s.id) { onDispose { ditado.cancelar() } }
     val comecar = {
@@ -708,6 +712,16 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                 if (subindo > 0) item { Text("Enviando $subindo ${if (subindo == 1) "arquivo" else "arquivos"}…", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 10.dp)) }
             }
         }
+        // Digitou "/": abre a lista de comandos e skills, filtrando conforme digita (some no primeiro espaco).
+        val buscando = texto.startsWith("/") && texto.none { it.isWhitespace() }
+        var comandos by remember(s.id) { mutableStateOf<List<io.github.duckv.app.Comando>>(emptyList()) }
+        LaunchedEffect(buscando) { if (buscando) Hub.comandos(s.id) { comandos = it } }
+        val achados = if (buscando && !ditado.ativo) filtrarComandos(comandos, texto) else emptyList()
+        if (achados.isNotEmpty()) {
+            ListaComandos(achados, s.hospedada, e.agenteDa(s.conta).curto) { cmd ->
+                if (cmd.bloqueado != null) aviso(cmd.bloqueado) else mudarTexto(cmd.nome + " ")
+            }
+        }
         if (ditado.ativo) {
             Gravando(
                 ditado,
@@ -720,7 +734,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
             IconButton({ escolher.launch("*/*") }, Modifier.padding(bottom = 4.dp)) { Icon(Icons.Rounded.AttachFile, "Anexar arquivos", tint = c.apoio) }
             OutlinedTextField(
-                texto, { texto = it }, Modifier.weight(1f),
+                campo, { campo = it }, Modifier.weight(1f),
                 placeholder = { Text(if (s.hospedada) "Mensagem ou /comando" else "Escreva para o ${e.agenteDa(s.conta).curto}", color = c.apoio) },
                 textStyle = Texto.corpo.copy(color = c.texto), maxLines = 6,
                 shape = RoundedCornerShape(28.dp),
@@ -750,7 +764,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                         Hub.enviar(s.id, t) { erro, _ ->
                             enviando = false
                             if (erro != null) aviso(erro) else {
-                                texto = ""
+                                mudarTexto("")
                                 anexos.clear()
                                 acaminho(t)
                             }
@@ -758,6 +772,50 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                     },
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.AutoMirrored.Rounded.Send, "Enviar", tint = if (pode) c.noPrimario else c.apoio, modifier = Modifier.size(22.dp)) }
+        }
+    }
+}
+
+// Prefixo do nome primeiro, depois quem so contem o que foi digitado (nome ou o pedaco depois de "plugin:").
+private fun filtrarComandos(itens: List<io.github.duckv.app.Comando>, digitado: String): List<io.github.duckv.app.Comando> {
+    val q = digitado.removePrefix("/").lowercase()
+    if (q.isEmpty()) return itens
+    val nome = { c: io.github.duckv.app.Comando -> c.nome.removePrefix("/").lowercase() }
+    val (comeca, contem) = itens.filter { nome(it).contains(q) }.partition { nome(it).startsWith(q) || nome(it).substringAfter(':').startsWith(q) }
+    return comeca + contem
+}
+
+@Composable
+private fun ListaComandos(itens: List<io.github.duckv.app.Comando>, hospedada: Boolean, agente: String, aoEscolher: (io.github.duckv.app.Comando) -> Unit) {
+    val c = cores
+    Column(
+        Modifier.padding(horizontal = 12.dp, vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.cartao),
+    ) {
+        Text(
+            if (hospedada) "Comandos e skills" else "Skills · os comandos do $agente só valem nas sessões abertas pelo celular",
+            style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp),
+        )
+        LazyColumn(Modifier.heightIn(max = 264.dp)) {
+            items(itens, key = { it.nome }) { cmd ->
+                val bloq = cmd.bloqueado != null
+                Row(
+                    Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Usar ${cmd.nome}") { aoEscolher(cmd) }
+                        .padding(horizontal = 16.dp, vertical = 9.dp)
+                        .then(if (bloq) Modifier.alpha(0.55f) else Modifier),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(cmd.nome, style = Texto.codigo, color = if (bloq) c.apoio else c.realce, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val sub = cmd.bloqueado ?: cmd.desc
+                        if (sub.isNotBlank()) Text(sub, style = Texto.pequeno, color = c.apoio, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    EspacoLargo(12.dp)
+                    Text(
+                        when (cmd.tipo) { "skill" -> "skill"; "personalizado" -> "seu"; else -> cmd.origem.substringBefore(' ').lowercase() },
+                        style = Texto.pequeno, color = c.apoio,
+                    )
+                }
+            }
         }
     }
 }

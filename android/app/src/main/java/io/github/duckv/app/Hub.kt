@@ -348,6 +348,28 @@ object Hub {
     fun enviar(sessao: String, texto: String, r: Retorno) =
         mandar(JSONObject().put("t", "send").put("instance", sessao).put("text", texto), r)
 
+    /** Comandos e skills para a lista do "/" da caixa de mensagem (lidos de novo no computador a cada pedido). */
+    fun comandos(sessao: String, r: (List<Comando>) -> Unit) =
+        mandar(JSONObject().put("t", "comandos").put("instance", sessao)) { erro, m -> if (erro == null) r(lerComandos(m?.optJSONArray("itens"))) }
+
+    /**
+     * Mensagem mandada por HTTP, sem depender da ligacao aberta: a resposta escrita na notificacao
+     * chega com o app fechado. Devolve o erro, ou null. Fora da thread principal.
+     */
+    fun enviarDireto(sessao: String, texto: String): String? {
+        val b = base ?: return "Celular não pareado."
+        val corpo = JSONObject().put("instance", sessao).put("text", texto).toString().toRequestBody("application/json".toMediaType())
+        return try {
+            cliente.newCall(Request.Builder().url("$b/api/send").header("Cookie", "painel=$token").post(corpo).build()).execute().use { r ->
+                if (r.isSuccessful) null
+                else if (r.code == 404) "O duckV do computador está desatualizado. Atualize a pasta e abra de novo."
+                else runCatching { JSONObject(r.body!!.string()).optString("erro") }.getOrNull()?.ifBlank { null } ?: "Erro ${r.code}"
+            }
+        } catch (_: Exception) {
+            "Sem conexão com o computador."
+        }
+    }
+
     fun tecla(sessao: String, k: String, r: Retorno) =
         mandar(JSONObject().put("t", "key").put("instance", sessao).put("key", k), r)
 

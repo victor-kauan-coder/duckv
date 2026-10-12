@@ -60,6 +60,8 @@ O **duckV** junta num app só os agentes de código que rodam no seu computador,
 | **Anexos** | Mande arquivos do celular para o agente ler. |
 | **Mensagens de voz** | Toque no microfone e fale: o celular transcreve ao vivo, você revisa ou envia direto, e a mensagem aparece com o selo de voz. |
 | **Arquivos do computador** | Peça ao agente "manda esse arquivo para o meu celular" (ou rode `node tools\enviar.mjs arquivo`): ele aparece no app, com aviso, para baixar em Downloads/duckV, abrir ou compartilhar. |
+| **Comandos e skills ao digitar /** | Digite `/` na conversa e aparecem os comandos do agente e as skills e comandos personalizados do computador, com descrição; tocar completa o nome. |
+| **Responder pela notificação** | Quando uma sessão termina, responda direto na notificação, como no WhatsApp, sem abrir o app. |
 | **Pareamento verificado** | O QR sozinho não dá acesso: os 4 números do celular precisam ser digitados no computador. |
 | **Instalação em um clique** | O instalador cuida do que faltar e faz o login das contas. |
 | **Um pato por conta** | Ele mostra, em pixels, se a conta trabalha, espera, dorme ou precisa de você. |
@@ -97,7 +99,7 @@ Cada conta do duckV usa um agente. Você escolhe o agente ao adicionar a conta, 
 | OpenCode | Tudo pede permissão, exceto ler; nada fora da pasta do projeto; compartilhar conversas na internet desligado. |
 | Cline | A aprovação automática, que vem ligada por padrão no Cline, é sempre desligada. |
 
-Os comandos de barra que mudam permissões (`/permissions`, `/approvals`, `/yolo`, `/share`…) e os comandos com `!` não passam pelo celular; cada agente tem a sua lista de comandos liberados.
+Os comandos de barra que mudam permissões (`/permissions`, `/approvals`, `/yolo`, `/share`…) e os comandos com `!` não passam pelo celular; cada agente tem a sua lista de comandos liberados. Skills e comandos personalizados instalados no computador também passam, menos os que liberam o terminal sozinhos (`allowed-tools` com Bash ou `` !`comando` `` no texto): esses aparecem na lista, marcados, e só rodam no computador.
 
 ## Começar em 3 passos
 
@@ -238,10 +240,10 @@ O duckV comanda o seu computador, então a segurança foi pensada em camadas:
 - Nada fica exposto na internet aberta: o duckV só atende o próprio computador e a sua rede privada do Tailscale.
 
 **O que o celular pode fazer**
-- Não dá para abrir sessão em modos que pulam as permissões (veja as regras de cada agente em [Agentes](#agentes)), nem mandar comandos com `!` ou comandos de barra fora da lista do agente. No Claude Code valem `/model`, `/effort`, `/compact`, `/clear`, `/login`, `/status`, `/cost`, `/usage`, `/context`, `/help`, `/init`, `/resume`, `/rename` e `/review`.
+- Não dá para abrir sessão em modos que pulam as permissões (veja as regras de cada agente em [Agentes](#agentes)), nem mandar comandos com `!` ou comandos de barra fora da lista do agente. No Claude Code valem `/model`, `/effort`, `/compact`, `/clear`, `/login`, `/status`, `/cost`, `/usage`, `/context`, `/help`, `/init`, `/resume`, `/rename` e `/review`, além das skills e comandos personalizados que não liberam o terminal sozinhos.
 - O texto digitado na tela do terminal passa pelo mesmo filtro.
 - Sessões só abrem dentro da sua pasta pessoal, em pastas que já tiveram sessão no computador, ou nas listadas em `pastasPermitidas` no arquivo `data/config.json`. Exemplo: `"pastasPermitidas": ["D:\\projetos"]`.
-- Aceitar um pedido pela notificação exige desbloquear o celular. "Não perguntar de novo" pede um segundo toque.
+- Aceitar um pedido ou responder uma sessão pela notificação exige desbloquear o celular. "Não perguntar de novo" pede um segundo toque.
 - Anexos vão só para celulares pareados, com até 25 MB cada, para a pasta `data/anexos`.
 
 **Contas**

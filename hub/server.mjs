@@ -14,6 +14,7 @@ import { ROOT, DATA, CONFIG_FILE, ACCOUNTS_FILE, ensureConfig, loadAccounts, def
 import { Tail, parseEntry, TaskTracker, scanWindowTokens } from './transcript.mjs';
 import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter } from './hosted.mjs';
 import { agenteDe, ehAgente, catalogo, instalado } from './agentes.mjs';
+import { listarComandos } from './comandos.mjs';
 
 // Aberto de dentro de uma sessao do Claude Code (o app desktop, um terminal do agente), o duckV herdaria as
 // marcas dela, e cada agente que ele abre se acharia uma sessao filha: sem salvar o historico, a conversa nunca
@@ -591,6 +592,50 @@ function applyVerdict(instId, requestId, behavior, recado) {
 
 const logins = new Map(); // conta -> login em andamento pelo celular
 
+// Mensagem do celular para uma sessao, pela ligacao do app ou pela resposta da notificacao. Devolve o erro, se houver.
+function enviarMensagem(inst, text) {
+  let err = null;
+  if (!inst) err = 'Sessão não encontrada.';
+  else if (!text) err = 'Mensagem vazia.';
+  else if (text.length > 8000) err = 'Mensagem longa demais (máximo de 8000 caracteres).';
+  else if (!inst.hosted && (!inst.agent || inst.agent.readyState !== 1)) err = 'Essa sessão não está conectada ao duckV.';
+  else if (!inst.hosted && inst.semCanal) err = SEM_CANAL;
+  else if (inst.hosted) err = textoPerigoso(text, agenteDe(getAccount(inst.account).agente), comandosDe(inst));
+  if (err) return err;
+  if (inst.hosted) {
+    // Digitado no terminal da sessao; a mensagem aparece na conversa quando o Claude Code a registra.
+    inst.hosted.send(text);
+  } else {
+    inst.agent.send(JSON.stringify({ t: 'msg', text }));
+    pushMsgs(inst, [{ id: `tel:${now()}:${Math.random().toString(36).slice(2, 7)}`, role: 'user', via: 'celular', text, ts: now() }]);
+    // Organizacoes (Team/Enterprise) podem desligar canais: o Claude Code descarta a mensagem calado.
+    // Se ela nao aparecer no historico, avisa em vez de ficar "recebendo" para sempre.
+    if (!inst.canalOk && inst.tail && inst.status === 'idle') {
+      clearTimeout(inst.canalTimer);
+      inst.canalTimer = setTimeout(() => {
+        if (inst.canalOk) return;
+        inst.semCanal = true;
+        if (inst.status === 'working' && inst.activity === 'Recebendo sua mensagem') inst.status = 'idle';
+        inst.activity = '';
+        sysMsg(inst, SEM_CANAL);
+        dirty();
+      }, 30_000);
+    }
+  }
+  if (inst.status === 'idle' && !text.startsWith('/')) {
+    inst.status = 'working';
+    inst.activity = 'Recebendo sua mensagem';
+  }
+  inst.updatedAt = now();
+  dirty();
+  return null;
+}
+
+function comandosDe(inst, fresco = false) {
+  const acc = getAccount(inst.account);
+  return listarComandos({ agente: acc.agente || 'claude', dir: acc.dir || path.join(os.homedir(), '.claude'), padrao: !acc.dir || !!acc.padrao, cwd: inst.cwd, hospedada: !!inst.hosted }, fresco);
+}
+
 async function onPhoneMessage(c, m) {
   if (!m || typeof m !== 'object') return;
   switch (m.t) {
@@ -607,46 +652,15 @@ async function onPhoneMessage(c, m) {
       c.visible = !!m.visible;
       break;
     case 'send': {
+      const err = enviarMensagem(instances.get(m.instance), typeof m.text === 'string' ? m.text.trim() : '');
+      send(c, err ? { t: 'err', ref: m.ref, msg: err } : { t: 'ack', ref: m.ref });
+      break;
+    }
+    // Lista para o "/" da caixa de mensagem: comandos do agente, skills e comandos personalizados.
+    case 'comandos': {
       const inst = instances.get(m.instance);
-      const text = typeof m.text === 'string' ? m.text.trim() : '';
-      let err = null;
-      if (!inst) err = 'Sessão não encontrada.';
-      else if (!text) err = 'Mensagem vazia.';
-      else if (text.length > 8000) err = 'Mensagem longa demais (máximo de 8000 caracteres).';
-      else if (!inst.hosted && (!inst.agent || inst.agent.readyState !== 1)) err = 'Essa sessão não está conectada ao duckV.';
-      else if (!inst.hosted && inst.semCanal) err = SEM_CANAL;
-      else if (inst.hosted) err = textoPerigoso(text, agenteDe(getAccount(inst.account).agente));
-      if (err) {
-        send(c, { t: 'err', ref: m.ref, msg: err });
-        break;
-      }
-      if (inst.hosted) {
-        // Digitado no terminal da sessao; a mensagem aparece na conversa quando o Claude Code a registra.
-        inst.hosted.send(text);
-      } else {
-        inst.agent.send(JSON.stringify({ t: 'msg', text }));
-        pushMsgs(inst, [{ id: `tel:${now()}:${Math.random().toString(36).slice(2, 7)}`, role: 'user', via: 'celular', text, ts: now() }]);
-        // Organizacoes (Team/Enterprise) podem desligar canais: o Claude Code descarta a mensagem calado.
-        // Se ela nao aparecer no historico, avisa em vez de ficar "recebendo" para sempre.
-        if (!inst.canalOk && inst.tail && inst.status === 'idle') {
-          clearTimeout(inst.canalTimer);
-          inst.canalTimer = setTimeout(() => {
-            if (inst.canalOk) return;
-            inst.semCanal = true;
-            if (inst.status === 'working' && inst.activity === 'Recebendo sua mensagem') inst.status = 'idle';
-            inst.activity = '';
-            sysMsg(inst, SEM_CANAL);
-            dirty();
-          }, 30_000);
-        }
-      }
-      if (inst.status === 'idle' && !text.startsWith('/')) {
-        inst.status = 'working';
-        inst.activity = 'Recebendo sua mensagem';
-      }
-      inst.updatedAt = now();
-      send(c, { t: 'ack', ref: m.ref });
-      dirty();
+      if (!inst) send(c, { t: 'err', ref: m.ref, msg: 'Sessão não encontrada.' });
+      else send(c, { t: 'ack', ref: m.ref, itens: comandosDe(inst, true) });
       break;
     }
     case 'arquivoTirar': {
@@ -682,7 +696,7 @@ async function onPhoneMessage(c, m) {
     case 'digitar': {
       const inst = instances.get(m.instance);
       const txt = typeof m.text === 'string' ? m.text.trim() : '';
-      const err = !inst?.hosted ? 'Só dá para digitar nas sessões abertas pelo celular.' : !txt ? 'Escreva o texto.' : textoPerigoso(txt, agenteDe(getAccount(inst.account).agente));
+      const err = !inst?.hosted ? 'Só dá para digitar nas sessões abertas pelo celular.' : !txt ? 'Escreva o texto.' : textoPerigoso(txt, agenteDe(getAccount(inst.account).agente), comandosDe(inst));
       if (err) send(c, { t: 'err', ref: m.ref, msg: err });
       else {
         inst.hosted.digitar(txt);
@@ -1834,15 +1848,18 @@ let tailnetHost = null;
 
 // Numa sessao aberta pelo celular o texto e digitado no terminal. "!" roda um comando
 // sem pedir permissao e alguns comandos de barra mudam as permissoes (/permissions, /yolo,
-// /approvals...); por isso so passam os comandos de barra da lista de cada agente.
+// /approvals...); por isso so passam os comandos de barra da lista de cada agente e as skills e
+// comandos personalizados instalados, menos os que liberam o terminal sozinhos (ver hub/comandos.mjs).
 // Pedidos em texto comum continuam livres.
-function textoPerigoso(text, ag = agenteDe('claude')) {
+function textoPerigoso(text, ag = agenteDe('claude'), extras = []) {
   const t = text.trimStart();
   if (t.startsWith('!')) return `Comandos com ! rodam no computador sem pedir permissão, então não valem pelo celular. Peça ao ${ag.curto} em texto comum.`;
   if (!t.startsWith('/')) return null;
   const nome = '/' + t.slice(1).split(/\s/)[0].toLowerCase();
-  if (ag.comandos.includes(nome)) return null;
-  return `Pelo celular valem só estes comandos: ${ag.comandos.join(', ')}. Os outros mexem em permissões ou no computador e ficam lá.`;
+  if (ag.comandos.some(([n]) => n === nome)) return null;
+  const extra = extras.find((x) => x.nome.toLowerCase() === nome);
+  if (extra) return extra.bloqueado;
+  return `O comando ${nome} não vale pelo celular. Digite / para ver os que valem; os outros mexem em permissões ou no computador e ficam lá.`;
 }
 
 function cookieToken(req) {
@@ -2126,6 +2143,12 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': MIME['.json'], 'Set-Cookie': 'painel=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' });
         res.end('{"ok":true}');
         return;
+      }
+      // Resposta escrita na notificacao: chega por HTTP porque o app pode estar fechado, sem a ligacao aberta.
+      if (p === '/api/send' && req.method === 'POST') {
+        const b = await readBody(req);
+        const err = enviarMensagem(instances.get(b.instance), typeof b.text === 'string' ? b.text.trim() : '');
+        return json(res, err ? 409 : 200, err ? { erro: err } : { ok: true });
       }
       if (p === '/api/verdict' && req.method === 'POST') {
         const b = await readBody(req);
