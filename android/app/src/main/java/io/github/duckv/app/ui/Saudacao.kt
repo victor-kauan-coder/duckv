@@ -1,29 +1,21 @@
 package io.github.duckv.app.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.duckv.app.Estado
 import java.util.Calendar
@@ -65,11 +57,7 @@ private fun periodo(agora: Long): Periodo {
     }
 }
 
-/**
- * O patinho do lobby: cumprimenta conforme a hora, conta em uma frase como o bando esta
- * e mostra tres informacoes rapidas (sessoes abertas, a conta com mais folga e o proximo reinicio).
- */
-@OptIn(ExperimentalLayoutApi::class)
+/** O patinho do lobby: cumprimenta conforme a hora e conta em uma frase como o bando esta. */
 @Composable
 fun Saudacao(e: Estado, agora: Long, pato: String, modifier: Modifier = Modifier) {
     val c = cores
@@ -100,63 +88,25 @@ fun Saudacao(e: Estado, agora: Long, pato: String, modifier: Modifier = Modifier
         else -> "parado"
     }
 
-    // informacoes rapidas
-    val folga = e.contas.filter { it.cinco?.pct != null }.minByOrNull { it.cinco!!.pct!! }
-    val reinicio = e.contas.mapNotNull { it.cinco?.resetsAt }.filter { it > agora }.minOrNull()
-    val pilulas = buildList {
-        add(if (vivas.isEmpty()) "Nenhuma sessão aberta" else "${sessoes(vivas.size).replaceFirstChar { it.uppercase() }} ${if (vivas.size == 1) "aberta" else "abertas"}")
-        folga?.let { add("Mais folga: ${it.nome} · ${(100 - it.cinco!!.pct!!).toInt().coerceIn(0, 100)}% livre") }
-        reinicio?.let { add("Próximo reinício às ${hora(it)}") }
-    }
-
-    Column(modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            // o patinho, de pe no chao de pixels, olhando para o balao
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Pato(bicho, pato, Laranja, Modifier.size(width = 64.dp, height = 50.dp), andar = false)
-                ChaoSaudacao(Modifier.width(58.dp))
-            }
-            // o balao de fala, com o rabinho em pixels apontando para o pato
-            Row(Modifier.weight(1f).padding(bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
-                RabinhoBalao(c.cartao, Modifier.padding(bottom = 12.dp))
-                Column(Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(c.cartao).padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (p.noite) PixelArte(LUA, Modifier.size(18.dp), mapOf('#' to Color(0xFFF2D06B), 'o' to c.apoio))
-                        else PixelArte(SOL, Modifier.size(18.dp), mapOf('#' to Color(0xFFFFB22E)))
-                        Text(
-                            if (nome != null) "${p.oi}, $nome!" else "${p.oi}!",
-                            style = Texto.conta.copy(fontWeight = FontWeight.SemiBold), color = c.texto, maxLines = 1,
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
-                    }
-                    Text(frase, style = Texto.apoio, color = if (pedindo.isNotEmpty()) c.realce else c.apoio, modifier = Modifier.padding(top = 2.dp))
-                }
-            }
+    // o patinho do bando ao lado do cumprimento; os numeros ficam no cartao de cada conta
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Pato(bicho, pato, Laranja, Modifier.size(width = 52.dp, height = 40.dp), andar = false)
+            ChaoSaudacao(Modifier.width(46.dp))
         }
-        FlowRow(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (t in pilulas) {
-                Text(
-                    t, style = Texto.pequeno.copy(fontWeight = FontWeight.Medium), color = c.apoio, maxLines = 1,
-                    modifier = Modifier.clip(CircleShape).background(c.cartao).padding(horizontal = 10.dp, vertical = 5.dp),
-                )
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (nome != null) "${p.oi}, $nome" else p.oi, style = Texto.titulo, color = c.texto, maxLines = 1)
+                // o sol ou a lua, pequenos, depois do nome
+                if (p.noite) PixelArte(LUA, Modifier.padding(start = 8.dp).size(16.dp), mapOf('#' to Color(0xFFF2D06B), 'o' to c.apoio))
+                else PixelArte(SOL, Modifier.padding(start = 8.dp).size(16.dp), mapOf('#' to Color(0xFFFFB22E)))
             }
+            Text(frase, style = Texto.apoio, color = if (pedindo.isNotEmpty()) c.realce else c.apoio, maxLines = 2)
         }
     }
 }
 
 private fun sessoes(n: Int) = if (n == 1) "1 sessão" else "$n sessões"
-
-/** O rabinho do balao, em degraus de pixel, para combinar com o pato. */
-@Composable
-private fun RabinhoBalao(cor: Color, modifier: Modifier) {
-    Canvas(modifier.size(width = 8.dp, height = 10.dp)) {
-        val px = size.width / 4
-        for (i in 0 until 4) {
-            val alto = (i + 1) * px
-            drawRect(cor, Offset(i * px, size.height - alto), Size(px + 0.5f, alto))
-        }
-    }
-}
 
 /** Chaozinho de pixels sob o pato da saudacao. */
 @Composable

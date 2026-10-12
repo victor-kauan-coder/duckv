@@ -354,17 +354,11 @@ private fun SeletorConta(e: Estado, contas: List<Conta>, atual: Int, agora: Long
                 .heightIn(min = 64.dp).padding(start = 10.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Pato(est.bicho, "parado", Color(conta.cor), Modifier.size(width = 48.dp, height = 38.dp), andar = false, tocavel = false, tipo = conta.pato)
-            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+            val ag = e.agente(conta.agente)
+            Box(Modifier.size(40.dp).clip(CircleShape).background(c.fundo), contentAlignment = Alignment.Center) { AgenteIcone(ag, 20.dp) }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(conta.nome, style = Texto.conta, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AgenteIcone(e.agente(conta.agente), 12.dp, Modifier.padding(end = 6.dp))
-                    Text(
-                        linhaDaConta(e, conta, est), style = Texto.pequeno,
-                        color = when (est.bicho) { "pede" -> c.realce; "cansado" -> c.perigo; else -> c.apoio },
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Text(if (conta.semLogin) "${ag.nome} · saiu do login" else ag.nome, style = Texto.pequeno, color = if (conta.semLogin) c.perigo else c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (outraPede) Box(Modifier.padding(end = 10.dp).size(8.dp).clip(CircleShape).background(c.perigo).semantics { contentDescription = "Outra conta precisa de você" })
             Box(Modifier.size(32.dp).clip(CircleShape).background(c.fundo), contentAlignment = Alignment.Center) {
@@ -400,16 +394,6 @@ private fun SeletorConta(e: Estado, contas: List<Conta>, atual: Int, agora: Long
     }
 }
 
-/** O que a linha de baixo do seletor diz: o agente e o estado, ou o limite quando esta tudo calmo. */
-private fun linhaDaConta(e: Estado, conta: Conta, est: EstadoConta): String {
-    val ag = e.agente(conta.agente).curto
-    return when {
-        est.bicho == "pede" || est.bicho == "cansado" -> "$ag · ${est.texto}"
-        conta.semLogin -> "$ag · saiu do login"
-        conta.cinco?.pct != null -> "$ag · ${conta.cinco.pct.toInt()}% do limite de 5 h"
-        else -> "$ag · ${est.texto}"
-    }
-}
 
 /** Uma conta no painel do seletor: pato, nome, agente e estado, e a direita o limite de 5 horas com um medidor curto. */
 @Composable
@@ -603,12 +587,8 @@ private fun CartaoConta(e: Estado, conta: Conta, agora: Long, pato: String, modi
     val est = estadoDaConta(e, conta, agora)
     val cinco = conta.cinco?.pct
     Column(modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.cartao).padding(bottom = 16.dp)) {
-        Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(conta.nome, style = Texto.titulo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            SeloAgente(e.agente(conta.agente), Modifier.padding(start = 10.dp))
-        }
         val sub = listOfNotNull(conta.email, conta.plano?.let { p -> "Plano ${p.replaceFirstChar { it.uppercase() }}" }).joinToString(" · ")
-        if (sub.isNotEmpty()) Text(sub, style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp))
+        if (sub.isNotEmpty()) Text(sub, style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp))
 
         // a pista: o chao de pixels na cor da conta e o pato em cima; um toque e ele reage
         Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp).height(78.dp)) {

@@ -520,11 +520,23 @@ private fun ImagemDaConversa(id: String, doUsuario: Boolean) {
                 Text(if (falhou) "A imagem não carregou. Toque para tentar de novo." else "Carregando imagem", style = Texto.pequeno, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.padding(12.dp))
             }
         } else {
-            androidx.compose.foundation.Image(
-                b.asImageBitmap(), "Imagem da conversa. Toque para ampliar.",
-                Modifier.heightIn(max = 420.dp).fillMaxWidth(0.86f).aspectRatio(b.width.toFloat() / b.height.coerceAtLeast(1)).clip(forma).border(1.dp, c.linha, forma).clickable { cheia = true },
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-            )
+            // Tamanho calculado de uma vez: cabe na largura e, se ficar alta demais (prints de celular),
+            // encolhe mantendo a proporcao. Altura maxima e proporcao no mesmo Modifier brigavam e a
+            // imagem vazava por cima das mensagens vizinhas.
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = if (doUsuario) Alignment.CenterEnd else Alignment.CenterStart) {
+                val proporcao = b.width.toFloat() / b.height.coerceAtLeast(1)
+                var largura = maxWidth * 0.86f
+                var altura = largura / proporcao
+                if (altura > 420.dp) {
+                    altura = 420.dp
+                    largura = altura * proporcao
+                }
+                androidx.compose.foundation.Image(
+                    b.asImageBitmap(), "Imagem da conversa. Toque para ampliar.",
+                    Modifier.size(largura, altura).clip(forma).border(1.dp, c.linha, forma).clickable { cheia = true },
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                )
+            }
             if (cheia) {
                 androidx.compose.ui.window.Dialog({ cheia = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
                     Box(Modifier.fillMaxSize().background(Color.Black).clickable { cheia = false }, contentAlignment = Alignment.Center) {
