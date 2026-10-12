@@ -12,7 +12,7 @@ import webpush from 'web-push';
 import qrcode from 'qrcode-terminal';
 import { ROOT, DATA, CONFIG_FILE, ACCOUNTS_FILE, ensureConfig, loadAccounts, defaultAccounts, readJson, writeJson, DEFAULT_COLORS } from '../lib/config.mjs';
 import { Tail, parseEntry, TaskTracker, scanWindowTokens } from './transcript.mjs';
-import { hostedAvailable, hostedError, startHosted, folderAllowed, listFolders, readPrompt, readFooter, MODELS, EFFORTS, MODES } from './hosted.mjs';
+import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter, MODELS, EFFORTS, MODES } from './hosted.mjs';
 
 const argv = new Set(process.argv.slice(2));
 const cfg = ensureConfig(() => webpush.generateVAPIDKeys());
@@ -40,9 +40,10 @@ if (argv.has('--novo-token')) {
   writeJson(PUSH_FILE, []);
   console.log('Todos os celulares foram despareados. Escaneie o codigo novo em cada um.');
 }
-// O codigo do QR vive so na memoria e muda a cada vez que o claudeV liga.
-// PAINEL_CODIGO existe para os testes.
-const CODIGO = process.env.PAINEL_CODIGO || crypto.randomBytes(24).toString('base64url');
+// O codigo do QR vive so na memoria, muda a cada vez que o claudeV liga e depois de cada pareamento.
+// PAINEL_CODIGO existe para os testes: com ele o codigo e fixo e o pareamento dispensa a confirmacao.
+const TESTE_PAREAMENTO = !!process.env.PAINEL_CODIGO;
+let CODIGO = process.env.PAINEL_CODIGO || crypto.randomBytes(24).toString('base64url');
 delete process.env.PAINEL_CODIGO;
 if (HOST === '0.0.0.0') {
   console.warn('\nATENCAO: --lan abre o claudeV sem criptografia na rede local. Quem estiver na mesma rede pode copiar o codigo de pareamento e comandar o computador. Prefira o Tailscale.\n');
@@ -480,7 +481,9 @@ function applyVerdict(instId, requestId, behavior, recado) {
   return null;
 }
 
-function onPhoneMessage(c, m) {
+const logins = new Map(); // conta -> login em andamento pelo celular
+
+async function onPhoneMessage(c, m) {
   if (!m || typeof m !== 'object') return;
   switch (m.t) {
     case 'open': {
@@ -597,6 +600,54 @@ function onPhoneMessage(c, m) {
     case 'prefs': {
       const err = setPrefs(m);
       send(c, err ? { t: 'err', ref: m.ref, msg: err } : { t: 'ack', ref: m.ref });
+      break;
+    }
+    // Entrar numa conta pelo celular: o celular abre o link, voce entra na conta Claude
+    // e cola aqui o codigo que a pagina mostra no fim.
+    case 'login': {
+      const acc = accounts.get(m.account);
+      if (!acc?.dir || acc.padrao) {
+        send(c, { t: 'err', ref: m.ref, msg: 'Essa conta entra pelo Claude Code de sempre, no computador.' });
+        break;
+      }
+      logins.get(acc.id)?.fechar();
+      let l;
+      try {
+        l = loginConta(acc.dir);
+      } catch (e) {
+        send(c, { t: 'err', ref: m.ref, msg: e.message });
+        break;
+      }
+      logins.set(acc.id, l);
+      setTimeout(() => logins.get(acc.id) === l && (l.fechar(), logins.delete(acc.id)), 15 * 60_000).unref();
+      l.url.then(
+        (url) => send(c, { t: 'ack', ref: m.ref, url }),
+        (e) => {
+          l.fechar();
+          if (logins.get(acc.id) === l) logins.delete(acc.id);
+          send(c, { t: 'err', ref: m.ref, msg: e.message });
+        },
+      );
+      break;
+    }
+    case 'loginCodigo': {
+      const acc = accounts.get(m.account);
+      const l = acc && logins.get(acc.id);
+      const cod = typeof m.codigo === 'string' ? m.codigo.trim() : '';
+      if (!l) send(c, { t: 'err', ref: m.ref, msg: 'Comece de novo: toque em Entrar na conta.' });
+      else if (!/^[A-Za-z0-9_#.\-]{8,400}$/.test(cod)) send(c, { t: 'err', ref: m.ref, msg: 'Esse não parece o código da página de entrada. Copie o código inteiro.' });
+      else {
+        const ok = await l.codigo(cod);
+        l.fechar();
+        logins.delete(acc.id);
+        if (!ok) {
+          send(c, { t: 'err', ref: m.ref, msg: 'O Claude Code não aceitou o código. Toque em Entrar na conta e tente de novo.' });
+          break;
+        }
+        await consultarUso(acc).catch(() => false);
+        dirty();
+        send(c, { t: 'ack', ref: m.ref, email: acc.email });
+      }
       break;
     }
     case 'historico': {
@@ -1441,6 +1492,72 @@ function novoAparelho(nome) {
   writeJson(APARELHOS_FILE, aparelhos);
   return chave;
 }
+// Pareamento em duas etapas: o codigo do QR so abre um pedido; quem libera e voce, no computador,
+// conferindo que os 4 numeros na janela sao os mesmos da tela do celular. Um link vazado sozinho nao entra.
+const pedidosPar = new Map(); // espera -> { nome, sas, ate, estado, chave }
+function pedirPareamento(nome) {
+  for (const [k, p] of pedidosPar) if (p.ate < now()) pedidosPar.delete(k);
+  if ([...pedidosPar.values()].filter((p) => p.estado === 'pendente').length >= 3) return null;
+  const p = { espera: crypto.randomBytes(24).toString('base64url'), nome: texto(nome, 40) || 'Celular', sas: String(crypto.randomInt(0, 10000)).padStart(4, '0'), ate: now() + 3 * 60_000, estado: 'pendente', chave: null };
+  pedidosPar.set(p.espera, p);
+  if (TESTE_PAREAMENTO) aprovarPareamento(p);
+  else {
+    // Os 4 numeros so aparecem no celular: digitar aqui prova que o aparelho e o que esta na sua mao.
+    console.log(`\n>>> Um aparelho quer se conectar: ${p.nome}`);
+    console.log('>>> Para permitir, digite aqui os 4 numeros que aparecem na tela dele e Enter.');
+    console.log('>>> Se nao foi voce, digite N e Enter.\n');
+  }
+  return p;
+}
+function aprovarPareamento(p) {
+  p.chave = novoAparelho(p.nome);
+  p.estado = 'ok';
+  if (!TESTE_PAREAMENTO) {
+    CODIGO = crypto.randomBytes(24).toString('base64url'); // o QR usado deixa de valer
+    for (const x of pedidosPar.values()) if (x.estado === 'pendente') x.estado = 'negado'; // e os pedidos feitos com ele tambem
+    console.log(`Pronto: ${p.nome} conectado.`);
+    mostrarPareamento();
+  }
+}
+// Resposta no teclado do computador (a janela que ligou o claudeV). Os 4 numeros liberam so o
+// pedido que os mostrou; N recusa todos os pedidos abertos. Tres numeros errados derrubam os pedidos.
+let errosPar = 0;
+if (!TESTE_PAREAMENTO) {
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('error', () => {});
+  process.stdin.on('data', (linha) => {
+    const r = String(linha).trim().toLowerCase();
+    const abertos = [...pedidosPar.values()].filter((x) => x.estado === 'pendente' && x.ate > now());
+    if (!abertos.length || !r) return;
+    if (r.startsWith('n')) {
+      for (const p of abertos) p.estado = 'negado';
+      return console.log('Pedidos recusados.');
+    }
+    const p = /^\d{4}$/.test(r) && abertos.find((x) => x.sas === r);
+    if (p) {
+      errosPar = 0;
+      return aprovarPareamento(p);
+    }
+    if (++errosPar >= 3) {
+      errosPar = 0;
+      for (const x of abertos) x.estado = 'negado';
+      return console.log('Numeros errados demais: os pedidos foram recusados. Escaneie o codigo de novo no celular.');
+    }
+    console.log('Esses numeros nao batem com nenhum aparelho. Confira a tela do celular e digite de novo.');
+  });
+}
+// O celular espera a resposta aqui (consulta longa de ate 25 s).
+async function esperarPareamento(espera) {
+  const p = pedidosPar.get(String(espera || ''));
+  for (let i = 0; p && p.estado === 'pendente' && p.ate > now() && i < 50; i++) await new Promise((r) => setTimeout(r, 500));
+  if (!p || p.ate < now()) return { estado: 'expirado' };
+  if (p.estado === 'ok') pedidosPar.delete(p.espera); // a chave sai uma vez so
+  return p.estado === 'ok' ? { estado: 'ok', chave: p.chave } : { estado: p.estado };
+}
+
+const cookiePainel = (req, chave) =>
+  `painel=${chave}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`;
+
 function esquecerAparelho(id) {
   aparelhos = aparelhos.filter((a) => a.id !== id);
   writeJson(APARELHOS_FILE, aparelhos);
@@ -1540,15 +1657,25 @@ const server = http.createServer(async (req, res) => {
         res.end('Codigo de pareamento invalido. Abra o link mostrado na janela do claudeV, no computador.');
         return;
       }
-      const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
-      res.writeHead(302, {
-        ...SEC_HEADERS,
-        'Set-Cookie': `painel=${novoAparelho('Navegador')}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secure}`,
-        Location: '/',
-        'Cache-Control': 'no-store',
-      });
-      res.end();
-      return;
+      const pd = pedirPareamento('Navegador');
+      if (!pd) return json(res, 429, { erro: 'Pedidos demais. Responda os que estao na janela do claudeV.' });
+      if (pd.estado === 'ok') {
+        pedidosPar.delete(pd.espera);
+        res.writeHead(302, { ...SEC_HEADERS, 'Set-Cookie': cookiePainel(req, pd.chave), Location: '/', 'Cache-Control': 'no-store' });
+        return res.end();
+      }
+      // A pagina mostra os 4 numeros e espera a liberacao; o pedido vai no #, que nao sai do navegador.
+      res.writeHead(302, { ...SEC_HEADERS, Location: `/parear.html#${pd.espera}.${pd.sas}`, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+    if (p === '/api/parear/espera' && req.method === 'POST') {
+      const b = await readBody(req, 4096);
+      const r = await esperarPareamento(b?.espera);
+      if (r.estado === 'ok' && b?.navegador) {
+        res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': MIME['.json'], 'Set-Cookie': cookiePainel(req, r.chave), 'Cache-Control': 'no-store' });
+        return res.end('{"estado":"ok"}');
+      }
+      return json(res, r.estado === 'pendente' || r.estado === 'ok' ? 200 : 403, r);
     }
 
     if (p.startsWith('/ingest/')) {
@@ -1565,7 +1692,13 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/parear' && req.method === 'POST') {
       const b = await readBody(req, 4096);
       if (typeof b?.k !== 'string' || !safeEq(b.k, CODIGO)) return json(res, 403, { erro: 'codigo invalido' });
-      return json(res, 200, { chave: novoAparelho(b.nome) });
+      const pd = pedirPareamento(b.nome);
+      if (!pd) return json(res, 429, { erro: 'Pedidos demais. Responda os que estao na janela do claudeV.' });
+      if (pd.estado === 'ok') {
+        pedidosPar.delete(pd.espera);
+        return json(res, 200, { chave: pd.chave });
+      }
+      return json(res, 202, { espera: pd.espera, sas: pd.sas });
     }
 
     if (p.startsWith('/api/')) {
@@ -1657,7 +1790,7 @@ wssPhone.on('connection', (ws, req, aparelho) => {
   send(c, snapshot());
   ws.on('message', (raw) => {
     try {
-      onPhoneMessage(c, JSON.parse(raw.toString('utf8')));
+      onPhoneMessage(c, JSON.parse(raw.toString('utf8'))).catch(() => {});
     } catch {
       /* mensagem invalida */
     }
@@ -1731,6 +1864,7 @@ function detectTailnet() {
       if (!bin) return resolve(null);
       execFile(bin, ['status', '--json'], { timeout: 5000, windowsHide: true }, (err, stdout) => {
         if (err) return next();
+        tailscaleBin = bin;
         try {
           const name = JSON.parse(stdout)?.Self?.DNSName;
           resolve(name ? String(name).replace(/\.$/, '').toLowerCase() : null);
@@ -1757,24 +1891,38 @@ server.on('error', (e) => {
   process.exit(1);
 });
 
-server.listen(PORT, HOST, async () => {
-  tailnetHost = await detectTailnet();
-  let base;
-  if (tailnetHost) base = `https://${tailnetHost}`;
-  else if (HOST === '0.0.0.0' && lanAddresses().length) base = `http://${lanAddresses()[0]}:${PORT}`;
-  else base = `http://localhost:${PORT}`;
-  const link = `${base}/parear?k=${CODIGO}`;
-  console.log('\nclaudeV ligado.\n');
+// Publica o claudeV so dentro da rede do Tailscale: HTTPS se os certificados estiverem ligados
+// no painel do Tailscale, senao HTTP (a rede do Tailscale ja e criptografada de ponta a ponta).
+let tailscaleBin = 'tailscale';
+function publicarNoTailscale() {
+  const serve = (args) => new Promise((r) => execFile(tailscaleBin, ['serve', '--bg', ...args, `localhost:${PORT}`], { timeout: 15000, windowsHide: true }, (err) => r(!err)));
+  return serve(['--https=443']).then((ok) => (ok ? 'https' : serve(['--http=80']).then((ok2) => (ok2 ? 'http' : null))));
+}
+
+let basePareamento = `http://localhost:${PORT}`;
+function mostrarPareamento() {
+  const link = `${basePareamento}/parear?k=${CODIGO}`;
   if (!argv.has('--sem-qr')) {
-    console.log('Para parear o celular, aponte a camera para o codigo abaixo:\n');
+    console.log('Para conectar um celular, abra o app claudeV e aponte a camera para o codigo abaixo:\n');
     qrcode.generate(link, { small: true });
   }
   console.log(`\nLink de pareamento (nao compartilhe):\n${link}\n`);
-  if (!tailnetHost && HOST !== '0.0.0.0') {
-    console.log('Tailscale nao encontrado: por enquanto o claudeV so abre neste computador.');
-    console.log('Veja o LEIAME.md, passo "Acesso de qualquer lugar".\n');
+  console.log('Depois de escanear, o celular mostra 4 numeros: digite-os aqui nesta janela para liberar.\n');
+}
+
+server.listen(PORT, HOST, async () => {
+  tailnetHost = await detectTailnet();
+  // Hub de teste (pasta de dados propria) nao mexe no Tailscale de verdade.
+  const esquema = tailnetHost && !TESTE_PAREAMENTO && !process.env.PAINEL_DATA ? await publicarNoTailscale() : null;
+  if (tailnetHost && esquema) basePareamento = `${esquema}://${tailnetHost}`;
+  else if (HOST === '0.0.0.0' && lanAddresses().length) basePareamento = `http://${lanAddresses()[0]}:${PORT}`;
+  console.log('\nclaudeV ligado.\n');
+  mostrarPareamento();
+  if (!esquema && HOST !== '0.0.0.0') {
+    console.log(tailnetHost ? 'O Tailscale nao aceitou publicar o claudeV; confira se ele esta conectado.' : 'Tailscale nao encontrado: por enquanto o claudeV so abre neste computador.');
+    console.log('Instale o Tailscale no computador e no celular, entre com a mesma conta e abra o claudeV de novo.\n');
   }
-  console.log(`Contas: ${[...accounts.values()].map((a) => a.nome).join(', ')}`);
+  console.log(`Contas: ${[...accounts.values()].map((a) => nomeDe(a)).join(', ')}`);
   console.log('Deixe esta janela aberta. Ctrl+C para desligar.\n');
 });
 

@@ -8,7 +8,7 @@
     "start": "node hub/server.mjs",
     "setup": "node setup.mjs",
     "demo": "node tools/simular.mjs",
-    "test": "node tests/servidor.mjs && node tests/sessoes.mjs"
+    "test": "node tests/servidor.mjs && node tests/pareamento.mjs && node tests/sessoes.mjs"
   },
   "engines": {
     "node": ">=20"

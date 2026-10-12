@@ -62,6 +62,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -129,6 +130,8 @@ fun Inicio(
     val pager = rememberPagerState { contas.size }
     val escopo = rememberCoroutineScope()
     var criando by remember { mutableStateOf(false) }
+    var entrando by remember { mutableStateOf<Conta?>(null) }
+    entrando?.let { EntrarNaConta(it) { entrando = null } }
     // Volta para a ultima conta vista; so na primeira abertura do app pula para a que precisa de voce.
     LaunchedEffect(e != null) {
         if (e == null) return@LaunchedEffect
@@ -177,6 +180,11 @@ fun Inicio(
                     Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 8.dp, bottom = 104.dp).navigationBarsPadding(),
                 ) {
                     CartaoConta(e, conta, agora, pato, Modifier.padding(horizontal = 16.dp))
+                    // conta sem login: um toque para entrar, sem abrir o computador
+                    if (conta.email == null && e.host.disponivel) Botao(
+                        "Entrar nesta conta", { entrando = conta },
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp), Icons.AutoMirrored.Rounded.Login, Peso.Principal,
+                    )
                     val minhas = e.sessoes.filter { it.conta == conta.id }
                     val ss = minhas.sortedWith(compareByDescending<Sessao> { it.precisa }.thenByDescending { it.status == "working" }.thenBy { it.inicio })
                     // cabecalho das sessoes, com a contagem e o atalho para todas as conversas
@@ -249,12 +257,12 @@ fun Inicio(
                     if (erro != null) aviso(erro)
                     else {
                         criando = false
-                        aviso("Conta criada. Abra uma sessão nela e envie /login para entrar.")
                         val id = r?.optString("id")
                         escopo.launch {
                             delay(300)
                             val i = Hub.estado.value?.contas?.indexOfFirst { it.id == id } ?: -1
                             if (i >= 0) pager.animateScrollToPage(i)
+                            entrando = Hub.estado.value?.contas?.find { it.id == id } // ja oferece a entrada na conta nova
                         }
                     }
                 }
@@ -328,6 +336,77 @@ private fun SeletorConta(e: Estado, contas: List<Conta>, atual: Int, agora: Long
             )
         }
     }
+}
+
+/**
+ * Entrar numa conta Claude sem tocar no computador: o claudeV pede o link de entrada ao Claude Code,
+ * o celular abre no navegador, voce entra e cola aqui o codigo que a pagina mostra no fim.
+ */
+@Composable
+fun EntrarNaConta(conta: Conta, aoFechar: () -> Unit) {
+    val c = cores
+    val ctx = LocalContext.current
+    val aviso = LocalAviso.current
+    val area = androidx.compose.ui.platform.LocalClipboardManager.current
+    var url by remember { mutableStateOf<String?>(null) }
+    var codigo by remember { mutableStateOf("") }
+    var erro by remember { mutableStateOf<String?>(null) }
+    var enviando by remember { mutableStateOf(false) }
+    val abrir = { u: String -> runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))) } }
+    LaunchedEffect(conta.id) {
+        Hub.mandar(JSONObject().put("t", "login").put("account", conta.id)) { er, r ->
+            val u = r?.optString("url")?.takeIf { it.startsWith("https://") }
+            if (er != null || u == null) erro = er ?: "O computador não mandou o link de entrada."
+            else {
+                url = u
+                abrir(u)
+            }
+        }
+    }
+    AlertDialog(
+        onDismissRequest = aoFechar,
+        containerColor = c.elevada,
+        title = { Text("Entrar em ${conta.nome}", style = Texto.titulo, color = c.texto) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                when {
+                    erro != null && url == null -> Text(erro!!, style = Texto.apoio, color = c.perigo)
+                    url == null -> Text("Pedindo o link de entrada ao computador…", style = Texto.apoio, color = c.apoio)
+                    else -> {
+                        Text("1. No navegador que abriu, entre com a conta Claude que esta conta do claudeV deve usar.", style = Texto.apoio, color = c.apoio)
+                        Text("2. No fim, a página mostra um código. Copie e cole aqui.", style = Texto.apoio, color = c.apoio)
+                        OutlinedTextField(
+                            codigo, { codigo = it.trim() }, Modifier.fillMaxWidth(), singleLine = true,
+                            label = { Text("Código da página") }, colors = campoCores(), textStyle = Texto.codigo.copy(color = c.texto),
+                            trailingIcon = {
+                                TextButton({ area.getText()?.text?.trim()?.let { codigo = it } }) { Text("Colar", style = Texto.rotulo, color = c.realce) }
+                            },
+                        )
+                        erro?.let { Text(it, style = Texto.apoio, color = c.perigo) }
+                        TextButton({ url?.let(abrir) }) { Text("Abrir o navegador de novo", style = Texto.rotulo, color = c.realce) }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (url != null) TextButton(
+                {
+                    enviando = true
+                    erro = null
+                    Hub.mandar(JSONObject().put("t", "loginCodigo").put("account", conta.id).put("codigo", codigo)) { er, r ->
+                        enviando = false
+                        if (er != null) erro = er
+                        else {
+                            aviso("Pronto: ${conta.nome} entrou${r?.optString("email")?.takeIf { it.isNotBlank() }?.let { " como $it" } ?: ""}.")
+                            aoFechar()
+                        }
+                    }
+                },
+                enabled = codigo.length >= 8 && !enviando,
+            ) { Text(if (enviando) "Conferindo…" else "Concluir", style = Texto.rotulo, color = c.realce) }
+        },
+        dismissButton = { TextButton(aoFechar) { Text("Cancelar", style = Texto.rotulo, color = c.realce) } },
+    )
 }
 
 @Composable

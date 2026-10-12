@@ -186,6 +186,51 @@ export function readFooter(lines) {
 
 // Abre o Claude Code no terminal virtual. `opts`: cwd, env, model, effort, mode,
 // name, cols, rows, command (para testes), onScreen(snapshot), onExit(code).
+// "claude auth login" numa pasta de conta, sem janela: devolve o link de entrada que ele mostra
+// e depois recebe o codigo que a pagina da Anthropic exibe ao fim do login.
+export function loginConta(dir) {
+  if (!pty) throw new Error(`Terminal virtual indisponivel neste computador: ${loadError}`);
+  const win = process.platform === 'win32';
+  const proc = pty.spawn(win ? process.env.ComSpec || 'cmd.exe' : 'claude', win ? ['/d', '/c', 'claude', 'auth', 'login'] : ['auth', 'login'], {
+    name: 'xterm-256color',
+    cols: 400,
+    rows: 30,
+    cwd: dir,
+    env: { ...process.env, CLAUDE_CONFIG_DIR: dir, BROWSER: 'none', NoDefaultCurrentDirectoryInExePath: '1' },
+  });
+  let saida = '';
+  let fim = null;
+  const terminou = new Promise((r) => proc.onExit(({ exitCode }) => r((fim = exitCode))));
+  const url = new Promise((resolve, reject) => {
+    const d = proc.onData((t) => {
+      saida = (saida + t).slice(-20000);
+      const m = /https:\/\/[a-z.]*claude\.(?:com|ai)\/[^\s\x07\x1b"'<>]*oauth\/authorize\?[^\s\x07\x1b"'<>]+/.exec(saida);
+      if (m) {
+        d.dispose();
+        resolve(m[0]);
+      }
+    });
+    terminou.then(() => reject(new Error('O Claude Code fechou antes de mostrar o link de entrada. ' + saida.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07/g, '').trim().slice(-300))));
+    setTimeout(() => reject(new Error('O Claude Code não mostrou o link de entrada.')), 30000);
+  });
+  return {
+    url,
+    async codigo(c) {
+      if (fim !== null) return false;
+      proc.write(`${c}\r`);
+      const r = await Promise.race([terminou, new Promise((ok) => setTimeout(() => ok('tempo'), 30000))]);
+      return r === 0;
+    },
+    fechar: () => {
+      try {
+        proc.kill();
+      } catch {
+        /* ja fechou */
+      }
+    },
+  };
+}
+
 export function startHosted(opts) {
   if (!pty) throw new Error(`Terminal virtual indisponivel neste computador: ${loadError}`);
   const cols = Math.max(40, Math.min(160, opts.cols || 60));

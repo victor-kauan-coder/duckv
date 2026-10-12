@@ -73,30 +73,52 @@ object Hub {
     // Aceita o link do QR da janela do claudeV: https://pc.rede.ts.net/parear?k=...
     fun lerLink(texto: String): Pair<String, String>? {
         val uri = runCatching { Uri.parse(texto.trim()) }.getOrNull() ?: return null
-        val k = uri.getQueryParameter("k")?.takeIf { it.length >= 16 } ?: return null
+        // texto que nao e link (ex.: "abc:def") faz o Android lancar excecao aqui; vira so "link invalido"
+        val k = runCatching { uri.getQueryParameter("k") }.getOrNull()?.takeIf { it.length >= 16 } ?: return null
         if (uri.scheme != "http" && uri.scheme != "https" || uri.host.isNullOrEmpty()) return null
         val porta = if (uri.port > 0) ":${uri.port}" else ""
         return "${uri.scheme}://${uri.host}$porta" to k
     }
 
-    fun parear(link: String, pronto: (String?) -> Unit) {
+    /**
+     * Troca o codigo do QR pela chave propria deste celular. O computador pede confirmacao:
+     * [aoConferir] recebe os 4 numeros que devem aparecer iguais na janela do claudeV.
+     */
+    fun parear(link: String, aoConferir: (String) -> Unit, pronto: (String?) -> Unit) {
         val (b, k) = lerLink(link) ?: return pronto("Esse não é o link do claudeV. Use o código da janela do claudeV no computador.")
+        val json = "application/json".toMediaType()
         thread {
             var chave: String? = null
             val erro = try {
-                // Troca o codigo do QR pela chave propria deste celular; o codigo muda a cada vez que o claudeV liga.
-                val corpo = JSONObject().put("k", k).put("nome", android.os.Build.MODEL).toString().toRequestBody("application/json".toMediaType())
-                cliente.newCall(Request.Builder().url("$b/api/parear").post(corpo).build()).execute().use {
-                    when (it.code) {
-                        200 -> {
-                            chave = it.body?.string()?.let { t -> JSONObject(t).optString("chave") }?.takeIf { c -> c.length >= 16 }
-                            if (chave == null) "O computador respondeu de um jeito estranho. Atualize o claudeV no computador." else null
+                val corpo = JSONObject().put("k", k).put("nome", android.os.Build.MODEL).toString().toRequestBody(json)
+                val (codigo, resposta) = cliente.newCall(Request.Builder().url("$b/api/parear").post(corpo).build()).execute().use { it.code to (it.body?.string() ?: "") }
+                when (codigo) {
+                    200 -> chave = runCatching { JSONObject(resposta).optString("chave") }.getOrNull()?.takeIf { it.length >= 16 }
+                    202 -> {
+                        val r = JSONObject(resposta)
+                        val sas = r.optString("sas")
+                        principal.post { aoConferir(sas) }
+                        // espera a sua confirmacao no computador (cada consulta segura ate 25 s)
+                        var estado = "pendente"
+                        while (estado == "pendente") {
+                            val pedido = JSONObject().put("espera", r.optString("espera")).toString().toRequestBody(json)
+                            val e = cliente.newCall(Request.Builder().url("$b/api/parear/espera").post(pedido).build()).execute().use { JSONObject(it.body?.string() ?: "{}") }
+                            estado = e.optString("estado", "expirado")
+                            if (estado == "ok") chave = e.optString("chave").takeIf { it.length >= 16 }
                         }
-                        403 -> "Esse código não vale mais: ele muda cada vez que o claudeV liga. Escaneie o código da janela aberta agora."
-                        404 -> "O claudeV do computador está desatualizado. Atualize a pasta e rode instalar.cmd de novo."
-                        else -> "O computador respondeu com erro ${it.code}."
+                        if (estado == "negado") throw IllegalStateException("O computador recusou este celular.")
+                        if (estado == "expirado") throw IllegalStateException("O pedido expirou. Escaneie o código de novo e confirme no computador.")
                     }
                 }
+                when {
+                    chave != null -> null
+                    codigo == 403 -> "Esse código não vale mais: ele muda cada vez que o claudeV liga ou pareia um aparelho. Escaneie o código da janela aberta agora."
+                    codigo == 404 -> "O claudeV do computador está desatualizado. Atualize a pasta e rode instalar.cmd de novo."
+                    codigo == 429 -> "Há pedidos demais esperando. Responda os da janela do claudeV."
+                    else -> "O computador respondeu de um jeito estranho (erro $codigo)."
+                }
+            } catch (e: IllegalStateException) {
+                e.message
             } catch (e: Exception) {
                 "Não consegui falar com o computador. Confira se o claudeV está aberto e se o Tailscale está ligado neste celular."
             }

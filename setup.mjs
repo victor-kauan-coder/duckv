@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import readline from 'node:readline/promises';
 import webpush from 'web-push';
 import { ROOT, ACCOUNTS_FILE, ensureConfig, loadAccounts, defaultAccounts, readJson, writeJson } from './lib/config.mjs';
 
@@ -139,6 +140,16 @@ function atalho(conta) {
   return file;
 }
 
+// Atalhos do Windows (.lnk) para o claudeV: na area de trabalho e, se voce quiser, ao entrar no Windows.
+const pastaEspecial = (nome) => spawnSync('powershell', ['-NoProfile', '-Command', `[Environment]::GetFolderPath('${nome}')`], { encoding: 'utf8' }).stdout.trim();
+const atalhoDesktop = () => path.join(pastaEspecial('Desktop'), 'claudeV.lnk');
+const atalhoInicio = () => path.join(pastaEspecial('Startup'), 'claudeV.lnk');
+function criarAtalho(lnk) {
+  const alvo = path.join(ROOT, 'iniciar-claudev.cmd');
+  const ps = `$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK);$s.TargetPath=$env:ALVO;$s.WorkingDirectory=$env:PASTA;$s.Description='claudeV';$s.Save()`;
+  spawnSync('powershell', ['-NoProfile', '-Command', ps], { env: { ...process.env, LNK: lnk, ALVO: alvo, PASTA: ROOT } });
+}
+
 // ------------------------------------------------------------------ execucao
 
 if (!remover) {
@@ -149,10 +160,23 @@ if (!remover) {
   }
 }
 
-const temClaude = claude('--version').status === 0;
-if (!temClaude) {
-  console.log('\nNao encontrei o comando "claude". Instale o Claude Code e rode a instalacao de novo.');
-  console.log('Enquanto isso, as pastas e os atalhos serao preparados, mas o canal nao sera registrado.\n');
+// Perguntas S/N do assistente. Sem teclado (rodando por outro programa), a resposta e sempre nao.
+const rl = process.stdin.isTTY ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null;
+async function pergunta(texto, padrao = true) {
+  if (!rl) return false;
+  const r = (await rl.question(`${texto} ${padrao ? '(S/n)' : '(s/N)'} `)).trim().toLowerCase();
+  return r ? r.startsWith('s') : padrao;
+}
+const rodar = (cmd, env = process.env) => spawnSync(cmd, { shell: true, stdio: 'inherit', env }).status === 0;
+
+let temClaude = remover || claude('--version').status === 0;
+if (!temClaude && (await pergunta('\nFalta o Claude Code. Instalar agora?'))) {
+  rodar('npm install -g @anthropic-ai/claude-code');
+  temClaude = claude('--version').status === 0;
+}
+if (!temClaude && !remover) {
+  console.log('\nSem o Claude Code, as pastas e os atalhos serao preparados, mas o canal nao sera registrado.');
+  console.log('Instale com "npm install -g @anthropic-ai/claude-code" e rode a instalacao de novo.\n');
 }
 
 const contas = loadAccounts();
@@ -189,17 +213,60 @@ if (pendencias.length) {
 }
 
 if (remover) {
+  if (WIN) for (const f of [atalhoDesktop(), atalhoInicio()]) fs.rmSync(f, { force: true });
   console.log('\nPronto. Para apagar tudo, feche o claudeV e exclua esta pasta.');
 } else {
-  const ext = WIN ? '.cmd' : '.sh';
+  // Login de cada conta: abre a pagina de entrada no navegador deste computador, uma conta por vez.
+  // Da para pular e entrar depois pelo celular, no botao "Entrar nesta conta".
+  if (temClaude) {
+    for (const conta of contas) {
+      const st = claude('auth status', conta.padrao ? null : conta.dir);
+      let email = null;
+      try {
+        const j = JSON.parse(st.stdout);
+        if (j.loggedIn) email = j.email || 'conectada';
+      } catch {
+        /* versao antiga sem JSON */
+      }
+      if (email) {
+        console.log(`${conta.nome}: ja entrou (${email}).`);
+        continue;
+      }
+      if (!(await pergunta(`\nEntrar agora na ${conta.nome}? O navegador abre para voce escolher a conta Claude.`))) continue;
+      const env = { ...process.env };
+      if (!conta.padrao) env.CLAUDE_CONFIG_DIR = conta.dir;
+      console.log('Se a pagina mostrar um codigo, copie e cole aqui.');
+      rodar('claude auth login', env);
+    }
+  }
+
+  // Tailscale: o caminho seguro para o celular falar com este computador de qualquer lugar.
+  const temTailscale = spawnSync(WIN ? 'where tailscale || if exist "%ProgramFiles%\\Tailscale\\tailscale.exe" echo ok' : 'command -v tailscale', { shell: true, encoding: 'utf8' }).stdout.trim() !== '';
+  if (!temTailscale && WIN && (await pergunta('\nInstalar o Tailscale? Ele liga o celular a este computador de forma segura, de qualquer lugar.'))) {
+    if (rodar('winget install -e --id Tailscale.Tailscale')) {
+      console.log('\nAbra o Tailscale (icone perto do relogio) e entre com uma conta. No celular, instale o app Tailscale e entre com a mesma conta.');
+    }
+  }
+
+  if (WIN) {
+    criarAtalho(atalhoDesktop());
+    console.log('\nCriei o atalho "claudeV" na area de trabalho.');
+    if (await pergunta('Ligar o claudeV junto com o Windows?', false)) {
+      criarAtalho(atalhoInicio());
+      console.log('Pronto: o claudeV liga sozinho quando voce entra no Windows.');
+    }
+  }
+
   console.log(`
-Instalacao concluida. Proximos passos:
+Instalacao concluida.
 
-1. Entre em cada conta uma unica vez: abra ${contas.map((c) => c.id + ext).join(', ')},
-   e em cada janela digite /login e entre com a conta correspondente.
-2. Ligue o claudeV: ${WIN ? 'iniciar-claudev.cmd' : 'npm start'}
-3. No celular, aponte a camera para o codigo que aparece na janela.
+1. ${WIN ? 'Abra o atalho "claudeV" na area de trabalho' : 'Ligue o claudeV: npm start'} e deixe a janela aberta.
+2. No celular, instale o app claudeV (claudeV.apk na pagina de Releases), toque em "Escanear codigo"
+   e aponte para o codigo da janela.
+3. O celular mostra 4 numeros: digite-os na janela do claudeV e aperte Enter. Pronto.
 
-O passo a passo completo, incluindo o acesso de fora de casa, esta no LEIAME.md.
+Contas que ficaram sem login podem entrar pelo proprio celular, no botao "Entrar nesta conta".
 `);
+  if (WIN && (await pergunta('Abrir o claudeV agora?'))) spawnSync('start "claudeV" "' + path.join(ROOT, 'iniciar-claudev.cmd') + '"', { shell: true });
 }
+rl?.close();

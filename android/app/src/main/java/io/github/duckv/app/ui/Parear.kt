@@ -29,6 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,11 +52,16 @@ fun TelaParear(pato: String) {
     var link by rememberSaveable { mutableStateOf("") }
     var erro by remember { mutableStateOf<String?>(null) }
     var ocupado by remember { mutableStateOf(false) }
+    var sas by remember { mutableStateOf<String?>(null) }
+    val rolagem = rememberScrollState()
+    // os 4 numeros aparecem no fim da tela: rola ate eles
+    androidx.compose.runtime.LaunchedEffect(sas) { if (sas != null) rolagem.animateScrollTo(rolagem.maxValue) }
     val parear = { l: String ->
         ocupado = true
         erro = null
-        Hub.parear(l) { er ->
+        Hub.parear(l, { sas = it }) { er ->
             ocupado = false
+            sas = null
             erro = er
             if (er == null) Vigia.ajustar(ctx)
         }
@@ -64,7 +72,7 @@ fun TelaParear(pato: String) {
 
     Column(
         Modifier.fillMaxSize().background(c.fundo).statusBarsPadding().navigationBarsPadding().imePadding()
-            .verticalScroll(rememberScrollState()).padding(24.dp),
+            .verticalScroll(rolagem).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -82,7 +90,7 @@ fun TelaParear(pato: String) {
                 PixelArte(CELULAR, Modifier.size(width = 40.dp, height = 46.dp), mapOf('#' to c.texto, 'o' to Laranja))
             }
             Text("Para começar", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
-            Text("No computador, abra iniciar-claudev.cmd. Na janela aparece um código QR: escaneie aqui.", style = Texto.apoio, color = c.apoio)
+            Text("No computador, abra o claudeV. Na janela aparece um código QR: escaneie aqui.", style = Texto.apoio, color = c.apoio)
             Botao(
                 "Escanear código", {
                     leitor.launch(
@@ -102,7 +110,24 @@ fun TelaParear(pato: String) {
             )
             Botao("Conectar", { parear(link) }, Modifier.fillMaxWidth(), Icons.Rounded.Link, habilitado = link.isNotBlank() && !ocupado)
             erro?.let { Text(it, style = Texto.apoio, color = c.perigo) }
-            if (ocupado) Text("Conectando ao computador…", style = Texto.apoio, color = c.apoio)
+            val conferir = sas
+            if (ocupado && conferir != null) {
+                // verificacao extra: os mesmos 4 numeros na janela do computador, e voce confirma la
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(c.invFundo).padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Digite no computador", style = Texto.conta, color = c.invTexto)
+                    Text(
+                        conferir.toList().joinToString("  "), style = Texto.numero.copy(fontSize = 44.sp, lineHeight = 52.sp, fontWeight = FontWeight.Medium),
+                        color = c.invTexto, modifier = Modifier.semantics { contentDescription = "Código ${conferir.toList().joinToString(" ")}" },
+                    )
+                    Text(
+                        "Na janela do claudeV, digite estes 4 números e aperte Enter. Assim o computador sabe que é este celular.",
+                        style = Texto.apoio, color = c.invApoio, textAlign = TextAlign.Center,
+                    )
+                }
+            } else if (ocupado) Text("Conectando ao computador…", style = Texto.apoio, color = c.apoio)
         }
     }
 }

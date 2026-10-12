@@ -23,20 +23,26 @@ O claudeV tem duas partes:
 
 A sessão aberta no computador é o Claude Code normal, numa janela sua. A sessão aberta pelo celular roda escondida dentro do claudeV e é comandada por botões. A tela crua do terminal continua existindo, guardada em Controles, para o caso raro de precisar dela.
 
+## Começar em 3 passos
+
+1. **No computador (Windows):** dê dois cliques em `instalar.cmd` e responda as perguntas com S ou N. Ele instala o que faltar (Node.js, Claude Code e, se você quiser, o Tailscale), abre o navegador para você entrar em cada conta Claude, cria o atalho **claudeV** na área de trabalho e liga o claudeV.
+2. **No celular (Android):** instale o `claudeV.apk` da página de Releases e o app Tailscale, entrando no Tailscale com a mesma conta do computador. No claudeV, toque em **Escanear código** e aponte para o código da janela.
+3. **Confirme:** o celular mostra 4 números. Digite-os na janela do claudeV, no computador, e aperte Enter. Pronto.
+
+Pulou o login de alguma conta? Entre depois pelo próprio celular: o cartão da conta mostra **Entrar nesta conta**, o navegador do celular abre, você entra e cola o código que a página mostra.
+
+No dia a dia, basta abrir o atalho **claudeV** (ou deixar que ele ligue junto com o Windows, se escolheu isso na instalação).
+
 ## O que você precisa
 
-- Windows com [Node.js](https://nodejs.org) 20 ou mais novo.
-- Claude Code instalado e atualizado (`claude update`).
-- As três contas Claude.
-- [Tailscale](https://tailscale.com/download) no computador e no celular, na mesma conta, para usar fora de casa.
-- Chrome no Android.
+- Windows 10 ou 11 (o instalador usa o winget, que já vem no Windows, para instalar o que faltar).
+- As contas Claude.
+- Um celular Android.
+- Para usar fora de casa: [Tailscale](https://tailscale.com/download) no computador e no celular, na mesma conta. O claudeV se publica sozinho na sua rede do Tailscale; não precisa mexer no painel dele.
 
-## Instalação
+## Instalação manual
 
-1. Dê dois cliques em `instalar.cmd`. Ele baixa as dependências, cria uma pasta separada para cada conta em `C:\Users\voce\.claude-contas\` e gera os atalhos `conta1.cmd`, `conta2.cmd` e `conta3.cmd`.
-2. Abra `conta1.cmd`. Quando o Claude Code abrir, digite `/login` e entre com a primeira conta. Feche e repita com `conta2.cmd` e `conta3.cmd`. Isso é feito uma vez só.
-3. Dê dois cliques em `iniciar-claudev.cmd` e deixe a janela aberta.
-4. No celular, com o Tailscale ligado, aponte a câmera para o código que aparece na janela. No Chrome, abra o menu e escolha "Adicionar à tela inicial".
+Se preferir fazer à mão: instale o [Node.js](https://nodejs.org) 20+ e o Claude Code, rode `instalar.cmd`, entre em cada conta com `conta1.cmd` e `/login` (ou `claude auth login` com `CLAUDE_CONFIG_DIR` apontando para a pasta da conta) e abra `iniciar-claudev.cmd`.
 
 A instalação não mexe no seu Claude Code de sempre: as três contas do claudeV vivem em pastas próprias. Seu login atual, o app desktop e as configurações em `C:\Users\voce\.claude` continuam como estão.
 
@@ -49,7 +55,7 @@ Quer ver o app antes de instalar tudo? Rode `demonstracao.cmd` depois do passo 1
 O jeito recomendado no celular é o app nativo: baixe o `claudeV.apk` na página de Releases do repositório e instale (o Android pede para permitir "instalar apps desconhecidos"). Na primeira abertura, toque em "Escanear código" e aponte para o QR da janela do claudeV, ou cole o link de pareamento.
 
 - Uma conta por tela: toque no nome no topo ou deslize para trocar. Um ponto laranja marca a conta que precisa de você.
-- O botão + no topo adiciona uma conta nova. Depois, abra uma sessão nela e envie `/login`.
+- "Adicionar conta", no seletor de contas, cria uma conta nova e já abre a entrada nela pelo celular.
 - Avisos nativos com Aceitar e Recusar direto na notificação, mesmo com o app fechado.
 
 Para compilar: `cd android` e `gradlew assembleRelease` (precisa do Android SDK). A assinatura fica em `android/assinatura.properties`, fora do repositório.
@@ -77,8 +83,7 @@ A aparência fica guardada em cada celular. O resto fica no computador e vale pa
 ## Acesso de qualquer lugar
 
 1. Instale o Tailscale no computador e no celular e entre com a mesma conta nos dois.
-2. No painel do Tailscale na web, em DNS, ative o MagicDNS e os certificados HTTPS.
-3. Abra `iniciar-claudev.cmd`. Ele publica o claudeV só dentro da sua rede do Tailscale e mostra o endereço `https://seu-computador.sua-rede.ts.net`.
+2. Abra o claudeV. Ele se publica sozinho só dentro da sua rede do Tailscale: em HTTPS se os certificados estiverem ligados no painel do Tailscale (DNS > HTTPS Certificates), senão em HTTP, que dentro do Tailscale já viaja criptografado de ponta a ponta.
 
 Nada fica exposto na internet aberta. Sem o Tailscale, o claudeV só abre no próprio computador, em `http://localhost:8765`.
 
@@ -108,13 +113,14 @@ De vez em quando ele faz uma gracinha por conta própria: grasna, bate a asa, ba
 
 ## Segurança
 
-- O código do QR muda cada vez que o claudeV liga e só serve para parear. Cada celular recebe uma chave própria; no computador fica só um resumo dela, então nem uma sessão do Claude lendo a pasta `data` consegue se passar pelo seu celular.
+- O código do QR muda cada vez que o claudeV liga e depois de cada pareamento, e sozinho não dá acesso: o celular mostra 4 números que você digita na janela do computador. Um código vazado (num print, por exemplo) não basta para entrar, e três números errados derrubam os pedidos abertos. Cada celular recebe uma chave própria; no computador fica só um resumo dela, então nem uma sessão do Claude lendo a pasta `data` consegue se passar pelo seu celular.
 - "Desparear este celular" apaga a chave daquele celular no computador. Para desparear todos de uma vez, rode `node hub/server.mjs --novo-token`.
 - Pelo celular não dá para abrir sessão no modo que pula todas as permissões, nem mandar comandos com `!` ou comandos de barra que mexem em permissões. Valem `/model`, `/effort`, `/compact`, `/clear`, `/login`, `/status`, `/cost`, `/usage`, `/context`, `/help`, `/init`, `/resume`, `/rename` e `/review`.
 - Quando uma pergunta do Claude Code vira botão, o app mostra a tela inteira acima das opções, e "não perguntar de novo" pede um segundo toque.
 - Aceitar um pedido pelo aviso exige desbloquear o celular.
 - O celular só abre sessões dentro da sua pasta pessoal, em pastas que já tiveram sessão aberta no computador, ou nas que você listar em `pastasPermitidas` no arquivo `data/config.json`. Exemplo: `"pastasPermitidas": ["D:\\projetos"]`.
-- O claudeV nunca vê suas senhas. O login de cada conta é feito no próprio Claude Code.
+- O claudeV nunca vê suas senhas. O login de cada conta é feito na página da Anthropic; pelo celular, o claudeV só repassa ao Claude Code o código de uso único que a página mostra.
+- Arquivos anexados pelo celular ficam em `data/anexos`, só para celulares pareados, com até 25 MB cada.
 - Manter três contas pessoais é uma decisão sua: os termos da Anthropic dizem que os limites dos planos pressupõem uso individual comum. Vale conferir os termos.
 
 ## Limites conhecidos
