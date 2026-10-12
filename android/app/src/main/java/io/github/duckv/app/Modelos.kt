@@ -110,6 +110,8 @@ data class Estado(
     val prefs: Prefs,
     val demo: Boolean,
     val desvio: Long,
+    /** Arquivos que o computador mandou para o celular, do mais novo ao mais antigo. */
+    val arquivos: List<Arquivo> = emptyList(),
 ) {
     fun conta(id: String) = contas.find { it.id == id }
         ?: Conta(id, id, 0xFFFF7A1A, Padroes(null, null, null, null), null, null, null, null, null)
@@ -118,7 +120,10 @@ data class Estado(
     fun agenteDa(conta: String) = agente(conta(conta).agente)
 }
 
-data class Msg(val id: String, val papel: String, val texto: String, val tool: String?, val doCelular: Boolean, val img: String? = null, val via: String? = null)
+data class Msg(val id: String, val papel: String, val texto: String, val tool: String?, val doCelular: Boolean, val img: String? = null, val via: String? = null, val arq: String? = null)
+
+/** Um arquivo do computador para baixar no celular. */
+data class Arquivo(val id: String, val nome: String, val tamanho: Long, val tipo: String, val em: Long, val nota: String, val conta: String?)
 data class Tela(val linhas: List<String>, val cx: Int, val cy: Int, val links: List<String> = emptyList())
 
 fun pasta(p: String?) = p.orEmpty().split('\\', '/').lastOrNull { it.isNotEmpty() }.orEmpty()
@@ -225,11 +230,14 @@ fun lerEstado(m: JSONObject): Estado {
         ),
         demo = m.optBoolean("demo"),
         desvio = System.currentTimeMillis() - m.optLong("now", System.currentTimeMillis()),
+        arquivos = m.optJSONArray("arquivos").mapa {
+            Arquivo(it.optString("id"), it.optString("nome"), it.optLong("tamanho"), it.optString("tipo"), it.optLong("em"), it.optString("nota"), it.s("conta"))
+        },
     )
 }
 
 fun lerMsgs(a: JSONArray?): List<Msg> = a.mapa {
-    Msg(it.optString("id"), it.optString("role"), it.optString("text"), it.s("tool"), it.optString("via") == "celular", it.s("img"), it.s("via"))
+    Msg(it.optString("id"), it.optString("role"), it.optString("text"), it.s("tool"), it.optString("via") == "celular", it.s("img"), it.s("via"), it.s("arq"))
 }
 
 fun lerTela(m: JSONObject) = Tela(m.optJSONArray("lines").strings(), m.optInt("cx"), m.optInt("cy"), m.optJSONArray("links").strings())

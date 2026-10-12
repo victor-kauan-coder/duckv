@@ -456,6 +456,13 @@ private fun Mensagem(m: Msg, cor: Color, aoCopiar: (String) -> Unit = {}, aoReen
             )
         }
         "image" -> m.img?.let { ImagemDaConversa(it, m.via == "user") }
+        // arquivo que o computador mandou nesta conversa
+        "file" -> {
+            val e = Hub.estado.collectAsState().value
+            val a = e?.arquivos?.find { it.id == m.arq }
+            if (a != null) CartaoArquivo(e, a)
+            else Text("Arquivo enviado ao celular (já saiu da lista de arquivos).", style = Texto.pequeno, color = c.apoio)
+        }
         "sys" -> Text(m.texto, style = Texto.pequeno, color = c.apoio, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp))
         "user" -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
             val forma = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)

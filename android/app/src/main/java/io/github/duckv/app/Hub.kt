@@ -177,6 +177,37 @@ object Hub {
         return android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = amostra })
     }
 
+    // ------------------------------------------------------------ arquivos do computador
+
+    /**
+     * Baixa um arquivo que o computador mandou, em pedacos, avisando o progresso (0..1).
+     * Escreve em [destino]; se ja houver [jaTem] bytes la, continua de onde parou. Fora da thread principal.
+     */
+    fun baixarArquivo(id: String, jaTem: Long, destino: java.io.OutputStream, cancelado: () -> Boolean, progresso: (Long, Long) -> Unit): Result<Unit> = runCatching {
+        val b = base ?: error("Sem conexão com o computador.")
+        val req = Request.Builder().url("$b/api/arquivo/$id").header("Cookie", "painel=$token")
+            .apply { if (jaTem > 0) header("Range", "bytes=$jaTem-") }.build()
+        cliente.newCall(req).execute().use { r ->
+            if (!r.isSuccessful) error(runCatching { JSONObject(r.body?.string() ?: "{}").optString("erro") }.getOrNull()?.ifBlank { null } ?: "O computador recusou o download (${r.code}).")
+            val corpo = r.body ?: error("O computador não mandou o arquivo.")
+            val inicio = if (r.code == 206) jaTem else 0L
+            val total = inicio + corpo.contentLength().coerceAtLeast(0)
+            var feito = inicio
+            val buf = ByteArray(64 * 1024)
+            corpo.byteStream().use { ent ->
+                while (true) {
+                    if (cancelado()) error("cancelado")
+                    val n = ent.read(buf)
+                    if (n < 0) break
+                    destino.write(buf, 0, n)
+                    feito += n
+                    progresso(feito, total)
+                }
+            }
+            destino.flush()
+        }
+    }
+
     // ------------------------------------------------------------ anexos
 
     /** Manda um arquivo do celular para o computador; devolve (nome, caminho no computador) ou o erro. Fora da thread principal. */

@@ -7,6 +7,8 @@
 // Nada alem do protocolo pode ser escrito nela; avisos vao para stderr.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import path from 'node:path';
 import WebSocket from 'ws';
 import { hubConfig, ident } from './common.mjs';
 
@@ -17,6 +19,7 @@ const mcp = new Server(
   { name: 'painel', version: '0.1.0' },
   {
     capabilities: {
+      tools: {},
       experimental: {
         'claude/channel': {},
         'claude/channel/permission': {},
@@ -25,9 +28,57 @@ const mcp = new Server(
     instructions:
       'Mensagens que chegam como <channel source="painel" ...> foram escritas pelo proprio usuario no aplicativo ' +
       'do celular, que acompanha esta sessao a distancia. Trate-as exatamente como se ele as tivesse digitado ' +
-      'aqui no terminal. Responda normalmente: o aplicativo mostra suas respostas, nao existe ferramenta de resposta.',
+      'aqui no terminal. Responda normalmente: o aplicativo mostra suas respostas, nao existe ferramenta de resposta. ' +
+      'Quando o usuario pedir um arquivo no celular (um video, um PDF, um APK que voce gerou), use a ferramenta ' +
+      'enviar_ao_celular com o caminho do arquivo: ele aparece no app para baixar.',
   },
 );
+
+// Ferramenta para o agente mandar um arquivo do computador ao celular.
+mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: 'enviar_ao_celular',
+      description:
+        'Manda um arquivo deste computador para o celular do usuario pelo duckV. O arquivo aparece no app, com aviso, ' +
+        'para ele baixar, abrir ou compartilhar. Use quando o usuario pedir um arquivo no celular. Pastas: compacte em .zip antes.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          caminho: { type: 'string', description: 'Caminho do arquivo no computador (absoluto ou relativo a pasta da sessao).' },
+          nota: { type: 'string', description: 'Frase curta que acompanha o arquivo no app (opcional).' },
+        },
+        required: ['caminho'],
+      },
+    },
+  ],
+}));
+
+mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
+  if (req.params.name !== 'enviar_ao_celular') return { isError: true, content: [{ type: 'text', text: 'Ferramenta desconhecida.' }] };
+  const a = req.params.arguments || {};
+  const cfg = hubConfig();
+  if (!cfg) return { isError: true, content: [{ type: 'text', text: 'O duckV nao esta configurado neste computador.' }] };
+  try {
+    const r = await fetch(`http://127.0.0.1:${process.env.PAINEL_PORT || cfg.port}/ingest/arquivo`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-painel-secret': cfg.agentSecret },
+      body: JSON.stringify({
+        caminho: path.resolve(process.cwd(), String(a.caminho || '')),
+        nota: typeof a.nota === 'string' ? a.nota : '',
+        instancia: instance,
+        sessao: process.env.CLAUDE_CODE_SESSION_ID || null,
+        conta: account,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return { isError: true, content: [{ type: 'text', text: j.erro || `O duckV respondeu ${r.status}.` }] };
+    return { content: [{ type: 'text', text: `Enviado: ${j.nome} esta no celular, na tela Arquivos do duckV, pronto para baixar.` }] };
+  } catch (e) {
+    return { isError: true, content: [{ type: 'text', text: `O duckV nao respondeu (${e.message}). Ele esta aberto no computador?` }] };
+  }
+});
 
 let ws = null;
 let retry = 1000;

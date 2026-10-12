@@ -349,6 +349,7 @@ function snapshot() {
     now: now(),
     demo: process.env.PAINEL_DEMO === '1',
     prefs: { avisos: prefs.avisos, rapidas: prefs.rapidas },
+    arquivos: arquivos.slice(-50).reverse().map(pubArquivo),
     accounts: [...accounts.values()].map((a) => ({
       id: a.id,
       nome: nomeDe(a),
@@ -452,6 +453,92 @@ const SEM_CANAL =
 
 function sysMsg(inst, text) {
   pushMsgs(inst, [{ id: `sys:${now()}:${Math.random().toString(36).slice(2, 7)}`, role: 'sys', text, ts: now() }]);
+}
+
+// ---------------------------------------------------------------- arquivos para o celular
+// Um agente (ou o proprio usuario, pelo tools/enviar.mjs) registra um arquivo do computador para o celular baixar.
+// So o que foi registrado assim pode ser baixado: o celular nunca escolhe um caminho do disco.
+const ARQUIVOS_FILE = path.join(DATA, 'arquivos.json');
+const TIPOS_ARQ = {
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.mkv': 'video/x-matroska',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf', '.zip': 'application/zip', '.apk': 'application/vnd.android.package-archive',
+  '.txt': 'text/plain', '.md': 'text/markdown', '.csv': 'text/csv', '.json': 'application/json', '.html': 'text/html',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
+let arquivos = (readJson(ARQUIVOS_FILE, []) || []).filter((a) => a?.id && a.caminho && fs.existsSync(a.caminho));
+const pubArquivo = (a) => ({ id: a.id, nome: a.nome, tamanho: a.tamanho, tipo: a.tipo, em: a.em, nota: a.nota || '', conta: a.conta || null, instancia: a.instancia || null });
+const tamanhoLegivel = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`).replace('.', ',');
+
+function registrarArquivo(b) {
+  const bruto = typeof b?.caminho === 'string' ? b.caminho.trim().replace(/^"(.*)"$/, '$1') : '';
+  if (!bruto) return { erro: 'Diga qual arquivo mandar (o caminho dele no computador).' };
+  const caminho = path.resolve(b.cwd && !path.isAbsolute(bruto) ? path.join(String(b.cwd), bruto) : bruto);
+  let st;
+  try {
+    st = fs.statSync(caminho);
+  } catch {
+    return { erro: `Arquivo não encontrado: ${caminho}` };
+  }
+  if (!st.isFile()) return { erro: `Isso é uma pasta, não um arquivo: ${caminho}. Compacte em .zip antes.` };
+  if (st.size > 4 * 1024 ** 3) return { erro: 'Arquivo grande demais (máximo de 4 GB).' };
+  const nome = (typeof b.nome === 'string' && b.nome.trim() ? b.nome.trim() : path.basename(caminho)).slice(0, 120);
+  // A sessao que mandou: pela janela do duckV, pela sessao do Claude Code ou pela conversa do desktop.
+  const sid = typeof b.sessao === 'string' ? b.sessao : null;
+  const inst = (b.instancia && instances.get(b.instancia)) || [...instances.values()].find((i) => sid && (i.sessionId === sid || i.id === `desk-${sid.slice(0, 8)}`)) || null;
+  const a = {
+    id: crypto.randomBytes(8).toString('hex'),
+    caminho,
+    nome,
+    tamanho: st.size,
+    tipo: TIPOS_ARQ[path.extname(nome).toLowerCase()] || 'application/octet-stream',
+    em: now(),
+    nota: typeof b.nota === 'string' ? clip(b.nota.trim(), 300) : '',
+    conta: inst?.account || (typeof b.conta === 'string' ? b.conta : null),
+    instancia: inst?.id || null,
+  };
+  arquivos = [...arquivos.filter((x) => x.caminho !== caminho), a].slice(-100);
+  writeJson(ARQUIVOS_FILE, arquivos);
+  if (inst) pushMsgs(inst, [{ id: `arq:${a.id}`, role: 'file', arq: a.id, text: a.nota, ts: a.em }]);
+  pushNotify({ title: 'Arquivo do computador', body: `${nome} · ${tamanhoLegivel(st.size)}. Toque para baixar.`, tag: `arq-${a.id}`, url: '/' });
+  dirty();
+  return { ok: true, id: a.id, nome, tamanho: st.size };
+}
+
+// Manda o arquivo ao celular, com pedacos (Range) para o download continuar de onde parou.
+function servirArquivo(req, res, id) {
+  const a = arquivos.find((x) => x.id === id);
+  if (!a) return json(res, 404, { erro: 'Esse arquivo saiu da lista do duckV.' });
+  let st;
+  try {
+    st = fs.statSync(a.caminho);
+  } catch {
+    return json(res, 410, { erro: 'O arquivo não está mais no computador.' });
+  }
+  const nomeHdr = `attachment; filename="${a.nome.replace(/[^\x20-\x7e]|"/g, '_')}"; filename*=UTF-8''${encodeURIComponent(a.nome)}`;
+  const base = { ...SEC_HEADERS, 'Content-Type': a.tipo, 'Content-Disposition': nomeHdr, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, no-store' };
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+  let ini = 0;
+  let fim = st.size - 1;
+  if (m && (m[1] || m[2])) {
+    if (m[1]) {
+      ini = Number(m[1]);
+      if (m[2]) fim = Math.min(Number(m[2]), st.size - 1);
+    } else ini = Math.max(0, st.size - Number(m[2]));
+    if (ini > fim || ini >= st.size) {
+      res.writeHead(416, { ...base, 'Content-Range': `bytes */${st.size}` });
+      return res.end();
+    }
+    res.writeHead(206, { ...base, 'Content-Range': `bytes ${ini}-${fim}/${st.size}`, 'Content-Length': fim - ini + 1 });
+  } else res.writeHead(200, { ...base, 'Content-Length': st.size });
+  if (req.method === 'HEAD') return res.end();
+  const fluxo = fs.createReadStream(a.caminho, { start: ini, end: fim });
+  fluxo.on('error', () => res.destroy());
+  req.on('close', () => fluxo.destroy());
+  fluxo.pipe(res);
 }
 
 async function pushNotify(payload) {
@@ -560,6 +647,16 @@ async function onPhoneMessage(c, m) {
       inst.updatedAt = now();
       send(c, { t: 'ack', ref: m.ref });
       dirty();
+      break;
+    }
+    case 'arquivoTirar': {
+      const antes = arquivos.length;
+      arquivos = arquivos.filter((x) => x.id !== m.id);
+      if (arquivos.length !== antes) {
+        writeJson(ARQUIVOS_FILE, arquivos);
+        dirty();
+      }
+      send(c, { t: 'ack', ref: m.ref });
       break;
     }
     case 'desistir': {
@@ -1958,6 +2055,10 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/ingest/')) {
       if (req.method !== 'POST' || !isAgent(req)) return json(res, 403, { erro: 'negado' });
       const body = await readBody(req);
+      if (p === '/ingest/arquivo') {
+        const r = registrarArquivo(body);
+        return json(res, r.erro ? 400 : 200, r);
+      }
       if (p === '/ingest/status') onStatus(body);
       else if (p === '/ingest/hook') onHook(body);
       else if (p === '/ingest/permission') return json(res, 200, await waitPermission(body, res));
@@ -1983,6 +2084,7 @@ const server = http.createServer(async (req, res) => {
       if (!aparelho) return json(res, 401, { erro: 'nao pareado' });
       if (!originOk(req)) return json(res, 403, { erro: 'origem' });
       if (p === '/api/state' && req.method === 'GET') return json(res, 200, snapshot());
+      if (p.startsWith('/api/arquivo/') && (req.method === 'GET' || req.method === 'HEAD')) return servirArquivo(req, res, p.slice(13));
       if (p.startsWith('/api/img/') && req.method === 'GET') {
         const img = imagens.get(p.slice(9));
         if (!img) return json(res, 404, { erro: 'imagem' });

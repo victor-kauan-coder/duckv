@@ -36,6 +36,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.runtime.collectAsState
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -133,6 +135,8 @@ fun Inicio(
     val pager = rememberPagerState { contas.size }
     val escopo = rememberCoroutineScope()
     var criando by remember { mutableStateOf(false) }
+    var verArquivos by remember { mutableStateOf(false) }
+    if (verArquivos && e != null) FolhaArquivos(e) { verArquivos = false }
     var entrando by remember { mutableStateOf<Conta?>(null) }
     entrando?.let { ct ->
         if (e?.agente(ct.agente)?.loginNoTerminal == true) {
@@ -162,6 +166,17 @@ fun Inicio(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Logo(Modifier.weight(1f))
+                // arquivos que o computador mandou; o ponto conta os que ainda nao foram baixados
+                if (e != null) {
+                    androidx.compose.runtime.LaunchedEffect(Unit) { Baixados.carregar(ctx) }
+                    val baixados by Baixados.estado.collectAsState()
+                    val novos = e.arquivos.count { baixados[it.id] == null }
+                    IconButton({ verArquivos = true }) {
+                        androidx.compose.material3.BadgedBox(badge = {
+                            if (novos > 0) androidx.compose.material3.Badge(containerColor = c.primario, contentColor = c.noPrimario) { Text("$novos") }
+                        }) { Icon(Icons.Rounded.Download, if (novos > 0) "Arquivos do computador, $novos novos" else "Arquivos do computador", tint = c.apoio) }
+                    }
+                }
                 IconButton(aoOpcoes) { Icon(Icons.Rounded.Settings, "Opções", tint = c.apoio) }
             }
 

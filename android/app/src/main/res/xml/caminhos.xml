@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Arquivos baixados do computador no Android 9 e anteriores: pasta do app, compartilhada so com o app que abre o arquivo. -->
+<paths>
+    <external-files-path name="baixados" path="Download/" />
+</paths>

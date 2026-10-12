@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- mensagens de voz: o celular transcreve o que voce fala -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- abrir um APK que o computador mandou (o Android pede a confirmacao do usuario) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <queries>
         <intent>
@@ -46,5 +48,15 @@
         <receiver
             android:name=".Resposta"
             android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.arquivos"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/caminhos" />
+        </provider>
     </application>
 </manifest>
