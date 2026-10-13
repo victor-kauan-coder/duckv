@@ -160,7 +160,8 @@ object Hub {
     /** GET num caminho do duckV com a chave deste celular (a tela de previa busca cada pedaco por aqui). Fora da thread principal. */
     fun buscar(caminho: String): Response? {
         val b = base ?: return null
-        return runCatching { cliente.newCall(Request.Builder().url(b + caminho).header("Cookie", "painel=$token").build()).execute() }.getOrNull()
+        // O cabecalho X-DuckV-Previa abre as rotas de previa, que um link no navegador nao alcanca.
+        return runCatching { cliente.newCall(Request.Builder().url(b + caminho).header("Cookie", "painel=$token").header("X-DuckV-Previa", "1").build()).execute() }.getOrNull()
     }
 
     fun imagem(id: String): android.graphics.Bitmap? {

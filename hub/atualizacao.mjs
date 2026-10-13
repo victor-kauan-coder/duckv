@@ -1,4 +1,4 @@
-// Atualizacao do app do celular. O repositorio e privado, entao o celular nao consulta o GitHub:
+// Atualizacao do app do celular. O celular nao consulta o GitHub:
 // o computador (que ja tem o gh logado) olha a ultima versao publicada, baixa o APK, confere o
 // SHA-256 que o GitHub publica e entrega ao celular pela mesma ligacao pareada dos arquivos.
 import fs from 'node:fs';
@@ -32,7 +32,7 @@ export function criarAtualizacao({ raiz, dados, aoMudar, automatico = true }) {
     return (repo = m[1]);
   }
 
-  // Com o gh logado funciona mesmo com o repositorio privado; sem ele, so se o repositorio for publico.
+  // Sem o gh logado tambem funciona, porque o repositorio e publico; com ele, vale ate para um fork privado.
   async function ultimaVersao(r) {
     try {
       return JSON.parse(await executar('gh', ['api', `repos/${r}/releases/latest`]));

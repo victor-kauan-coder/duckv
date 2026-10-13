@@ -2149,7 +2149,9 @@ const server = http.createServer(async (req, res) => {
         return a ? servirArquivo(req, res, null, a) : json(res, 404, { erro: 'Nenhuma versão nova pronta no computador.' });
       }
       // Previa e arquivos de uma sessao, para a tela de previa do app (que busca cada pedaco por aqui).
+      // Um link aberto no navegador nao manda esse cabecalho: sem ele, uma pagina do projeto nao roda com a origem do duckV.
       if ((p.startsWith('/api/previa/') || p.startsWith('/api/pasta/')) && req.method === 'GET') {
+        if (req.headers['x-duckv-previa'] !== '1' || req.headers['sec-fetch-mode'] === 'navigate') return json(res, 403, { erro: 'Abra a prévia pelo app do duckV.' });
         const previa = p.startsWith('/api/previa/');
         const partes = p.slice(previa ? 12 : 11).split('/');
         const inst = instances.get(decodeURIComponent(partes.shift() || ''));

@@ -3,5 +3,7 @@ data/
 contas.json
 conta*.cmd
 conta*.sh
-.impeccable/review/
-.impeccable/build/
+# pesquisa de design: fica so neste computador
+.impeccable/
+DESIGN.md
+PRODUCT.md

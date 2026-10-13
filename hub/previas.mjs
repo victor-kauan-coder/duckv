@@ -110,7 +110,7 @@ export function repassar(req, res, inst, porta, caminho, cabecalhosSeguros) {
       timeout: 15000,
     },
     (r) => {
-      const h = { 'Cache-Control': 'no-store' };
+      const h = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
       for (const k of ['content-type', 'content-length', 'last-modified', 'etag']) if (r.headers[k]) h[k] = r.headers[k];
       res.writeHead(r.statusCode || 502, h);
       r.pipe(res);
@@ -137,13 +137,14 @@ export function servirDaPasta(res, inst, caminho, cabecalhosSeguros) {
   let st;
   try {
     // o caminho real tambem precisa estar dentro do projeto (um atalho nao pode apontar para fora)
-    if (!fs.realpathSync(alvo).startsWith(fs.realpathSync(inst.cwd))) throw new Error('fora');
+    const real = path.relative(fs.realpathSync(inst.cwd), fs.realpathSync(alvo));
+    if (!real || real.startsWith('..') || path.isAbsolute(real)) throw new Error('fora');
     st = fs.statSync(alvo);
     if (!st.isFile() || st.size > 50 * 1024 * 1024) throw new Error('grande');
   } catch {
     res.writeHead(404, cabecalhosSeguros);
     return res.end('O arquivo nao esta mais no computador.');
   }
-  res.writeHead(200, { 'Content-Type': tipo, 'Content-Length': st.size, 'Cache-Control': 'no-store' });
+  res.writeHead(200, { 'Content-Type': tipo, 'Content-Length': st.size, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   fs.createReadStream(alvo).on('error', () => res.destroy()).pipe(res);
 }

@@ -62,7 +62,7 @@ O **duckV** junta num app só os agentes de código que rodam no seu computador,
 | **Arquivos do computador** | Peça ao agente "manda esse arquivo para o meu celular" (ou rode `node tools\enviar.mjs arquivo`): ele aparece no app, com aviso, para baixar em Downloads/duckV, abrir ou compartilhar. |
 | **Comandos e skills ao digitar /** | Digite `/` na conversa e aparecem os comandos do agente e as skills e comandos personalizados do computador, com descrição; tocar completa o nome. |
 | **Responder pela notificação** | Quando uma sessão termina, responda direto na notificação, como no WhatsApp, sem abrir o app. |
-| **Atualização pelo app** | Quando sai uma versão nova, o computador a traz do GitHub (funciona com o repositório privado, pelo `gh` logado), confere o SHA-256 e o app mostra o que mudou e instala com um toque. Também em Opções > Procurar atualização. |
+| **Atualização pelo app** | Quando sai uma versão nova, o computador a traz do GitHub (pelas Releases deste repositório), confere o SHA-256 e o app mostra o que mudou e instala com um toque. Também em Opções > Procurar atualização. |
 | **Pareamento verificado** | O QR sozinho não dá acesso: os 4 números do celular precisam ser digitados no computador. |
 | **Instalação em um clique** | O instalador cuida do que faltar e faz o login das contas. |
 | **Um pato por conta** | Ele mostra, em pixels, se a conta trabalha, espera, dorme ou precisa de você. |
@@ -246,6 +246,8 @@ O duckV comanda o seu computador, então a segurança foi pensada em camadas:
 - Sessões só abrem dentro da sua pasta pessoal, em pastas que já tiveram sessão no computador, ou nas listadas em `pastasPermitidas` no arquivo `data/config.json`. Exemplo: `"pastasPermitidas": ["D:\\projetos"]`.
 - Aceitar um pedido ou responder uma sessão pela notificação exige desbloquear o celular. "Não perguntar de novo" pede um segundo toque.
 - Anexos vão só para celulares pareados, com até 25 MB cada, para a pasta `data/anexos`.
+- Prévias e arquivos do projeto só abrem pelo app Android, nunca como página no navegador, para que um HTML de um projeto clonado não rode com a origem do duckV.
+- Mesmo com esses filtros, um celular pareado pode aceitar os pedidos dos agentes e mandar trabalho para eles. Trate o celular pareado como uma chave do seu computador: use bloqueio de tela e desparee aparelhos que você não usa mais.
 
 **Contas**
 - O duckV nunca vê suas senhas. O login acontece na página de cada empresa; pelo celular, o duckV só repassa ao agente o código de uso único que a página mostra.

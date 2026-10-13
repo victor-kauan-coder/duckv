@@ -2,6 +2,7 @@
 // Usa uma pasta temporaria: nao toca nas suas contas nem nos dados do duckV.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -43,6 +44,12 @@ ok((await fetch(`${base}/api/parear`, { method: 'POST', body: JSON.stringify({ k
 await fetch(`${base}/api/desparear`, { method: 'POST', headers: { cookie: outro } });
 ok((await fetch(`${base}/api/state`, { headers: { cookie: outro } })).status === 401, 'desparear invalida a chave no computador');
 ok((await fetch(`${base}/api/state`, { headers: { cookie } })).status === 200, 'desparear um celular nao afeta os outros');
+// Previas rodam paginas do projeto: um link aberto no navegador pareado nao pode carrega-las com a origem do duckV.
+ok((await fetch(`${base}/api/pasta/x/index.html`, { headers: { cookie } })).status === 403, 'previa sem o cabecalho do app e recusada');
+// (o fetch do Node reescreve o Sec-Fetch-Mode, entao este vai por http.request)
+const navegacao = await new Promise((r) => (http.get(`${base}/api/previa/x/5173/`, { headers: { cookie, 'x-duckv-previa': '1', 'sec-fetch-mode': 'navigate' } }, (res) => { res.resume(); r(res.statusCode); })).on('error', () => r(0)));
+ok(navegacao === 403, 'previa aberta como pagina no navegador e recusada');
+ok((await fetch(`${base}/api/pasta/x/index.html`, { headers: { cookie, 'x-duckv-previa': '1' } })).status === 404, 'previa pedida pelo app passa da porta (sessao inexistente da 404)');
 
 // --- celular simulado
 const phone = new WebSocket(`ws://127.0.0.1:${PORT}/ws`, { headers: { cookie } });

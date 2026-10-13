@@ -17,7 +17,7 @@ import kotlin.concurrent.thread
 
 /**
  * Atualizacao do app sem passar pelo GitHub: o computador baixa a versao nova das Releases
- * (o repositorio e privado) e o celular a pega dele, confere o SHA-256 e chama o instalador.
+ * e o celular a pega dele, confere o SHA-256 e chama o instalador.
  * O Android so aceita por cima um APK assinado com a mesma chave.
  */
 object Atualizacao {
