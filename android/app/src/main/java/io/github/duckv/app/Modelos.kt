@@ -82,6 +82,7 @@ data class Sessao(
     val sessaoId: String? = null,
     val agente: String = "claude",
     val links: List<String> = emptyList(),
+    val previas: Previas = Previas(),
     val login: Boolean = false,
 ) {
     val viva get() = status != "ended"
@@ -126,6 +127,11 @@ data class Msg(val id: String, val papel: String, val texto: String, val tool: S
 
 /** Um arquivo do computador para baixar no celular. */
 data class Arquivo(val id: String, val nome: String, val tamanho: Long, val tipo: String, val em: Long, val nota: String, val conta: String?)
+/** O que da para ver de uma sessao no celular: previas em localhost, arquivos criados e artefatos do claude.ai. */
+data class Previas(val portas: List<Int> = emptyList(), val arquivos: List<String> = emptyList(), val artefatos: List<String> = emptyList()) {
+    val vazio get() = portas.isEmpty() && arquivos.isEmpty() && artefatos.isEmpty()
+}
+
 data class Tela(val linhas: List<String>, val cx: Int, val cy: Int, val links: List<String> = emptyList())
 
 fun pasta(p: String?) = p.orEmpty().split('\\', '/').lastOrNull { it.isNotEmpty() }.orEmpty()
@@ -204,6 +210,7 @@ fun lerEstado(m: JSONObject): Estado {
             ultimoTexto = i.optString("lastText"),
             agente = i.optString("agente", "claude"),
             links = i.optJSONArray("links").strings(),
+            previas = i.optJSONObject("previas")?.let { pv -> Previas(pv.optJSONArray("portas").let { a -> List(a?.length() ?: 0) { a!!.optInt(it) } }, pv.optJSONArray("arquivos").strings(), pv.optJSONArray("artefatos").strings()) } ?: Previas(),
             login = i.optBoolean("login"),
         )
     }

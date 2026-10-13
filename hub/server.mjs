@@ -13,6 +13,7 @@ import qrcode from 'qrcode-terminal';
 import { ROOT, DATA, CONFIG_FILE, ACCOUNTS_FILE, ensureConfig, loadAccounts, defaultAccounts, readJson, writeJson, DEFAULT_COLORS } from '../lib/config.mjs';
 import { Tail, parseEntry, TaskTracker, scanWindowTokens } from './transcript.mjs';
 import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter } from './hosted.mjs';
+import * as previas from './previas.mjs';
 import { agenteDe, ehAgente, catalogo, instalado } from './agentes.mjs';
 import { listarComandos } from './comandos.mjs';
 import { criarAtualizacao } from './atualizacao.mjs';
@@ -342,6 +343,7 @@ function pubInst(i) {
     desktop: !!(i.desktop || i.historico),
     sessionId: i.desktop || i.historico ? i.sessionId : undefined,
     lastText: i.lastText,
+    previas: previas.publico(i),
   };
 }
 
@@ -442,6 +444,12 @@ function pushMsgs(inst, items) {
     inst.messages.push(it);
     fresh.push(it);
     if (it.role === 'assistant') inst.lastText = clip(semMarkdown(it.text), 200);
+    // um localhost:porta ou um link de artefato na conversa vira algo para abrir no celular
+    if (previas.lerTexto(inst, it.text, PORT)) inst.previaMudou = true;
+  }
+  if (inst.previaMudou) {
+    inst.previaMudou = false;
+    dirty();
   }
   if (!fresh.length) return;
   if (inst.messages.length > 5000) {
@@ -1377,9 +1385,16 @@ function pollInst(inst) {
       inst.usageById.set(p.usage.id, p.usage);
       changed = true;
     }
-    for (const t of p.tools) if (inst.tracker.onTool(t)) changed = true;
+    for (const t of p.tools) {
+      if (inst.tracker.onTool(t)) changed = true;
+      // arquivo que o agente criou ou editou: HTML, imagem, SVG, PDF da pasta do projeto
+      const alvo = t.input?.file_path || t.input?.notebook_path;
+      if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(t.name) && previas.lerArquivo(inst, alvo)) changed = true;
+    }
     for (const r of p.results) {
       if (inst.tracker.onResult(r)) changed = true;
+      // "Local: http://localhost:5173" na saida de um comando
+      if (previas.lerTexto(inst, r.text, PORT)) changed = true;
       if (inst.perms.some((x) => x.toolUseId === r.id)) {
         clearPerm(inst, null, r.id);
         if (!inst.perms.length && inst.status === 'waiting') {
@@ -2132,6 +2147,16 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/atualizacao/apk' && (req.method === 'GET' || req.method === 'HEAD')) {
         const a = atualizacao.arquivo();
         return a ? servirArquivo(req, res, null, a) : json(res, 404, { erro: 'Nenhuma versão nova pronta no computador.' });
+      }
+      // Previa e arquivos de uma sessao, para a tela de previa do app (que busca cada pedaco por aqui).
+      if ((p.startsWith('/api/previa/') || p.startsWith('/api/pasta/')) && req.method === 'GET') {
+        const previa = p.startsWith('/api/previa/');
+        const partes = p.slice(previa ? 12 : 11).split('/');
+        const inst = instances.get(decodeURIComponent(partes.shift() || ''));
+        if (!inst) return json(res, 404, { erro: 'Sessão não encontrada.' });
+        if (!previa) return previas.servirDaPasta(res, inst, partes.join('/'), SEC_HEADERS);
+        const porta = Number(partes.shift());
+        return previas.repassar(req, res, inst, porta, '/' + partes.join('/') + url.search, SEC_HEADERS);
       }
       if (p.startsWith('/api/img/') && req.method === 'GET') {
         const img = imagens.get(p.slice(9));

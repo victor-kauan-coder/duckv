@@ -157,6 +157,12 @@ object Hub {
     private val imagens = android.util.LruCache<String, android.graphics.Bitmap>(24)
 
     /** Baixa uma imagem da conversa (so celulares pareados conseguem). Chame fora da thread principal. */
+    /** GET num caminho do duckV com a chave deste celular (a tela de previa busca cada pedaco por aqui). Fora da thread principal. */
+    fun buscar(caminho: String): Response? {
+        val b = base ?: return null
+        return runCatching { cliente.newCall(Request.Builder().url(b + caminho).header("Cookie", "painel=$token").build()).execute() }.getOrNull()
+    }
+
     fun imagem(id: String): android.graphics.Bitmap? {
         imagens.get(id)?.let { return it }
         val b = base ?: return null

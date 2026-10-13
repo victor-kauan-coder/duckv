@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Replay
@@ -146,6 +147,15 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                     }
                 }
             }
+            // previas, arquivos e artefatos desta sessao: o botao so aparece quando ha algo para ver
+            var verPrevias by remember { mutableStateOf(false) }
+            if (s != null && !s.previas.vazio) {
+                androidx.compose.foundation.layout.Box {
+                    IconButton({ verPrevias = true }) { Icon(Icons.Rounded.Visibility, "Visualizar prévias e arquivos", tint = c.texto) }
+                    Box(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(8.dp).clip(CircleShape).background(c.primario))
+                }
+            }
+            if (verPrevias && s != null) ListaPrevias(s) { verPrevias = false }
             Pato(s?.let { bichoDaSessao(it) } ?: "dorme", pato, cor, Modifier.width(64.dp).height(50.dp), andar = false, tipo = conta?.pato)
         }
         if (s == null) {
