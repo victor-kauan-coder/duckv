@@ -9,7 +9,11 @@ import path from 'node:path';
 let pty = null;
 let Terminal = null;
 let loadError = null;
+// O node-pty so vem pronto para Linux com glibc. Com musl (Alpine) ele ate carrega, mas derruba o
+// processo inteiro ao abrir um terminal: melhor nem tentar e avisar no app.
+const musl = process.platform === 'linux' && !process.report?.getReport?.()?.header?.glibcVersionRuntime;
 try {
+  if (musl) throw new Error('este Linux usa musl (Alpine e parecidos); as sessoes pelo celular precisam de um Linux com glibc, como Ubuntu, Debian ou Fedora');
   const m = await import('@lydell/node-pty');
   pty = m.spawn ? m : m.default;
   const x = await import('@xterm/headless');
@@ -399,7 +403,8 @@ export function startHosted(opts) {
     };
     let tentativas = 0;
     const enter = () => {
-      const tela = snapshot().lines.join('\n');
+      // Mesma normalizacao do inicio: texto de varias linhas aparece quebrado na tela.
+      const tela = snapshot().lines.join(' ').replace(/\s+/g, ' ');
       if (Date.now() - t0 < 2000 && !tela.includes(inicio) && !tela.includes('[Pasted')) return void setTimeout(enter, 100);
       write('\r');
       // Texto longo chega como "colado" e o Claude Code as vezes ignora o Enter logo depois: confere e repete.

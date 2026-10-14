@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { semBlocos, dentroDe } from '../lib/texto.mjs';
 
 const ler = (f) => {
   try {
@@ -630,8 +631,8 @@ const cline = {
 // A mensagem do usuario vem embrulhada em <user_input mode="act">…</user_input>.
 function textoCline(m) {
   const t = (Array.isArray(m.content) ? m.content : []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
-  const dentro = /<user_input[^>]*>([\s\S]*?)<\/user_input>/.exec(t);
-  return (dentro ? dentro[1] : t.replace(/<[a-z_]+[^>]*>[\s\S]*?<\/[a-z_]+>/g, '')).trim();
+  const dentro = dentroDe(t, 'user_input');
+  return (dentro !== null ? dentro : semBlocos(t, { mesmoNome: false })).trim();
 }
 
 export const AGENTES = { claude, codex, gemini, opencode, cline };

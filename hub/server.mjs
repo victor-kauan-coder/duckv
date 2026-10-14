@@ -17,6 +17,9 @@ import * as previas from './previas.mjs';
 import { agenteDe, ehAgente, catalogo, instalado } from './agentes.mjs';
 import { listarComandos } from './comandos.mjs';
 import { criarAtualizacao } from './atualizacao.mjs';
+import { hostPermitido } from './rede.mjs';
+import { semBlocos } from '../lib/texto.mjs';
+import { textoPerigoso as filtrarTexto } from './filtro.mjs';
 
 // Aberto de dentro de uma sessao do Claude Code (o app desktop, um terminal do agente), o duckV herdaria as
 // marcas dela, e cada agente que ele abre se acharia uma sessao filha: sem salvar o historico, a conversa nunca
@@ -25,6 +28,10 @@ for (const k of Object.keys(process.env)) {
   if (k === 'CLAUDECODE' || k === 'CLAUDE_PID' || k === 'CLAUDE_EFFORT' || /^CLAUDE_(CODE|AGENT_SDK|PREVIEW)_/.test(k)) delete process.env[k];
 }
 
+if (Number(process.versions.node.split('.')[0]) < 22) {
+  console.error(`O duckV precisa do Node.js 22 ou mais novo (este e o ${process.versions.node}). Baixe em https://nodejs.org`);
+  process.exit(1);
+}
 const argv = new Set(process.argv.slice(2));
 const cfg = ensureConfig(() => webpush.generateVAPIDKeys());
 const PORT = Number(process.env.PAINEL_PORT) || cfg.port;
@@ -1677,7 +1684,7 @@ function tituloDaSessao(file, mtime) {
         const cont = e.message?.content;
         // o primeiro texto escrito por voce; blocos internos (<ide_...>, <command-...>) ficam de fora
         const textos = typeof cont === 'string' ? [cont] : Array.isArray(cont) ? cont.filter((b) => b?.type === 'text').map((b) => b.text) : [];
-        const t = textos.map((x) => String(x || '').replace(/<([a-z-]+)[^>]*>[\s\S]*?<\/\1>/g, '').trim()).find((x) => x && !x.startsWith('<'));
+        const t = textos.map((x) => semBlocos(x).trim()).find((x) => x && !x.startsWith('<'));
         if (t) titulo = t;
       }
     }
@@ -1893,16 +1900,7 @@ let tailnetHost = null;
 // /approvals...); por isso so passam os comandos de barra da lista de cada agente e as skills e
 // comandos personalizados instalados, menos os que liberam o terminal sozinhos (ver hub/comandos.mjs).
 // Pedidos em texto comum continuam livres.
-function textoPerigoso(text, ag = agenteDe('claude'), extras = []) {
-  const t = text.trimStart();
-  if (t.startsWith('!')) return `Comandos com ! rodam no computador sem pedir permissão, então não valem pelo celular. Peça ao ${ag.curto} em texto comum.`;
-  if (!t.startsWith('/')) return null;
-  const nome = '/' + t.slice(1).split(/\s/)[0].toLowerCase();
-  if (ag.comandos.some(([n]) => n === nome)) return null;
-  const extra = extras.find((x) => x.nome.toLowerCase() === nome);
-  if (extra) return extra.bloqueado;
-  return `O comando ${nome} não vale pelo celular. Digite / para ver os que valem; os outros mexem em permissões ou no computador e ficam lá.`;
-}
+const textoPerigoso = (text, ag = agenteDe('claude'), extras = []) => filtrarTexto(text, ag, extras);
 
 function cookieToken(req) {
   const raw = req.headers.cookie || '';
@@ -2006,6 +2004,9 @@ const isAgent = (req) => {
   return typeof s === 'string' && local(req) && safeEq(s, cfg.agentSecret);
 };
 
+// So nomes que um site de fora nao controla (contra DNS rebinding): veja rede.mjs.
+const hostOk = (req) => hostPermitido(req.headers.host, { tailnet: tailnetHost, lan: HOST === '0.0.0.0' });
+
 // Recusa pedidos vindos de outros sites (o navegador manda o cabecalho Origin).
 function originOk(req) {
   const origin = req.headers.origin;
@@ -2082,6 +2083,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   const p = url.pathname;
+  if (!hostOk(req)) {
+    res.writeHead(421, { ...SEC_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Endereco nao reconhecido pelo duckV.');
+  }
   try {
     if (p === '/parear' && req.method === 'GET') {
       const k = url.searchParams.get('k') || '';
@@ -2233,7 +2238,7 @@ server.on('upgrade', (req, socket, head) => {
   } catch {
     /* cai no destroy abaixo */
   }
-  const aparelho = p === '/ws' ? aparelhoDe(req) : null;
+  const aparelho = p === '/ws' && hostOk(req) ? aparelhoDe(req) : null;
   if (aparelho && originOk(req)) {
     wssPhone.handleUpgrade(req, socket, head, (ws) => wssPhone.emit('connection', ws, req, aparelho));
   } else if (p === '/agent' && isAgent(req)) {
@@ -2319,6 +2324,8 @@ function detectTailnet() {
   return new Promise((resolve) => {
     const tries = ['tailscale'];
     if (process.platform === 'win32') tries.push('C:\\Program Files\\Tailscale\\tailscale.exe');
+    // No macOS o app do Tailscale (da App Store ou do site) traz a linha de comando dentro dele.
+    if (process.platform === 'darwin') tries.push('/Applications/Tailscale.app/Contents/MacOS/Tailscale');
     const next = () => {
       const bin = tries.shift();
       if (!bin) return resolve(null);

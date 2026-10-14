@@ -4,15 +4,16 @@
 //   node setup.mjs            instala ou atualiza
 //   node setup.mjs --remover  desfaz o que a instalacao configurou
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import readline from 'node:readline/promises';
 import webpush from 'web-push';
 import { agenteDe } from './hub/agentes.mjs';
 import { ROOT, ACCOUNTS_FILE, ensureConfig, loadAccounts, defaultAccounts, readJson, writeJson } from './lib/config.mjs';
+import { WIN, MAC, lancador, criarAtalho, ligarComSistema, ligaComSistema, removerAtalhos, removerAntigos } from './lib/atalhos.mjs';
 
 const remover = process.argv.includes('--remover');
-const WIN = process.platform === 'win32';
 const fwd = (p) => p.replace(/\\/g, '/');
 const HOOK = path.join(ROOT, 'agent', 'hook.mjs');
 const STATUS = path.join(ROOT, 'agent', 'statusline.mjs');
@@ -40,8 +41,8 @@ const EVENTOS = [
 ];
 
 const major = Number(process.versions.node.split('.')[0]);
-if (major < 20) {
-  console.error(`O duckV precisa do Node.js 20 ou mais novo (este e o ${process.versions.node}). Baixe em https://nodejs.org`);
+if (major < 22) {
+  console.error(`O duckV precisa do Node.js 22 ou mais novo (este e o ${process.versions.node}). Baixe em https://nodejs.org`);
   process.exit(1);
 }
 
@@ -141,16 +142,6 @@ function atalho(conta) {
   return file;
 }
 
-// Atalhos do Windows (.lnk) para o duckV: na area de trabalho e, se voce quiser, ao entrar no Windows.
-const pastaEspecial = (nome) => spawnSync('powershell', ['-NoProfile', '-Command', `[Environment]::GetFolderPath('${nome}')`], { encoding: 'utf8' }).stdout.trim();
-const atalhoDesktop = () => path.join(pastaEspecial('Desktop'), 'duckV.lnk');
-const atalhoInicio = () => path.join(pastaEspecial('Startup'), 'duckV.lnk');
-function criarAtalho(lnk) {
-  const alvo = path.join(ROOT, 'iniciar-duckv.cmd');
-  const ps = `$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK);$s.TargetPath=$env:ALVO;$s.WorkingDirectory=$env:PASTA;$s.Description='duckV';$s.Save()`;
-  spawnSync('powershell', ['-NoProfile', '-Command', ps], { env: { ...process.env, LNK: lnk, ALVO: alvo, PASTA: ROOT } });
-}
-
 // Atalho de uma conta de outro agente (Codex, Gemini CLI, OpenCode, Cline): abre o agente na pasta
 // pedida, com a pasta da conta e os argumentos seguros de sempre (aprovacao manual, sem modo sem sandbox).
 function atalhoAgente(conta) {
@@ -213,12 +204,17 @@ const rodar = (cmd, env = process.env) => spawnSync(cmd, { shell: true, stdio: '
 
 let temClaude = remover || claude('--version').status === 0;
 if (!temClaude && (await pergunta('\nFalta o Claude Code. Instalar agora?'))) {
-  rodar('npm install -g @anthropic-ai/claude-code');
+  if (WIN) rodar('npm install -g @anthropic-ai/claude-code');
+  else {
+    // Instalador oficial: nao precisa de sudo e coloca o claude em ~/.local/bin.
+    rodar('curl -fsSL https://claude.ai/install.sh | bash');
+    process.env.PATH = `${path.join(os.homedir(), '.local', 'bin')}${path.delimiter}${process.env.PATH}`;
+  }
   temClaude = claude('--version').status === 0;
 }
 if (!temClaude && !remover) {
   console.log('\nSem o Claude Code, as pastas e os atalhos serao preparados, mas o canal nao sera registrado.');
-  console.log('Instale com "npm install -g @anthropic-ai/claude-code" e rode a instalacao de novo.\n');
+  console.log(`Instale com "${WIN ? 'npm install -g @anthropic-ai/claude-code' : 'curl -fsSL https://claude.ai/install.sh | bash'}" e rode a instalacao de novo.\n`);
 }
 
 const contas = loadAccounts();
@@ -267,7 +263,7 @@ if (pendencias.length) {
 }
 
 if (remover) {
-  if (WIN) for (const nome of ['duckV.lnk', 'claudeV.lnk']) for (const p of ['Desktop', 'Startup']) fs.rmSync(path.join(pastaEspecial(p), nome), { force: true });
+  removerAtalhos();
   console.log('\nPronto. Para apagar tudo, feche o duckV e exclua esta pasta.');
 } else {
   // Login de cada conta: abre a pagina de entrada no navegador deste computador, uma conta por vez.
@@ -295,36 +291,46 @@ if (remover) {
   }
 
   // Tailscale: o caminho seguro para o celular falar com este computador de qualquer lugar.
-  const temTailscale = spawnSync(WIN ? 'where tailscale || if exist "%ProgramFiles%\\Tailscale\\tailscale.exe" echo ok' : 'command -v tailscale', { shell: true, encoding: 'utf8' }).stdout.trim() !== '';
-  if (!temTailscale && WIN && (await pergunta('\nInstalar o Tailscale? Ele liga o celular a este computador de forma segura, de qualquer lugar.'))) {
-    if (rodar('winget install -e --id Tailscale.Tailscale')) {
-      console.log('\nAbra o Tailscale (icone perto do relogio) e entre com uma conta. No celular, instale o app Tailscale e entre com a mesma conta.');
+  const temTailscale = spawnSync(
+    WIN ? 'where tailscale || if exist "%ProgramFiles%\\Tailscale\\tailscale.exe" echo ok' : MAC ? 'command -v tailscale || ls /Applications/Tailscale.app' : 'command -v tailscale',
+    { shell: true, encoding: 'utf8' },
+  ).stdout.trim() !== '';
+  const temBrew = MAC && spawnSync('sh', ['-c', 'command -v brew'], { encoding: 'utf8' }).status === 0;
+  if (!temTailscale && (WIN || temBrew || !MAC) && (await pergunta('\nInstalar o Tailscale? Ele liga o celular a este computador de forma segura, de qualquer lugar.'))) {
+    // Linux: script oficial do Tailscale (ele mesmo pede a senha do sudo).
+    if (rodar(WIN ? 'winget install -e --id Tailscale.Tailscale' : MAC ? 'brew install --cask tailscale' : 'curl -fsSL https://tailscale.com/install.sh | sh')) {
+      if (WIN) console.log('\nAbra o Tailscale (icone perto do relogio) e entre com uma conta.');
+      else if (MAC) console.log('\nAbra o Tailscale (na pasta Aplicativos) e entre com uma conta.');
+      else console.log('\nEntre com uma conta: sudo tailscale up  (e, para o duckV publicar sem sudo: sudo tailscale set --operator=$USER)');
+      console.log('No celular, instale o app Tailscale e entre com a mesma conta.');
     }
-  }
+  } else if (!temTailscale && MAC) console.log('\nPara usar fora de casa, instale o Tailscale: https://tailscale.com/download/mac');
 
-  if (WIN) {
-    // O nome antigo (claudeV) apontava para iniciar-claudev.cmd, que nao existe mais.
-    const ligavaComWindows = fs.existsSync(path.join(pastaEspecial('Startup'), 'claudeV.lnk'));
-    for (const p of ['Desktop', 'Startup']) fs.rmSync(path.join(pastaEspecial(p), 'claudeV.lnk'), { force: true });
-    if (ligavaComWindows) criarAtalho(atalhoInicio());
-    criarAtalho(atalhoDesktop());
-    console.log('\nCriei o atalho "duckV" na area de trabalho.');
-    if (await pergunta('Ligar o duckV junto com o Windows?', false)) {
-      criarAtalho(atalhoInicio());
-      console.log('Pronto: o duckV liga sozinho quando voce entra no Windows.');
-    }
+  // O nome antigo (claudeV) apontava para iniciar-claudev.cmd, que nao existe mais.
+  const ligava = ligaComSistema();
+  removerAntigos();
+  if (ligava) ligarComSistema(ROOT);
+  const aviso = criarAtalho(ROOT);
+  if (aviso) console.log(`\n${aviso}`);
+  if (!ligava && (await pergunta('Ligar o duckV junto com o computador?', false))) {
+    ligarComSistema(ROOT);
+    console.log('Pronto: o duckV liga sozinho quando voce entra no computador.');
   }
 
   console.log(`
 Instalacao concluida.
 
-1. ${WIN ? 'Abra o atalho "duckV" na area de trabalho' : 'Ligue o duckV: npm start'} e deixe a janela aberta.
+1. Abra o atalho "duckV"${WIN ? ' na area de trabalho' : ' (ou rode ./iniciar-duckv.sh nesta pasta)'} e deixe a janela aberta.
 2. No celular, instale o app duckV (duckV.apk na pagina de Releases), toque em "Escanear codigo"
    e aponte para o codigo da janela.
 3. O celular mostra 4 numeros: digite-os na janela do duckV e aperte Enter. Pronto.
 
 Contas que ficaram sem login podem entrar pelo proprio celular, no botao "Entrar nesta conta".
 `);
-  if (WIN && (await pergunta('Abrir o duckV agora?'))) spawnSync('start "duckV" "' + path.join(ROOT, 'iniciar-duckv.cmd') + '"', { shell: true });
+  const abrir = await pergunta('Abrir o duckV agora?');
+  rl?.close();
+  if (abrir && WIN) spawnSync('start "duckV" "' + lancador(ROOT) + '"', { shell: true });
+  // Nos outros sistemas o duckV liga nesta mesma janela de terminal.
+  else if (abrir) spawnSync('sh', [lancador(ROOT)], { stdio: 'inherit' });
 }
 rl?.close();

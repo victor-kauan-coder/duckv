@@ -87,6 +87,8 @@ export function dentroDoProjeto(inst, caminho) {
   const alvo = path.resolve(raiz, String(caminho));
   const rel = path.relative(raiz, alvo);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  // ":" no Windows vira unidade ("C:") ou fluxo alternativo do NTFS ("a.html:x"); \0 corta o nome.
+  if (/[:\u0000]/.test(rel)) return null;
   if (rel.split(/[\\/]/).some((parte) => parte.startsWith('.') || parte === 'node_modules')) return null;
   return rel.split(path.sep).join('/');
 }

@@ -27,10 +27,24 @@ await new Promise((r) => phone.on('open', r));
 const ask = (o) => new Promise((res) => { o.ref = ++ref; replies.set(o.ref, res); phone.send(JSON.stringify(o)); });
 const text = () => (screen?.lines || []).join('\n');
 await sleep(300);
+// Linux com musl (Alpine): o terminal embutido nao existe pronto; o app precisa ser avisado, e o duckV nao pode cair.
+if (process.platform === 'linux' && !process.report.getReport().header.glibcVersionRuntime) {
+  ok(state.host.available === false && /musl/.test(state.host.error || ''), 'Linux com musl: o app e avisado de que as sessoes pelo celular nao estao disponiveis');
+  const r = await ask({ t: 'start', account: 'conta1', cwd: proj, model: 'sonnet' });
+  ok(r.t === 'err' && /musl/.test(r.msg || ''), 'abrir sessao no musl responde com o motivo, sem derrubar o duckV');
+  ok((await fetch(`http://127.0.0.1:${PORT}/api/state`, { headers: { cookie } })).status === 200, 'o duckV continua no ar');
+  phone.close(); hub.kill();
+  console.log(process.exitCode ? '\nAlgum teste falhou.' : '\nSessoes abertas pelo celular (musl): tudo certo.');
+  process.exit(process.exitCode || 0);
+}
 ok(state.host.available === true && state.host.models.includes('sonnet'), 'terminal virtual disponivel e lista de modelos enviada');
 ok((await ask({ t: 'start', account: 'conta1', cwd: '/etc', model: 'sonnet' })).t === 'err', 'pasta fora das permitidas e recusada');
 ok((await ask({ t: 'start', account: 'conta1', cwd: proj, model: 'sonnet; rm -rf /' })).t === 'err', 'modelo com caracteres estranhos e recusado');
 ok((await ask({ t: 'start', account: 'conta1', cwd: proj, mode: 'bypassPermissions' })).t === 'err', 'modo sem permissoes nao pode ser aberto pelo celular');
+// No Windows o agente abre pelo cmd.exe, que interpreta & | % ^ ! < > nos argumentos (CVE-2024-27980,
+// "BatBadBut"). Nada que vem do celular pode chegar cru na linha de comando.
+for (const [campo, valor] of [['effort', 'high & calc'], ['effort', 'high|whoami'], ['mode', 'acceptEdits & calc'], ['model', 'sonnet%PATH%'], ['model', 'claude-x"&calc&"'], ['resume', '..\\x & calc'], ['resume', 'abc123%COMSPEC%']])
+  ok((await ask({ t: 'start', account: 'conta1', cwd: proj, model: 'sonnet', [campo]: valor })).t === 'err', `${campo} com metacaracteres do cmd.exe e recusado: ${valor}`);
 const ls = await ask({ t: 'ls', path: os.homedir() });
 ok(ls.t === 'ack' && ls.dirs.includes('duckv-teste-proj'), 'lista de pastas para escolher');
 const st = await ask({ t: 'start', account: 'conta1', cwd: proj, model: 'sonnet', effort: 'high', mode: 'acceptEdits', name: 'Teste & "x"', cols: 52, rows: 24 });

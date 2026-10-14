@@ -42,7 +42,7 @@ for (const a of arquivos) {
     console.log(`Enviado ao celular: ${j.nome}`);
   } catch (e) {
     falhou = true;
-    console.error(`Não consegui enviar ${a}: ${e.cause?.code === 'ECONNREFUSED' ? 'o duckV está desligado (abra o iniciar-duckv.cmd)' : e.message}`);
+    console.error(`Não consegui enviar ${a}: ${e.cause?.code === 'ECONNREFUSED' ? 'o duckV está desligado (abra o atalho duckV ou o iniciar-duckv)' : e.message}`);
   }
 }
 process.exit(falhou ? 1 : 0);

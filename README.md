@@ -9,8 +9,9 @@
 
 [![Baixar o app](https://img.shields.io/badge/baixar-duckV.apk-ff7a1a?logo=android&logoColor=white)](https://github.com/victor-kauan-coder/duckv/releases/latest)
 ![Android](https://img.shields.io/badge/celular-Android%208%2B-3ddc84?logo=android&logoColor=white)
-![Windows](https://img.shields.io/badge/computador-Windows%2010%20%7C%2011-0078d4)
-![Node.js](https://img.shields.io/badge/Node.js-20%2B-5fa04e?logo=nodedotjs&logoColor=white)
+![Computador](https://img.shields.io/badge/computador-Windows%20%7C%20Linux%20%7C%20macOS-0078d4)
+[![Testes](https://github.com/victor-kauan-coder/duckv/actions/workflows/ci.yml/badge.svg)](https://github.com/victor-kauan-coder/duckv/actions/workflows/ci.yml)
+![Node.js](https://img.shields.io/badge/Node.js-22%2B-5fa04e?logo=nodedotjs&logoColor=white)
 
 [Começar](#começar-em-3-passos) · [Telas](#telas) · [Como funciona](#como-funciona) · [Segurança](#segurança) · [Problemas comuns](#problemas-comuns)
 
@@ -104,12 +105,20 @@ Os comandos de barra que mudam permissões (`/permissions`, `/approvals`, `/yolo
 
 ## Começar em 3 passos
 
-**1. No computador (Windows).** Baixe esta pasta (botão **Code › Download ZIP**, ou `git clone`), dê dois cliques em **`instalar.cmd`** e responda as perguntas com S ou N. O instalador:
+**1. No computador.** Baixe esta pasta (botão **Code › Download ZIP**, ou `git clone`) e rode o instalador do seu sistema, respondendo as perguntas com S ou N:
 
-- instala o que faltar: Node.js, Claude Code e, se você quiser, o Tailscale;
+| Sistema | Como instalar |
+|---|---|
+| Windows 10 ou 11 | Dois cliques em **`instalar.cmd`** |
+| Linux | No terminal, dentro da pasta: `sh instalar.sh` |
+| macOS | No Terminal, dentro da pasta: `sh instalar.sh` |
+
+O instalador:
+
+- instala o que faltar: Claude Code e, se você quiser, o Tailscale (no Windows, também o Node.js; no Linux e no macOS ele explica como instalar o Node.js, se faltar);
 - prepara uma pasta separada para cada conta e liga cada uma ao duckV;
 - abre o navegador para você entrar em cada conta Claude;
-- cria o atalho **duckV** na área de trabalho e, se você quiser, faz ele ligar junto com o Windows;
+- cria o atalho **duckV** (área de trabalho no Windows; menu de aplicativos e área de trabalho no Linux; `duckV.command` na Mesa do macOS) e, se você quiser, faz ele ligar junto com o computador;
 - liga o duckV.
 
 **2. No celular (Android).** Instale o **`duckV.apk`** da [página de versões](https://github.com/victor-kauan-coder/duckv/releases/latest) (o Android pede para permitir "instalar apps desconhecidos"). Para usar fora de casa, instale também o app **Tailscale** e entre com a mesma conta do computador. No duckV, toque em **Escanear código** e aponte para o código da janela do duckV.
@@ -129,20 +138,22 @@ Os comandos de barra que mudam permissões (`/permissions`, `/approvals`, `/yolo
 
 | Onde | O quê |
 |---|---|
-| Computador | Windows 10 ou 11. O instalador usa o **winget**, que já vem no Windows, para instalar o que faltar. |
+| Computador | Windows 10 ou 11, Linux (x64 ou ARM64, com glibc: Ubuntu, Debian, Fedora, Arch…) ou macOS (Intel ou Apple Silicon). Node.js 22 ou mais novo; no Windows o instalador usa o **winget**, que já vem no sistema. |
 | Celular | Android 8 ou mais novo. |
 | Contas | Uma ou mais contas de cada agente que for usar. O Claude Code e o Codex usam a assinatura (Pro, Max, Team ou Plus); o Gemini CLI, uma conta Google; o OpenCode funciona até sem conta. |
 | Fora de casa | [Tailscale](https://tailscale.com/download) no computador e no celular, na mesma conta. Gratuito para uso pessoal. |
 
-A instalação não mexe nos seus agentes de sempre: as contas do duckV vivem em pastas próprias (`C:\Users\voce\.claude-contas\` para o Claude Code e `C:\Users\voce\.duckv-contas\` para os outros). Seus logins atuais, o app Claude desktop e as configurações de cada agente continuam como estão.
+A instalação não mexe nos seus agentes de sempre: as contas do duckV vivem em pastas próprias dentro da sua pasta pessoal (`.claude-contas` para o Claude Code e `.duckv-contas` para os outros; no Windows, `C:\Users\voce\.claude-contas\`). Seus logins atuais, o app Claude desktop e as configurações de cada agente continuam como estão.
 
 <details>
 <summary><b>Instalação manual</b></summary>
 
-1. Instale o [Node.js](https://nodejs.org) 20 ou mais novo e o Claude Code (`npm install -g @anthropic-ai/claude-code`).
-2. Rode `instalar.cmd` (ou `npm install` e `node setup.mjs`).
-3. Entre em cada conta: `conta1.cmd` e `/login`, ou `claude auth login` com `CLAUDE_CONFIG_DIR` apontando para a pasta da conta.
-4. Abra `iniciar-duckv.cmd` (ou `npm start`).
+1. Instale o [Node.js](https://nodejs.org) 22 ou mais novo e o Claude Code (`npm install -g @anthropic-ai/claude-code`, ou no Linux e no macOS `curl -fsSL https://claude.ai/install.sh | bash`).
+2. Rode `npm install` e `node setup.mjs` (é o que `instalar.cmd` e `instalar.sh` fazem).
+3. Entre em cada conta: `conta1.cmd` (Windows) ou `./conta1.sh` (Linux e macOS) e `/login`, ou `claude auth login` com `CLAUDE_CONFIG_DIR` apontando para a pasta da conta.
+4. Abra `iniciar-duckv.cmd` ou `./iniciar-duckv.sh` (ou `npm start`).
+
+No Linux, para o duckV se publicar no Tailscale sem `sudo`, rode uma vez `sudo tailscale set --operator=$USER`.
 
 </details>
 
@@ -239,6 +250,7 @@ O duckV comanda o seu computador, então a segurança foi pensada em camadas:
 
 **Rede**
 - Nada fica exposto na internet aberta: o duckV só atende o próprio computador e a sua rede privada do Tailscale.
+- Ele só responde a pedidos endereçados ao próprio computador (`localhost`, um IP ou o nome dele no Tailscale). Assim, um site aberto no seu navegador não consegue usar DNS rebinding para conversar com o duckV.
 
 **O que o celular pode fazer**
 - Não dá para abrir sessão em modos que pulam as permissões (veja as regras de cada agente em [Agentes](#agentes)), nem mandar comandos com `!` ou comandos de barra fora da lista do agente. No Claude Code valem `/model`, `/effort`, `/compact`, `/clear`, `/login`, `/status`, `/cost`, `/usage`, `/context`, `/help`, `/init`, `/resume`, `/rename` e `/review`, além das skills e comandos personalizados que não liberam o terminal sozinhos.
@@ -265,10 +277,10 @@ Sem o Tailscale, o duckV só abre no próprio computador, em `http://localhost:8
 
 ## Depois de reiniciar o computador
 
-Basta abrir o atalho **duckV** na área de trabalho, ou nada, se você escolheu ligar o duckV junto com o Windows.
+Basta abrir o atalho **duckV**, ou nada, se você escolheu ligar o duckV junto com o computador.
 
 - O **celular continua pareado**: a chave dele fica salva no computador. O código do QR muda, mas ele só serve para parear um aparelho novo.
-- As **contas continuam logadas** e o Tailscale liga sozinho com o Windows.
+- As **contas continuam logadas** e o Tailscale liga sozinho com o sistema.
 - As **sessões abertas não sobrevivem** ao reinício. As conversas ficam salvas: reabra pelo app, em **Todas as conversas**.
 
 ## Opções
@@ -346,11 +358,12 @@ duckv/
 ├── android/        app nativo (Kotlin + Jetpack Compose, Material 3)
 ├── app/            versão web (PWA) do app
 ├── lib/            configuração e contas
-├── tests/          testes de ponta a ponta (servidor, pareamento, sessões)
+├── tests/          bateria de testes (unidade, portabilidade, servidor, pareamento, sessões, segurança)
 ├── tools/          modo demonstração
+├── .github/        testes automáticos no Windows, Linux e macOS a cada envio
 ├── setup.mjs       instalação: pastas das contas, ganchos, canal, atalhos e login
-├── instalar.cmd    instalador em um clique (Windows)
-└── iniciar-duckv.cmd
+├── instalar.cmd    instalador (Windows)        instalar.sh      instalador (Linux e macOS)
+└── iniciar-duckv.cmd                           iniciar-duckv.sh
 ```
 
 </details>
@@ -362,7 +375,18 @@ duckv/
 npm test
 ```
 
-Testam o servidor, o canal (com um cliente real do protocolo MCP), o pareamento com confirmação e as sessões abertas pelo celular (com um terminal de mentira no lugar do Claude Code). Usam pastas temporárias e não tocam nas suas contas. No Windows, `testar.cmd` faz o mesmo.
+Roda todas as baterias, uma depois da outra, e mostra o resumo (`node tests/rodar.mjs seguranca` roda só uma). Usam pastas temporárias e portas próprias e não tocam nas suas contas. No Windows, `testar.cmd`; no Linux e no macOS, `sh testar.sh`.
+
+| Bateria | O que confere |
+|---|---|
+| `unidade` | Filtro do que o celular digita, nomes aceitos no cabeçalho `Host`, caminhos das prévias (com fuzzing de milhares de entradas) e expressões regulares contra texto hostil (ReDoS) |
+| `portabilidade` | Scripts de cada sistema, atalhos e "ligar com o computador" (com caminhos com espaço, aspas e `$`), terminal embutido |
+| `servidor` | Servidor, canal MCP com um cliente real, permissões e histórico |
+| `pareamento` | Pareamento com os 4 números confirmados no computador |
+| `sessoes` | Sessões abertas pelo celular, com um terminal de mentira no lugar do agente, e argumentos que tentam injetar comandos no `cmd.exe` |
+| `seguranca` | Ataques de verdade contra um duckV ligado: DNS rebinding, WebSocket sequestrado por outro site, CSRF, segredo dos agentes, travessia de pastas (inclusive `::$DATA`, `CON` e UNC do Windows), limites de tamanho, vazamento de segredos e força bruta no pareamento |
+
+A cada envio ao GitHub, a bateria roda no Windows, no Linux e no macOS, com Node.js 22 e 24, junto com a auditoria das dependências (`npm audit`), a busca de segredos no histórico (gitleaks), a análise estática do CodeQL e a compilação do app Android.
 
 </details>
 
@@ -373,7 +397,7 @@ Testam o servidor, o canal (com um cliente real do protocolo MCP), o pareamento 
 node tools/simular.mjs
 ```
 
-Liga um duckV separado (porta 8766) com três contas, sessões e pedidos de mentira, para ver o app sem conectar o Claude Code de verdade. No Windows, `demonstracao.cmd`.
+Liga um duckV separado (porta 8766) com três contas, sessões e pedidos de mentira, para ver o app sem conectar o Claude Code de verdade. No Windows, `demonstracao.cmd`; no Linux e no macOS, `sh demonstracao.sh`.
 
 </details>
 
@@ -392,13 +416,13 @@ Precisa do Android SDK. A assinatura fica em `android/assinatura.properties`, fo
 <details>
 <summary><b>Personalizar contas à mão</b></summary>
 
-Nomes, cores e padrões mudam pelas Opções do app. Para acrescentar ou tirar contas fora do app, edite `contas.json` (cores em hexadecimal), rode `instalar.cmd` de novo e reinicie o duckV.
+Nomes, cores e padrões mudam pelas Opções do app. Para acrescentar ou tirar contas fora do app, edite `contas.json` (cores em hexadecimal), rode o instalador de novo e reinicie o duckV.
 
 </details>
 
 ## Desinstalar
 
-Rode **`desinstalar.cmd`**. Ele retira das pastas de conta o que a instalação configurou e apaga os atalhos do duckV. Os logins e os históricos ficam em `C:\Users\voce\.claude-contas\`; apague essa pasta e a do duckV se não quiser mais nada.
+Rode **`desinstalar.cmd`** (Windows) ou `sh desinstalar.sh` (Linux e macOS). Ele retira das pastas de conta o que a instalação configurou e apaga os atalhos do duckV, inclusive o de ligar com o computador. Os logins e os históricos ficam em `.claude-contas` e `.duckv-contas`, na sua pasta pessoal; apague essas pastas e a do duckV se não quiser mais nada.
 
 ## Créditos
 

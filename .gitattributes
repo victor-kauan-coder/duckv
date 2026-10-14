@@ -1,0 +1,5 @@
+# Scripts do Linux e do macOS precisam de quebra de linha Unix; os do Windows, de CRLF.
+*.sh      text eol=lf
+gradlew   text eol=lf
+*.cmd     text eol=crlf
+*.bat     text eol=crlf

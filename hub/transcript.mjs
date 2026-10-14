@@ -112,17 +112,54 @@ export function toolSummary(name, input) {
   }
 }
 
+// Blocos <abre>...</fecha> percorridos uma vez so. Uma expressao como /<a>[\s\S]*?<\/a>/g volta a
+// ler o texto ate o fim a cada <a> sem fechamento: um arquivo hostil lido pelo agente travava o
+// servidor por minutos. Aqui cada abertura usa o proximo fechamento ja achado.
+// troca(meio, abertura) devolve o que entra no lugar do bloco; null mantem o bloco como estava.
+function blocos(t, abre, fecha, troca) {
+  let saida = '', pos = 0, proxFecha = -1;
+  for (;;) {
+    const i = t.indexOf(abre, pos);
+    if (i < 0) break;
+    const fimAbre = abre.endsWith('"') ? t.indexOf('">', i + abre.length) + 2 : i + abre.length;
+    if (fimAbre < 2) break;
+    if (proxFecha < fimAbre) proxFecha = t.indexOf(fecha, fimAbre);
+    if (proxFecha < 0) break; // nenhum fechamento daqui em diante: nada mais a trocar
+    const fimFecha = fecha.endsWith('"') ? t.indexOf('>', proxFecha + fecha.length) + 1 : proxFecha + fecha.length;
+    if (fimFecha < 1) break;
+    const novo = troca(t.slice(fimAbre, proxFecha), t.slice(i, fimAbre), t.slice(proxFecha, fimFecha));
+    if (novo === null) {
+      saida += t.slice(pos, fimAbre);
+      pos = fimAbre;
+      continue;
+    }
+    saida += t.slice(pos, i) + novo;
+    pos = fimFecha;
+  }
+  return saida + t.slice(pos);
+}
+// Conteudo do primeiro <tag>...</tag>, sem expressao regular (mesmo motivo de blocos()).
+function primeiro(t, tag) {
+  const i = t.indexOf(`<${tag}>`);
+  if (i < 0) return null;
+  const j = t.indexOf(`</${tag}>`, i + tag.length + 2);
+  return j < 0 ? null : t.slice(i + tag.length + 2, j);
+}
+
 // Texto digitado pelo usuario, sem os blocos internos que o Claude Code injeta.
 export function cleanUserText(raw) {
   let t = String(raw ?? '');
   if (t.includes('<channel source=')) return null; // mensagens do celular: o servidor ja registrou
-  t = t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '');
+  t = blocos(t, '<system-reminder>', '</system-reminder>', () => '');
   // Texto longo chega como colado e o Claude Code o embrulha; o celular procura o texto como foi enviado.
-  t = t.replace(/<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g, '$2');
-  const cmd = /<command-name>([\s\S]*?)<\/command-name>/.exec(t);
-  if (cmd) {
-    const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(t);
-    return `${cmd[1].trim()} ${args ? args[1].trim() : ''}`.trim();
+  // So vale o par com o mesmo id: <pasted_content id="a">...</pasted_content id="a">.
+  t = blocos(t, '<pasted_content id="', '</pasted_content id="', (meio, abertura, fechamento) =>
+    abertura.slice(19) === fechamento.slice(20) ? meio.replace(/^\n/, '').replace(/\n$/, '') : null,
+  );
+  const cmd = primeiro(t, 'command-name');
+  if (cmd !== null) {
+    const args = primeiro(t, 'command-args');
+    return `${cmd.trim()} ${args !== null ? args.trim() : ''}`.trim();
   }
   if (/^\s*<(local-command|bash-|task-notification|user-prompt-submit-hook|command-message)/.test(t)) return null;
   if (/^\s*\[Request interrupted/.test(t)) return 'Interrompido no computador';

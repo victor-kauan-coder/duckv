@@ -8,10 +8,10 @@
     "start": "node hub/server.mjs",
     "setup": "node setup.mjs",
     "demo": "node tools/simular.mjs",
-    "test": "node tests/servidor.mjs && node tests/pareamento.mjs && node tests/previas.mjs && node tests/sessoes.mjs"
+    "test": "node tests/rodar.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.15",
