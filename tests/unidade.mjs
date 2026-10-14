@@ -1,6 +1,7 @@
 // Testes das pecas de seguranca que nao precisam do servidor: quem pode falar com o duckV (Host),
 // o filtro do que o celular digita, a conferencia de caminhos das previas e expressoes regulares
 // que leem texto vindo dos agentes. Inclui fuzzing com semente fixa (o mesmo sorteio a cada vez).
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -102,7 +103,21 @@ for (const nome of ['index.html::$DATA', 'index.html.', 'index.html ', 'CON', 'N
   } catch (e) {
     erro = e;
   }
-  ok(!erro && (r.status === 404 || (r.status === 200 && nome.toLowerCase().startsWith('index.html') && !/[:\u0000]/.test(nome) && fs.existsSync(path.join(proj, nome)))), `arquivo armadilha nao vaza nem quebra: ${JSON.stringify(nome)} (status ${r.status || 'stream'})`);
+  // INDEX~1.HTM e o nome curto do proprio index.html (quando o disco tem nomes 8.3): pode abrir, e o mesmo arquivo.
+  const mesmoIndex = r.status === 200 && /^index(\.html|~1\.htm)$/i.test(nome.trim().replace(/\.$/, ''));
+  ok(!erro && (r.status === 404 || mesmoIndex), `arquivo armadilha nao vaza nem quebra: ${JSON.stringify(nome)} (status ${r.status || 'stream'})`);
+}
+// Windows com nomes curtos 8.3 ligados: .segredos ganha um apelido como SEGRED~1, que nao comeca com ponto.
+if (WIN) {
+  fs.mkdirSync(path.join(proj, '.segredos'));
+  fs.writeFileSync(path.join(proj, '.segredos', 'chave.json'), '{"segredo":"SEGREDO"}');
+  const lista = spawnSync('cmd.exe', ['/d', '/c', 'dir', '/x', '/a', proj], { encoding: 'utf8' }).stdout || '';
+  const curto = lista.split(/\r?\n/).map((l) => l.trim().split(/\s+/)).find((p) => p.at(-1) === '.segredos' && /~\d/.test(p.at(-2) || ''))?.at(-2);
+  if (curto) {
+    const r = resposta();
+    pv.servirDaPasta(r, inst, `${curto}/chave.json`, {});
+    ok(r.status === 404 && !r.corpo.includes('SEGREDO'), `pasta escondida pelo nome curto 8.3 (${curto}) continua escondida`);
+  } else ok(true, 'nomes curtos 8.3 desligados neste disco (o caso e testado onde estiverem ligados)');
 }
 // Atalho (link simbolico) para uma pasta vizinha de nome parecido: o prefixo igual nao basta.
 {

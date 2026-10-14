@@ -138,9 +138,12 @@ export function servirDaPasta(res, inst, caminho, cabecalhosSeguros) {
   const alvo = path.join(path.resolve(inst.cwd), rel);
   let st;
   try {
-    // o caminho real tambem precisa estar dentro do projeto (um atalho nao pode apontar para fora)
-    const real = path.relative(fs.realpathSync(inst.cwd), fs.realpathSync(alvo));
+    // O caminho real passa pelas mesmas regras: um atalho nao pode apontar para fora, e no Windows
+    // o nome curto 8.3 (SEGRED~1 para .segredos) nao pode furar a regra das pastas escondidas.
+    // realpathSync.native devolve os nomes longos de verdade.
+    const real = path.relative(fs.realpathSync.native(inst.cwd), fs.realpathSync.native(alvo));
     if (!real || real.startsWith('..') || path.isAbsolute(real)) throw new Error('fora');
+    if (dentroDoProjeto(inst, real) === null || TIPOS[path.extname(real).toLowerCase()] !== tipo) throw new Error('escondido');
     st = fs.statSync(alvo);
     if (!st.isFile() || st.size > 50 * 1024 * 1024) throw new Error('grande');
   } catch {

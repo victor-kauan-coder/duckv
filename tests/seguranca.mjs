@@ -188,9 +188,11 @@ for (const s of errados) {
 }
 const estados = await Promise.all(pedidos.map(async (p) => (await (await fetch(`${h2.base}/api/parear/espera`, { method: 'POST', body: JSON.stringify({ espera: p.espera }) })).json()).estado));
 ok(estados.every((e) => e === 'negado'), `tres numeros errados derrubam todos os pedidos abertos (${estados.join(', ')})`);
+// Codigos que diferem do verdadeiro so no ultimo caractere (nunca igual a ele).
+const trocas = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'].filter((c) => c !== codigo.at(-1)).slice(0, 30);
 let erradosK = 0;
-for (let i = 0; i < 30; i++) if ((await fetch(`${h2.base}/api/parear`, { method: 'POST', body: JSON.stringify({ k: codigo.slice(0, -1) + String(i % 10) }) })).status === 403) erradosK++;
-ok(erradosK >= 29, 'codigos de QR quase certos sao sempre recusados');
+for (const c of trocas) if ((await fetch(`${h2.base}/api/parear`, { method: 'POST', body: JSON.stringify({ k: codigo.slice(0, -1) + c }) })).status === 403) erradosK++;
+ok(erradosK === trocas.length, `codigos de QR quase certos sao sempre recusados (${erradosK} de ${trocas.length})`);
 h2.proc.kill();
 
 for (const h of [hub, h2]) fs.rmSync(h.tmp, { recursive: true, force: true });

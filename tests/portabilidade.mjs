@@ -30,6 +30,8 @@ for (const f of SH) {
 for (const f of CMD) ok(fs.existsSync(path.join(ROOT, f)), `${f} existe para o Windows`);
 const modos = git(['ls-files', '-s', '--', ...SH]);
 if (modos) ok(SH.every((f) => new RegExp(`^100755 .*\\s${f.replace('.', '\\.')}$`, 'm').test(modos)), 'scripts .sh marcados como executaveis no git');
+const gradlew = git(['ls-files', '-s', '--', 'android/gradlew']);
+if (gradlew) ok(gradlew.startsWith('100755'), 'android/gradlew executavel no git (senao o build do app falha no Linux e no macOS)');
 const atributos = git(['check-attr', 'eol', '--', 'iniciar-duckv.sh', 'iniciar-duckv.cmd']);
 if (atributos) ok(/iniciar-duckv\.sh: eol: lf/.test(atributos) && /iniciar-duckv\.cmd: eol: crlf/.test(atributos), '.gitattributes garante LF nos .sh e CRLF nos .cmd em qualquer sistema');
 if (!WIN) {
