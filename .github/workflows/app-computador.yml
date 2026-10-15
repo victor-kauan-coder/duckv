@@ -1,0 +1,49 @@
+# Gera o app do duckV para o computador: instalador e versao portatil no Windows, AppImage e .deb no Linux.
+# Roda a mao (workflow_dispatch) ou quando uma tag v* e enviada; os arquivos ficam nos artefatos da execucao.
+# As acoes vao fixadas pelo commit, como em ci.yml.
+name: app do computador
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  gerar:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            alvo: dist:win
+          - os: ubuntu-latest
+            alvo: dist:linux
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: dependencias do app
+        working-directory: desktop
+        run: npm install --no-fund --no-audit
+      - name: gera o app
+        working-directory: desktop
+        run: npm run ${{ matrix.alvo }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # sem certificado de assinatura por enquanto
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckV-app-${{ matrix.os }}
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+          if-no-files-found: error

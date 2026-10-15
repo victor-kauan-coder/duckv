@@ -54,6 +54,10 @@
             android:name=".RespostaTexto"
             android:exported="false" />
 
+        <receiver
+            android:name=".RespostaTecla"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.arquivos"

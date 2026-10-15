@@ -7,3 +7,5 @@ conta*.sh
 .impeccable/
 DESIGN.md
 PRODUCT.md
+desktop/node_modules/
+desktop/dist/

@@ -31,6 +31,7 @@ O **duckV** junta num app só os agentes de código que rodam no seu computador,
 - [Destaques](#destaques)
 - [Agentes](#agentes)
 - [Começar em 3 passos](#começar-em-3-passos)
+- [No computador: app ou terminal](#no-computador-app-ou-terminal)
 - [O que você precisa](#o-que-você-precisa)
 - [Telas](#telas)
 - [Uso no dia a dia](#uso-no-dia-a-dia)
@@ -133,6 +134,38 @@ O instalador:
 
 > [!TIP]
 > Pulou o login de alguma conta? Entre depois pelo próprio celular: o cartão da conta mostra **Entrar nesta conta**.
+
+## No computador: app ou terminal
+
+O duckV também tem uma janela própria para o computador (Windows e Linux), para comandar todas as contas e sessões sem a janela preta do terminal. O terminal continua funcionando do mesmo jeito: use o que preferir.
+
+<div align="center">
+<img src="docs/imagens/13-app-computador.png" alt="App do duckV no computador: contas e sessões na lateral, conversa e terminal lado a lado" width="900">
+</div>
+
+| | App (janela própria) | Terminal |
+|---|---|---|
+| Como abrir | Atalho **duckV App**, ou `abrir-app.cmd` / `./abrir-app.sh` | Atalho **duckV**, ou `iniciar-duckv.cmd` / `./iniciar-duckv.sh` |
+| Conectar celular | QR na tela **Celulares**; os 4 números são digitados na janela | QR na janela do terminal; os 4 números são digitados nela |
+| Abrir uma conta | **Nova sessão** (escolha "Aqui no duckV" ou "Terminal do sistema") | Atalho da conta: `conta1.cmd`, `conta2.sh`… |
+
+O que o app faz:
+
+- **Todas as contas na lateral**, cada uma com o pato, o agente, o limite de 5 horas e as sessões abertas. Clique numa sessão para abrir; **Ctrl+clique** abre ao lado; também dá para arrastar uma sessão até um painel.
+- **Painéis lado a lado**: um, dois, três ou quatro (Ctrl+1 a Ctrl+5). Cada painel mostra a **Conversa** (mensagens, pedidos, mensagens rápidas, `/` com os comandos e anexos arrastados) ou o **Terminal** de verdade da sessão, com cores, para digitar como no teclado.
+- **Precisa de você** (Ctrl+J): os pedidos de permissão e as perguntas de todas as contas numa fila só, do mais antigo para o mais novo; **A** aceita e **R** recusa o primeiro.
+- **Aviso no canto da tela**: com a janela fora de foco ou fechada na bandeja, o pedido aparece num cartão por cima das outras janelas, com **Aceitar**, **Recusar** e **Abrir**. Ele não rouba o foco de quem está digitando.
+- **Conta automática**: em Nova sessão, "Automática" escolhe a conta com mais limite livre.
+- **Busca rápida** (Ctrl+K): sessões, terminais, contas e comandos.
+- **Barra de status** com o uso de cada conta; um clique mostra os limites e os horários de reinício.
+- Fechar a janela deixa o duckV ligado na **bandeja**, perto do relógio; para desligar, use **Sair** no menu dela.
+
+<div align="center">
+<img src="docs/imagens/14-aviso-computador.png" alt="Aviso no canto da tela com Aceitar, Recusar e Abrir" width="400">
+</div>
+
+> [!NOTE]
+> O app precisa do Node.js 22 ou mais novo no computador (o mesmo do duckV). Na primeira vez, ele baixa o Electron (cerca de 100 MB) para a pasta `desktop`. Se o duckV já estiver ligado num terminal, o app avisa e não derruba aquela janela: feche o terminal para usar o app, ou continue pelo terminal.
 
 ## O que você precisa
 
@@ -252,6 +285,11 @@ O duckV comanda o seu computador, então a segurança foi pensada em camadas:
 - Nada fica exposto na internet aberta: o duckV só atende o próprio computador e a sua rede privada do Tailscale.
 - Ele só responde a pedidos endereçados ao próprio computador (`localhost`, um IP ou o nome dele no Tailscale). Assim, um site aberto no seu navegador não consegue usar DNS rebinding para conversar com o duckV.
 
+**App do computador**
+- A janela entra com uma chave criada a cada abertura e entregue ao servidor pelo canal entre os dois processos: ela nunca vai para o disco, para a linha de comando nem para variáveis de ambiente, e só vale em conexões do próprio computador (pelo Tailscale ela é recusada).
+- Só o app pode ver e digitar no terminal de verdade das sessões, responder o pareamento, desconectar celulares e abrir janelas de terminal. Um celular pareado que tente esses pedidos é ignorado, e a saída crua do terminal nunca vai para ele.
+- A janela roda isolada (sem Node.js, com sandbox), só navega no próprio duckV e só abre links `https` fora dele, no navegador do sistema. Ela só recebe as permissões de avisos e de área de transferência.
+
 **O que o celular pode fazer**
 - Não dá para abrir sessão em modos que pulam as permissões (veja as regras de cada agente em [Agentes](#agentes)), nem mandar comandos com `!` ou comandos de barra fora da lista do agente. No Claude Code valem `/model`, `/effort`, `/compact`, `/clear`, `/login`, `/status`, `/cost`, `/usage`, `/context`, `/help`, `/init`, `/resume`, `/rename` e `/review`, além das skills e comandos personalizados que não liberam o terminal sozinhos.
 - O texto digitado na tela do terminal passa pelo mesmo filtro.
@@ -356,7 +394,8 @@ duckv/
 ├── agent/          ganchos, linha de status e canal MCP que ligam cada Claude Code ao duckV
 │                   (hub/agentes.mjs: o adaptador de cada agente)
 ├── android/        app nativo (Kotlin + Jetpack Compose, Material 3)
-├── app/            versão web (PWA) do app
+├── app/            versão web (PWA) do app e a interface do app do computador (desktop.*)
+├── desktop/        app do computador (Electron): liga o servidor, janela, bandeja e aviso de pedidos
 ├── lib/            configuração e contas
 ├── tests/          bateria de testes (unidade, portabilidade, servidor, pareamento, sessões, segurança)
 ├── tools/          modo demonstração
@@ -384,6 +423,7 @@ Roda todas as baterias, uma depois da outra, e mostra o resumo (`node tests/roda
 | `servidor` | Servidor, canal MCP com um cliente real, permissões e histórico |
 | `pareamento` | Pareamento com os 4 números confirmados no computador |
 | `sessoes` | Sessões abertas pelo celular, com um terminal de mentira no lugar do agente, e argumentos que tentam injetar comandos no `cmd.exe` |
+| `desktop` | App do computador: a chave que só vale no próprio computador, pedidos que só o app pode fazer, terminal de verdade e arquivos de `node_modules` que não podem sair pelo servidor |
 | `seguranca` | Ataques de verdade contra um duckV ligado: DNS rebinding, WebSocket sequestrado por outro site, CSRF, segredo dos agentes, travessia de pastas (inclusive `::$DATA`, `CON` e UNC do Windows), limites de tamanho, vazamento de segredos e força bruta no pareamento |
 
 A cada envio ao GitHub, a bateria roda no Windows, no Linux e no macOS, com Node.js 22 e 24, junto com a auditoria das dependências (`npm audit`), a busca de segredos no histórico (gitleaks), a análise estática do CodeQL e a compilação do app Android.
@@ -398,6 +438,21 @@ node tools/simular.mjs
 ```
 
 Liga um duckV separado (porta 8766) com três contas, sessões e pedidos de mentira, para ver o app sem conectar o Claude Code de verdade. No Windows, `demonstracao.cmd`; no Linux e no macOS, `sh demonstracao.sh`.
+
+</details>
+
+<details>
+<summary><b>App do computador</b></summary>
+
+```bash
+cd desktop
+npm install
+npm start                 # abre o app (DUCKV_DEMO=1 abre com as contas de mentira)
+npm run dist:win          # no Windows: instalador e versão portátil em desktop/dist
+npm run dist:linux        # no Linux: AppImage e .deb em desktop/dist
+```
+
+O executável não traz o servidor dentro dele: ele acha a pasta do duckV pelo arquivo `~/.duckv/instalacao.json`, que o instalador grava (ou pela variável `DUCKV_PASTA`), e usa o Node.js do computador.
 
 </details>
 

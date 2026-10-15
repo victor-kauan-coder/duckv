@@ -340,7 +340,11 @@ export function startHosted(opts) {
     if (!timer) timer = setTimeout(emit, 120);
   };
 
-  proc.onData((d) => term.write(d, schedule));
+  proc.onData((d) => {
+    term.write(d, schedule);
+    // A saida crua, com as cores, para o terminal de verdade da janela do notebook.
+    opts.onRaw?.(d);
+  });
   // O terminal virtual responde as perguntas que o programa faz ao terminal (tamanho, cores...).
   term.onData((d) => alive && proc.write(d));
   proc.onExit(({ exitCode }) => {
@@ -422,9 +426,9 @@ export function startHosted(opts) {
     alive: () => alive,
     snapshot,
     resize(c, r) {
-      if (!alive) return;
-      c = Math.max(40, Math.min(160, Math.round(c)));
-      r = Math.max(16, Math.min(60, Math.round(r)));
+      if (!alive || !Number.isFinite(c) || !Number.isFinite(r)) return;
+      c = Math.max(40, Math.min(240, Math.round(c)));
+      r = Math.max(12, Math.min(90, Math.round(r)));
       if (c === term.cols && r === term.rows) return;
       term.resize(c, r);
       proc.resize(c, r);
@@ -504,6 +508,24 @@ export function startHosted(opts) {
       return true;
     },
     pendentes: () => fila.length,
+    // A tela de agora como texto, com a posicao do cursor: o ponto de partida de um terminal que acabou de abrir.
+    tela() {
+      const s = snapshot();
+      return `\x1b[0m\x1b[2J\x1b[H${s.lines.join('\r\n')}\x1b[${s.cy + 1};${s.cx + 1}H`;
+    },
+    // Faz o programa redesenhar a tela inteira (com as cores): no tamanho pedido ou com um empurrao de tamanho.
+    redesenhar(c, r) {
+      if (!alive) return;
+      const cols = c >= 40 ? c : term.cols;
+      const rows = r >= 12 ? r : term.rows;
+      if (cols !== term.cols || rows !== term.rows) return this.resize(cols, rows);
+      proc.resize(cols - 1, rows);
+      setTimeout(() => alive && proc.resize(cols, rows), 60);
+    },
+    // Teclas cruas do terminal da janela do notebook.
+    escrever(data) {
+      write(String(data));
+    },
     // Tira da fila o que ainda nao foi digitado (o celular desistiu de mandar).
     desistir() {
       const n = fila.length;

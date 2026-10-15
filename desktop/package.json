@@ -1,0 +1,65 @@
+{
+  "name": "duckv-desktop",
+  "productName": "duckV",
+  "version": "1.0.1",
+  "description": "duckV no computador: todas as contas e sessoes de agentes de codigo numa janela",
+  "private": true,
+  "main": "main.cjs",
+  "author": "victor-kauan-coder",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:linux": "electron-builder --linux --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "io.github.duckv.desktop",
+    "productName": "duckV",
+    "executableName": "duckv",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "duckV",
+      "artifactName": "duckV-${version}-instalador.${ext}"
+    },
+    "portable": {
+      "artifactName": "duckV-${version}-portatil.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Development",
+      "synopsis": "Suas contas e sessoes de agentes de codigo numa janela",
+      "artifactName": "duckV-${version}-${arch}.${ext}"
+    },
+    "deb": {
+      "depends": []
+    }
+  }
+}

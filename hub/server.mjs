@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { WebSocketServer } from 'ws';
 import webpush from 'web-push';
 import qrcode from 'qrcode-terminal';
@@ -20,6 +21,12 @@ import { criarAtualizacao } from './atualizacao.mjs';
 import { hostPermitido } from './rede.mjs';
 import { semBlocos } from '../lib/texto.mjs';
 import { textoPerigoso as filtrarTexto } from './filtro.mjs';
+import { terminalLinux } from '../lib/atalhos.mjs';
+
+// O gerador de QR que o qrcode-terminal traz dentro dele: o app do notebook desenha o QR com a matriz.
+const requerer = createRequire(import.meta.url);
+const QRCode = requerer('qrcode-terminal/vendor/QRCode');
+const QRNivel = requerer('qrcode-terminal/vendor/QRCode/QRErrorCorrectLevel');
 
 // Aberto de dentro de uma sessao do Claude Code (o app desktop, um terminal do agente), o duckV herdaria as
 // marcas dela, e cada agente que ele abre se acharia uma sessao filha: sem salvar o historico, a conversa nunca
@@ -51,6 +58,18 @@ if (cfg.token) {
   delete cfg.token;
   writeJson(APARELHOS_FILE, aparelhos);
   writeJson(CONFIG_FILE, cfg);
+}
+// App do notebook (desktop/): ele liga este servidor e entrega, pelo canal entre os dois processos (IPC),
+// uma chave que so existe na memoria deles. Nada vai para o disco nem para a linha de comando, e a
+// chave so vale em conexoes do proprio computador (nunca pelo Tailscale ou pela rede local).
+let hashDesktop = null;
+const DESKTOP = { id: 'desktop', nome: 'Este computador', desktop: true };
+if (argv.has('--desktop') && typeof process.send === 'function') {
+  process.on('message', (m) => {
+    if (!hashDesktop && m?.t === 'desktop' && typeof m.chave === 'string' && m.chave.length >= 43) hashDesktop = hashDe(m.chave);
+  });
+  // O app fechou: o servidor vai junto, para nao ficar um duckV sem dono rodando escondido.
+  process.on('disconnect', () => process.exit(0));
 }
 if (argv.has('--novo-token')) {
   aparelhos = [];
@@ -314,7 +333,7 @@ function setTranscript(inst, file) {
   inst.tracker = new TaskTracker();
   inst.messages = [];
   inst.msgIds = new Set();
-  for (const c of phones) if (c.open === inst.id) send(c, { t: 'history', instance: inst.id, items: [] });
+  for (const c of phones) if (olha(c, inst.id)) send(c, { t: 'history', instance: inst.id, items: [] });
 }
 
 function pubInst(i) {
@@ -430,6 +449,10 @@ const phones = new Set();
 const send = (c, obj) => {
   if (c.ws.readyState === 1) c.ws.send(JSON.stringify(obj));
 };
+// A conversa que o aparelho tem aberta; o app do notebook pode ter varias, lado a lado.
+const olha = (c, id) => c.open === id || !!c.abertas?.has(id);
+// O estado vai igual para todos; o app do notebook recebe tambem o pareamento e os aparelhos.
+const estadoPara = (c, snap = snapshot()) => (c.desktop ? { ...snap, desktop: extrasDesktop() } : snap);
 
 let dirtyTimer = null;
 function dirty() {
@@ -437,11 +460,12 @@ function dirty() {
   dirtyTimer = setTimeout(() => {
     dirtyTimer = null;
     const snap = snapshot();
-    for (const c of phones) send(c, snap);
+    for (const c of phones) send(c, estadoPara(c, snap));
   }, 80);
 }
 
-const anyVisiblePhone = () => [...phones].some((c) => c.visible);
+// So os celulares contam: a janela do notebook aberta nao pode calar os avisos do celular.
+const anyVisiblePhone = () => [...phones].some((c) => c.visible && !c.desktop);
 
 function pushMsgs(inst, items) {
   const fresh = [];
@@ -463,7 +487,7 @@ function pushMsgs(inst, items) {
     const drop = inst.messages.splice(0, inst.messages.length - 5000);
     for (const d of drop) inst.msgIds.delete(d.id);
   }
-  for (const c of phones) if (c.open === inst.id) send(c, { t: 'msgs', instance: inst.id, items: fresh });
+  for (const c of phones) if (olha(c, inst.id)) send(c, { t: 'msgs', instance: inst.id, items: fresh });
 }
 
 const SEM_CANAL =
@@ -657,15 +681,21 @@ function comandosDe(inst, fresco = false) {
 
 async function onPhoneMessage(c, m) {
   if (!m || typeof m !== 'object') return;
+  if (c.desktop && onDesktopMessage(c, m)) return;
   switch (m.t) {
     case 'open': {
       const inst = instances.get(m.instance);
-      c.open = inst ? inst.id : null;
+      // "junto": o notebook abre mais uma conversa num painel, sem fechar as outras.
+      if (inst && m.junto && c.abertas) {
+        if (c.abertas.size >= 8 && !c.abertas.has(inst.id)) c.abertas.delete(c.abertas.values().next().value);
+        c.abertas.add(inst.id);
+      } else c.open = inst ? inst.id : null;
       if (inst) send(c, { t: 'history', instance: inst.id, items: inst.messages });
       break;
     }
     case 'close':
-      c.open = null;
+      if (m.instance && c.abertas?.has(m.instance)) c.abertas.delete(m.instance);
+      else c.open = null;
       break;
     case 'vis':
       c.visible = !!m.visible;
@@ -912,6 +942,134 @@ async function onPhoneMessage(c, m) {
   }
 }
 
+// ---------------------------------------------------------------- app do notebook
+// Pedidos que so o app do notebook pode fazer: ele roda no proprio computador, com a chave que so ele
+// e este servidor conhecem (ver hashDesktop), entao vale como a pessoa sentada no teclado.
+function onDesktopMessage(c, m) {
+  const ok = (extra) => send(c, { t: 'ack', ref: m.ref, ...extra });
+  const erro = (msg) => send(c, { t: 'err', ref: m.ref, msg });
+  switch (m.t) {
+    // Os 4 numeros que o celular mostra, digitados na janela do notebook.
+    case 'parear': {
+      const r = responderPareamento(String(m.numeros || ''));
+      if (r.ok) ok({ msg: r.msg });
+      else erro(r.msg);
+      return true;
+    }
+    case 'parearRecusar':
+      responderPareamento('n');
+      ok();
+      return true;
+    // Gera outro QR: o anterior (e os pedidos feitos com ele) deixam de valer.
+    case 'parearNovoCodigo':
+      CODIGO = crypto.randomBytes(24).toString('base64url');
+      for (const p of pedidosPar.values()) if (p.estado === 'pendente') p.estado = 'negado';
+      dirty();
+      ok();
+      return true;
+    case 'aparelhoTirar': {
+      if (!aparelhos.some((a) => a.id === m.id)) erro('Aparelho não encontrado.');
+      else {
+        esquecerAparelho(String(m.id));
+        dirty();
+        ok();
+      }
+      return true;
+    }
+    // Terminal de verdade: a saida crua do terminal virtual, para o xterm da janela desenhar com cores.
+    case 'cru': {
+      const inst = instances.get(m.instance);
+      if (!m.on || !inst?.hosted) {
+        c.crus.delete(String(m.instance || ''));
+        ok();
+        return true;
+      }
+      if (c.crus.size >= 8 && !c.crus.has(inst.id)) return erro('Feche um terminal antes de abrir outro.'), true;
+      c.crus.add(inst.id);
+      send(c, { t: 'cru', instance: inst.id, inicio: true, data: inst.hosted.tela() });
+      // Redesenha no tamanho do painel: o programa refaz a tela inteira, ja com as cores.
+      inst.hosted.redesenhar(Number(m.cols) || 0, Number(m.rows) || 0);
+      ok();
+      return true;
+    }
+    case 'cruTamanho': {
+      const inst = instances.get(m.instance);
+      if (inst?.hosted && c.crus.has(inst.id)) inst.hosted.resize(Number(m.cols), Number(m.rows));
+      return true;
+    }
+    // Teclas digitadas no terminal da janela. Sem filtro de comandos, como no teclado do computador:
+    // so o app do notebook chega aqui, e so em conexoes do proprio computador.
+    case 'cruEntrada': {
+      const inst = instances.get(m.instance);
+      if (inst?.hosted && c.crus.has(inst.id) && typeof m.data === 'string' && m.data.length <= 8192) inst.hosted.escrever(m.data);
+      return true;
+    }
+    // Opcao do terminal: abre a conta numa janela de terminal do sistema, fora do duckV.
+    case 'terminalDoSistema': {
+      const acc = accounts.get(m.account);
+      if (!acc) return erro('Conta não encontrada.'), true;
+      const dir = folderAllowed(String(m.cwd || os.homedir()), cfg.pastasPermitidas || [], folders);
+      if (!dir) return erro('Pasta não encontrada ou fora das pastas permitidas.'), true;
+      const r = abrirTerminalDoSistema(acc, dir);
+      if (r) erro(r);
+      else {
+        rememberFolder(dir);
+        ok();
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+// O atalho da conta (conta1.cmd, conta1.sh...) numa janela de terminal propria. A pasta vai como argumento
+// separado, nunca montada num texto de comando: um nome de pasta com & ou ; nao vira comando.
+function abrirTerminalDoSistema(acc, dir) {
+  const win = process.platform === 'win32';
+  const script = path.join(ROOT, `${acc.id}.${win ? 'cmd' : 'sh'}`);
+  if (!fs.existsSync(script)) return 'Esta conta ainda não tem atalho de terminal. Rode a instalação do duckV de novo.';
+  try {
+    if (win) {
+      // "." e a pasta em que a janela abre (cwd): o cmd.exe nunca le o nome da pasta.
+      spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', script, '.'], { cwd: dir, detached: true, stdio: 'ignore', windowsHide: false }).unref();
+    } else if (process.platform === 'darwin') {
+      return 'No macOS, abra a conta pelo atalho dela no Terminal.';
+    } else {
+      const term = terminalLinux();
+      if (!term) return 'Nenhum terminal encontrado neste Linux (instale o gnome-terminal, o konsole ou o xterm).';
+      spawn(term[0], [...term.slice(1), 'sh', script, dir], { cwd: dir, detached: true, stdio: 'ignore' }).unref();
+    }
+  } catch (e) {
+    return `Não consegui abrir o terminal: ${e.message}`;
+  }
+  return null;
+}
+
+// O que so o app do notebook ve: o link e o QR de pareamento, os pedidos abertos e os aparelhos.
+// Os 4 numeros nunca saem daqui: eles so aparecem no celular que pediu.
+let qrCache = { link: '', linhas: [] };
+function extrasDesktop() {
+  const link = linkPareamento();
+  if (qrCache.link !== link) qrCache = { link, linhas: matrizQr(link) };
+  return {
+    link,
+    qr: qrCache.linhas,
+    pedidos: [...pedidosPar.values()].filter((p) => p.estado === 'pendente' && p.ate > now()).map((p) => ({ nome: p.nome, ate: p.ate })),
+    aparelhos: aparelhos.map(({ id, nome, criado }) => ({ id, nome, criado })),
+    plataforma: process.platform,
+    // Na demonstracao (capturas de tela) o nome do computador no Tailscale nao aparece.
+    tailnet: process.env.PAINEL_DEMO === '1' ? null : tailnetHost,
+  };
+}
+function matrizQr(texto) {
+  const q = new QRCode(-1, QRNivel.M);
+  q.addData(texto);
+  q.make();
+  const n = q.getModuleCount();
+  return Array.from({ length: n }, (_, y) => Array.from({ length: n }, (_, x) => (q.isDark(y, x) ? '1' : '0')).join(''));
+}
+
 // ---------------------------------------------------------------- sessoes
 
 const LETTERS = 'abcdefghijkmnopqrstuvwxyz';
@@ -1057,6 +1215,7 @@ function startSession(m) {
       rows: Number(m.rows) || 32,
       command: ag.id === 'claude' ? testCommand : null,
       onScreen: (snap) => telaDe(inst, snap),
+      onRaw: (d) => cruDe(inst, d),
       onEspera: (n, tela) => {
         const pedaco = tela.filter((l) => !/^[─━═\-_|│┃\s]+$/.test(l)).slice(-3).join(' · ');
         sysMsg(inst, `${n === 1 ? 'Sua mensagem está' : `${n} mensagens estão`} esperando: o ${ag.curto} ainda não mostrou a caixa de mensagem${pedaco ? ` (a tela diz: "${clip(pedaco, 160)}")` : ''}. Veja em Controles › Terminal. Se esta conversa estiver aberta no computador, feche-a lá.`);
@@ -1065,6 +1224,7 @@ function startSession(m) {
       onExit: () => {
         inst.hosted = null;
         for (const p of [...inst.perms]) p.resolve?.(null);
+        fimDoCru(inst);
         for (const c of phones) if (c.term === id) c.term = null;
         markEnded(inst);
         dirty();
@@ -1077,6 +1237,26 @@ function startSession(m) {
   rememberFolder(cwd);
   dirty();
   return { id };
+}
+
+// Saida crua do terminal virtual para os terminais abertos na janela do notebook, juntada a cada
+// ~16 ms para nao mandar uma mensagem por byte.
+function cruDe(inst, data) {
+  if (![...phones].some((c) => c.crus?.has(inst.id))) return;
+  inst.cruBuf = (inst.cruBuf || '') + data;
+  if (inst.cruTimer) return;
+  inst.cruTimer = setTimeout(() => {
+    const d = inst.cruBuf;
+    inst.cruBuf = '';
+    inst.cruTimer = null;
+    for (const c of phones) if (c.crus?.has(inst.id)) send(c, { t: 'cru', instance: inst.id, data: d });
+  }, 16);
+}
+function fimDoCru(inst) {
+  for (const c of phones) {
+    if (!c.crus?.delete(inst.id)) continue;
+    send(c, { t: 'cru', instance: inst.id, fim: true });
+  }
 }
 
 // A tela do terminal virtual mudou: manda para quem esta olhando, le a pergunta aberta e,
@@ -1139,8 +1319,10 @@ function iniciarLogin(acc, m) {
       cols: Number(m.cols) || 60,
       rows: Number(m.rows) || 32,
       onScreen: (snap) => telaDe(inst, snap),
+      onRaw: (d) => cruDe(inst, d),
       onExit: () => {
         inst.hosted = null;
+        fimDoCru(inst);
         for (const c of phones) if (c.term === id) c.term = null;
         markEnded(inst);
         consultarUso(acc)
@@ -1914,6 +2096,7 @@ function aparelhoDe(req) {
   const t = cookieToken(req);
   if (!t) return null;
   const h = hashDe(t);
+  if (hashDesktop && local(req) && safeEq(hashDesktop, h)) return DESKTOP;
   return aparelhos.find((a) => safeEq(a.hash, h)) || null;
 }
 const isPhone = (req) => !!aparelhoDe(req);
@@ -1935,8 +2118,11 @@ function pedirPareamento(nome) {
   else {
     // Os 4 numeros so aparecem no celular: digitar aqui prova que o aparelho e o que esta na sua mao.
     console.log(`\n>>> Um aparelho quer se conectar: ${p.nome}`);
-    console.log('>>> Para permitir, digite aqui os 4 numeros que aparecem na tela dele e Enter.');
+    console.log('>>> Para permitir, digite aqui (ou na janela do app duckV) os 4 numeros que aparecem na tela dele e Enter.');
     console.log('>>> Se nao foi voce, digite N e Enter.\n');
+    dirty();
+    // Some da janela do notebook quando expira.
+    setTimeout(dirty, p.ate - now() + 500).unref();
   }
   return p;
 }
@@ -1949,32 +2135,43 @@ function aprovarPareamento(p) {
     console.log(`Pronto: ${p.nome} conectado.`);
     mostrarPareamento();
   }
+  dirty();
 }
-// Resposta no teclado do computador (a janela que ligou o duckV). Os 4 numeros liberam so o
-// pedido que os mostrou; N recusa todos os pedidos abertos. Tres numeros errados derrubam os pedidos.
+// Resposta no teclado do computador: na janela do terminal que ligou o duckV ou na janela do app do
+// notebook. Os 4 numeros liberam so o pedido que os mostrou; N recusa todos os pedidos abertos.
+// Tres numeros errados derrubam os pedidos.
 let errosPar = 0;
+function responderPareamento(resposta) {
+  const r = String(resposta).trim().toLowerCase();
+  const abertos = [...pedidosPar.values()].filter((x) => x.estado === 'pendente' && x.ate > now());
+  if (!abertos.length) return { ok: false, msg: 'Nenhum aparelho está esperando. Escaneie o código de novo no celular.' };
+  if (!r) return { ok: false, msg: 'Digite os 4 números.' };
+  if (r.startsWith('n')) {
+    for (const p of abertos) p.estado = 'negado';
+    dirty();
+    return { ok: true, msg: 'Pedidos recusados.' };
+  }
+  const p = /^\d{4}$/.test(r) && abertos.find((x) => x.sas === r);
+  if (p) {
+    errosPar = 0;
+    aprovarPareamento(p);
+    return { ok: true, msg: `Pronto: ${p.nome} conectado.` };
+  }
+  if (++errosPar >= 3) {
+    errosPar = 0;
+    for (const x of abertos) x.estado = 'negado';
+    dirty();
+    return { ok: false, msg: 'Números errados demais: os pedidos foram recusados. Escaneie o código de novo no celular.' };
+  }
+  return { ok: false, msg: 'Esses números não batem com nenhum aparelho. Confira a tela do celular e digite de novo.' };
+}
 if (!TESTE_PAREAMENTO) {
   process.stdin.setEncoding('utf8');
   process.stdin.on('error', () => {});
   process.stdin.on('data', (linha) => {
-    const r = String(linha).trim().toLowerCase();
-    const abertos = [...pedidosPar.values()].filter((x) => x.estado === 'pendente' && x.ate > now());
-    if (!abertos.length || !r) return;
-    if (r.startsWith('n')) {
-      for (const p of abertos) p.estado = 'negado';
-      return console.log('Pedidos recusados.');
-    }
-    const p = /^\d{4}$/.test(r) && abertos.find((x) => x.sas === r);
-    if (p) {
-      errosPar = 0;
-      return aprovarPareamento(p);
-    }
-    if (++errosPar >= 3) {
-      errosPar = 0;
-      for (const x of abertos) x.estado = 'negado';
-      return console.log('Numeros errados demais: os pedidos foram recusados. Escaneie o codigo de novo no celular.');
-    }
-    console.log('Esses numeros nao batem com nenhum aparelho. Confira a tela do celular e digite de novo.');
+    if (!String(linha).trim()) return;
+    if (![...pedidosPar.values()].some((x) => x.estado === 'pendente' && x.ate > now())) return;
+    console.log(responderPareamento(linha).msg);
   });
 }
 // O celular espera a resposta aqui (consulta longa de ate 25 s).
@@ -2051,7 +2248,22 @@ function readBody(req, limit = 512 * 1024) {
   });
 }
 
+// O terminal de verdade da janela do notebook (xterm.js), servido direto da pasta node_modules.
+// So estes tres arquivos: nada mais de node_modules sai pelo servidor.
+const VENDOR = {
+  '/vendor/xterm.js': path.join(ROOT, 'node_modules', '@xterm', 'xterm', 'lib', 'xterm.js'),
+  '/vendor/xterm.css': path.join(ROOT, 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'),
+  '/vendor/addon-fit.js': path.join(ROOT, 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js'),
+};
+// O xterm.js cria um <style> com as medidas do terminal: so a pagina do notebook aceita estilo criado pelo script.
+const CSP_DESKTOP = SEC_HEADERS['Content-Security-Policy'].replace("style-src 'self'", "style-src 'self' 'unsafe-inline'");
+
 function serveStatic(req, res, pathname) {
+  if (VENDOR[pathname] && fs.existsSync(VENDOR[pathname])) {
+    res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': MIME[path.extname(pathname)], 'Cache-Control': 'no-cache' });
+    if (req.method === 'HEAD') return res.end();
+    return fs.createReadStream(VENDOR[pathname]).pipe(res);
+  }
   if (pathname === '/') pathname = '/index.html';
   let rel;
   try {
@@ -2067,6 +2279,7 @@ function serveStatic(req, res, pathname) {
   }
   res.writeHead(200, {
     ...SEC_HEADERS,
+    ...(path.basename(file) === 'desktop.html' ? { 'Content-Security-Policy': CSP_DESKTOP } : {}),
     'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
     'Cache-Control': 'no-cache',
   });
@@ -2213,6 +2426,17 @@ const server = http.createServer(async (req, res) => {
         const err = enviarMensagem(instances.get(b.instance), typeof b.text === 'string' ? b.text.trim() : '');
         return json(res, err ? 409 : 200, err ? { erro: err } : { ok: true });
       }
+      // Botao de uma pergunta na notificacao do celular (menu numerado de uma sessao aberta pelo duckV).
+      // So vale uma opcao que esta na tela agora; as que valem para sempre ou pedem texto ficam para o app.
+      if (p === '/api/tecla' && req.method === 'POST') {
+        const b = await readBody(req, 4096);
+        const inst = instances.get(b?.instance);
+        const opcao = inst?.hosted && inst.pergunta?.opcoes.find((o) => o.tecla === String(b?.key || '') && !o.confirmar && !o.livre);
+        if (!opcao) return json(res, 409, { erro: 'Essa pergunta não está mais na tela. Abra o app para ver.' });
+        if (!inst.hosted.key(opcao.tecla)) return json(res, 409, { erro: 'Não consegui responder.' });
+        sysMsg(inst, `Você respondeu pela notificação: ${opcao.rotulo}`);
+        return json(res, 200, { ok: true });
+      }
       if (p === '/api/verdict' && req.method === 'POST') {
         const b = await readBody(req);
         const err = applyVerdict(b.instance, b.request_id, b.behavior);
@@ -2251,8 +2475,9 @@ server.on('upgrade', (req, socket, head) => {
 
 wssPhone.on('connection', (ws, req, aparelho) => {
   const c = { ws, open: null, term: null, visible: true, aparelho: aparelho.id };
+  if (aparelho.desktop) Object.assign(c, { desktop: true, abertas: new Set(), crus: new Set() });
   phones.add(c);
-  send(c, snapshot());
+  send(c, estadoPara(c));
   ws.on('message', (raw) => {
     try {
       onPhoneMessage(c, JSON.parse(raw.toString('utf8'))).catch(() => {});
@@ -2367,8 +2592,9 @@ function publicarNoTailscale() {
 }
 
 let basePareamento = `http://localhost:${PORT}`;
+const linkPareamento = () => `${basePareamento}/parear?k=${CODIGO}`;
 function mostrarPareamento() {
-  const link = `${basePareamento}/parear?k=${CODIGO}`;
+  const link = linkPareamento();
   if (!argv.has('--sem-qr')) {
     console.log('Para conectar um celular, abra o app duckV e aponte a camera para o codigo abaixo:\n');
     qrcode.generate(link, { small: true });

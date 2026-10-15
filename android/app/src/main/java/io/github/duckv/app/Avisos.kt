@@ -103,6 +103,15 @@ object Avisos {
         return PendingIntent.getBroadcast(ctx, (s.id + p.id + aceitar).hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
+    private val perguntasVistas = HashMap<String, String>()
+    private fun idPergunta(sessao: String) = ("perg" + sessao).hashCode()
+    fun cancelarPergunta(sessao: String) = NotificationManagerCompat.from(ctx).cancel(idPergunta(sessao))
+
+    private fun tecla(sessao: String, k: String): PendingIntent {
+        val i = Intent(ctx, RespostaTecla::class.java).putExtra("sessao", sessao).putExtra("tecla", k)
+        return PendingIntent.getBroadcast(ctx, (sessao + "tecla" + k).hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
     private fun mostrar(id: Int, n: NotificationCompat.Builder) {
         if (!NotificationManagerCompat.from(ctx).areNotificationsEnabled()) return
         try {
@@ -183,8 +192,9 @@ object Avisos {
             val conta = e.conta(s.conta)
             // O comando real vem primeiro: a descricao e escrita pelo proprio modelo e pode enganar.
             val corpo = listOf(p.preview, p.desc).filter { it.isNotBlank() }.distinct().joinToString("\n")
-            // Comando cortado ou de varias linhas so se aceita dentro do app, vendo tudo.
-            val daPraVer = p.preview.isNotBlank() && !p.preview.endsWith("…") && !p.preview.contains('\n')
+            // Aceitar exige ver o comando inteiro: ele cabe na notificacao aberta (ate 15 linhas e 900 letras)
+            // e nao chegou cortado. Comando maior so se aceita dentro do app.
+            val daPraVer = p.preview.isNotBlank() && !p.preview.endsWith("…") && p.preview.length <= 900 && p.preview.count { it == '\n' } < 15
             val titulo = "${conta.nome} pede permissão: ${p.tool}"
             val b = NotificationCompat.Builder(ctx, PEDIDOS)
                 .setSmallIcon(R.drawable.ic_aviso)
@@ -204,6 +214,41 @@ object Avisos {
                     .addAction(acao("Recusar", responder(s, p, false)))
             if (daPraVer) b.addAction(acao("Aceitar", responder(s, p, true)))
             mostrar(p.id.hashCode(), b.setAutoCancel(true))
+        }
+
+        // Perguntas das sessoes abertas pelo duckV (menus numerados na tela do agente): as opcoes viram botoes.
+        val perguntas = e.sessoes.filter { it.viva && it.hospedada && it.pergunta != null && it.perms.isEmpty() }
+            .associate { s -> s.id to (s to "${s.pergunta!!.titulo}|${s.pergunta.opcoes.joinToString("|") { it.rotulo }}") }
+        for ((sid, chave) in perguntasVistas.toMap()) if (perguntas[sid]?.second != chave) {
+            NotificationManagerCompat.from(ctx).cancel(idPergunta(sid))
+            perguntasVistas.remove(sid)
+        }
+        for ((sid, par) in perguntas) {
+            val (s, chave) = par
+            if (perguntasVistas[sid] == chave) continue
+            perguntasVistas[sid] = chave
+            if (appVisivel || !av.perm) continue
+            val q = s.pergunta!!
+            val conta = e.conta(s.conta)
+            val contexto = q.contexto.lines().takeLast(12).joinToString("\n").trim()
+            val b = NotificationCompat.Builder(ctx, PEDIDOS)
+                .setSmallIcon(R.drawable.ic_aviso)
+                .setColor(conta.cor.toInt())
+                .setContentTitle("${conta.nome} pergunta: ${q.titulo.ifBlank { s.titulo }}")
+                .setContentText(q.opcoes.joinToString(" · ") { "${it.tecla}. ${it.rotulo}" })
+                .setStyle(NotificationCompat.BigTextStyle().bigText(listOf(contexto, q.opcoes.joinToString("\n") { "${it.tecla}. ${it.rotulo}" }).filter { it.isNotBlank() }.joinToString("\n\n")).setSummaryText(s.titulo))
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(abrirApp(s.id, idPergunta(sid)))
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setPublicVersion(
+                    NotificationCompat.Builder(ctx, PEDIDOS).setSmallIcon(R.drawable.ic_aviso).setColor(conta.cor.toInt())
+                        .setContentTitle("${conta.nome} pergunta algo").setContentText("Desbloqueie para ver.").build(),
+                )
+                .setAutoCancel(true)
+            // O Android mostra ate 3 botoes. Opcoes que valem para sempre ou pedem texto ficam para o app.
+            q.opcoes.filter { !it.confirmar && !it.livre }.take(3).forEach { o -> b.addAction(acao(o.rotulo.take(30), tecla(s.id, o.tecla))) }
+            mostrar(idPergunta(sid), b)
         }
         // Versao nova do app: um aviso por versao, so com o app fora da tela (dentro dele, o cartao do inicio avisa).
         Atualizacao.disponivel(ctx, e)?.let { v ->
@@ -317,6 +362,37 @@ class RespostaTexto : BroadcastReceiver() {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 Avisos.respondido(sessao, texto, erro)
                 if (erro == null) Hub.aCaminho.value = Hub.aCaminho.value + (sessao to texto)
+                pendente.finish()
+            }
+        }
+    }
+}
+
+// Botao de uma opcao de pergunta na notificacao: o computador aperta a tecla, so se a pergunta ainda estiver na tela.
+class RespostaTecla : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val sessao = intent.getStringExtra("sessao") ?: return
+        val tecla = intent.getStringExtra("tecla") ?: return
+        val base = Hub.base ?: return
+        val token = context.getSharedPreferences("claudev", Context.MODE_PRIVATE).getString("token", null) ?: return
+        val pendente = goAsync()
+        thread {
+            val corpo = JSONObject().put("instance", sessao).put("key", tecla)
+            val erro = try {
+                OkHttpClient().newCall(
+                    Request.Builder().url("$base/api/tecla").header("Cookie", "painel=$token")
+                        .post(corpo.toString().toRequestBody("application/json".toMediaType())).build(),
+                ).execute().use { r ->
+                    if (r.isSuccessful) null
+                    else if (r.code == 404) "O duckV do computador está desatualizado."
+                    else runCatching { JSONObject(r.body!!.string()).optString("erro") }.getOrNull()?.ifBlank { null } ?: "Erro ${r.code}"
+                }
+            } catch (_: Exception) {
+                "Sem conexão com o computador."
+            }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                Avisos.cancelarPergunta(sessao)
+                Toast.makeText(context, erro ?: "Respondido", Toast.LENGTH_SHORT).show()
                 pendente.finish()
             }
         }

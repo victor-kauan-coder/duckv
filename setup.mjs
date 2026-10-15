@@ -11,7 +11,7 @@ import readline from 'node:readline/promises';
 import webpush from 'web-push';
 import { agenteDe } from './hub/agentes.mjs';
 import { ROOT, ACCOUNTS_FILE, ensureConfig, loadAccounts, defaultAccounts, readJson, writeJson } from './lib/config.mjs';
-import { WIN, MAC, lancador, criarAtalho, ligarComSistema, ligaComSistema, removerAtalhos, removerAntigos } from './lib/atalhos.mjs';
+import { WIN, MAC, lancador, criarAtalho, criarAtalhoApp, removerAtalhoApp, lancadorApp, ligarComSistema, ligaComSistema, removerAtalhos, removerAntigos } from './lib/atalhos.mjs';
 
 const remover = process.argv.includes('--remover');
 const fwd = (p) => p.replace(/\\/g, '/');
@@ -264,6 +264,8 @@ if (pendencias.length) {
 
 if (remover) {
   removerAtalhos();
+  removerAtalhoApp();
+  fs.rmSync(path.join(os.homedir(), '.duckv', 'instalacao.json'), { force: true });
   console.log('\nPronto. Para apagar tudo, feche o duckV e exclua esta pasta.');
 } else {
   // Login de cada conta: abre a pagina de entrada no navegador deste computador, uma conta por vez.
@@ -312,6 +314,13 @@ if (remover) {
   if (ligava) ligarComSistema(ROOT);
   const aviso = criarAtalho(ROOT);
   if (aviso) console.log(`\n${aviso}`);
+  // O app com janela propria (Electron) acha esta pasta por aqui, mesmo instalado em outro lugar.
+  fs.mkdirSync(path.join(os.homedir(), '.duckv'), { recursive: true });
+  fs.writeFileSync(path.join(os.homedir(), '.duckv', 'instalacao.json'), JSON.stringify({ pasta: ROOT }, null, 2));
+  if (await pergunta('\nInstalar o app do duckV com janela propria (contas, sessoes e terminal numa janela so)? O terminal continua funcionando.')) {
+    if (rodar(`npm install --prefix "${path.join(ROOT, 'desktop')}" --no-fund --no-audit`)) console.log(criarAtalhoApp(ROOT));
+    else console.log(`Nao consegui instalar o app agora. Ele se instala sozinho na primeira vez que voce abrir ${path.basename(lancadorApp(ROOT))}.`);
+  }
   if (!ligava && (await pergunta('Ligar o duckV junto com o computador?', false))) {
     ligarComSistema(ROOT);
     console.log('Pronto: o duckV liga sozinho quando voce entra no computador.');

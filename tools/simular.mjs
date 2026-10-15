@@ -31,7 +31,13 @@ const env = {
   PAINEL_DATA: DEMO,   PAINEL_CONTAS: path.join(DEMO, 'contas.json'),
   PAINEL_PORT: PORT,
 };
-const hub = spawn(process.execPath, [path.join(ROOT, 'hub', 'server.mjs'), ...process.argv.slice(2)], { env, stdio: 'inherit' });
+// Aberto pelo app do computador (DUCKV_DEMO=1): a chave da janela passa direto para o servidor de demonstracao.
+const peloApp = typeof process.send === 'function';
+const hub = spawn(process.execPath, [path.join(ROOT, 'hub', 'server.mjs'), ...process.argv.slice(2)], { env, stdio: peloApp ? ['inherit', 'inherit', 'inherit', 'ipc'] : 'inherit' });
+if (peloApp) {
+  process.on('message', (m) => hub.connected && hub.send(m));
+  process.on('disconnect', () => hub.kill());
+}
 hub.on('exit', (code) => process.exit(code ?? 0));
 process.on('SIGINT', () => hub.kill());
 
