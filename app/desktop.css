@@ -620,6 +620,8 @@ a { color: var(--laranja-texto); text-underline-offset: 3px; }
 .nuvem-ajuda { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--c-low); }
 .nuvem-ajuda .icone { flex: none; margin-top: 2px; }
 #nova-tarefa { width: 100%; resize: vertical; min-height: 76px; }
+.repos-lista { max-height: 260px; overflow: auto; margin-top: 8px; }
+.repos-lista .escolha .t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .anexos-prontos { order: -1; display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0 4px; }
 .anexo-item { position: relative; border-radius: 14px; background: var(--c-highest); }

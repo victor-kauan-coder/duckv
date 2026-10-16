@@ -148,3 +148,12 @@ ok(nv.lerCriacao('Error: This directory is not a GitHub repository').erro === 'T
 let chamada = null;
 const r = await nv.criar({ exe: 'claude.exe', texto: 'faca & del *', cwd: String.raw`C:\proj`, env: { A: '1' }, executar: (f, a, o, cb) => ((chamada = { f, a, o }), cb(null, 'Created cloud session: x\nhttps://claude.ai/code/session_0123456789ab', '')) });
 ok(r.sid === 'session_0123456789ab' && chamada.f === 'claude.exe' && chamada.a[0] === '--cloud' && chamada.a[1] === 'faca & del *' && chamada.o.cwd === String.raw`C:\proj`, 'tarefa vai como um argumento so, direto para o executavel');
+
+// --- repositorios do GitHub para a sessao na nuvem
+ok(nv.repoDoRemoto('https://github.com/eu/loja-api.git') === 'eu/loja-api' && nv.repoDoRemoto('git@github.com:eu/loja.api') === 'eu/loja.api', 'endereco do GitHub (https e ssh) vira dono/nome');
+ok(nv.repoDoRemoto('https://gitlab.com/eu/x') === null && nv.repoDoRemoto('') === null, 'remoto que nao e do GitHub fica de fora');
+ok(nv.nomeRepoValido('eu/projeto_1.0') && !nv.nomeRepoValido('eu/..') && !nv.nomeRepoValido('../etc') && !nv.nomeRepoValido('eu/a/b') && !nv.nomeRepoValido('eu/a b'), 'nome de repositorio com .., barra a mais ou espaco e recusado');
+const repos = nv.lerRepos(JSON.stringify([{ full_name: 'eu/a', description: 'Um', private: true, pushed_at: '2026-10-16T10:00:00Z' }, { full_name: 'eu/velho', archived: true }, { full_name: 'ruim/../x' }, { lixo: 1 }]));
+ok(repos.length === 1 && repos[0].repo === 'eu/a' && repos[0].privado && repos[0].atualizado > 0, 'lista do gh: arquivados e nomes estranhos ficam de fora');
+ok(nv.lerRepos('nao e json').length === 0, 'resposta quebrada do gh nao derruba');
+ok(nv.pastaDoRepo(String.raw`C:\duckv\data`, 'eu/a').endsWith('eu__a') && !nv.pastaDoRepo('/d', 'eu/a').includes('..'), 'copia leve mora dentro da pasta de dados do duckV');

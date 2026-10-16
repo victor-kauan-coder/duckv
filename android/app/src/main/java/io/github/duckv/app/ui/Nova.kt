@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -89,6 +91,22 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
     // Onde roda: neste computador (o de sempre) ou na nuvem da Anthropic (so contas do Claude Code)
     var naNuvem by rememberSaveable { mutableStateOf(false) }
     var tarefa by rememberSaveable { mutableStateOf("") }
+    // Na nuvem: um repositorio do GitHub (os seus, pelo gh do computador), esteja ele no computador ou nao.
+    var repo by rememberSaveable { mutableStateOf<String?>(null) }
+    var repos by remember { mutableStateOf<List<RepoGh>?>(null) }
+    var erroRepos by remember { mutableStateOf<String?>(null) }
+    var buscaRepo by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(naNuvem) {
+        if (!naNuvem || repos != null) return@LaunchedEffect
+        Hub.mandar(JSONObject().put("t", "repos")) { er, r ->
+            val a = r?.optJSONArray("itens")
+            repos = List(a?.length() ?: 0) { i ->
+                val o = a!!.getJSONObject(i)
+                RepoGh(o.optString("repo"), o.optString("descricao").takeIf { !o.isNull("descricao") && it.isNotBlank() }, o.optBoolean("privado"), o.optString("pasta").takeIf { !o.isNull("pasta") && it.isNotBlank() })
+            }
+            erroRepos = er ?: r?.optString("erro")?.takeIf { !r.isNull("erro") && it.isNotBlank() }
+        }
+    }
     var lista by remember { mutableStateOf<Listagem?>(null) }
     var erroLista by remember { mutableStateOf<String?>(null) }
 
@@ -149,13 +167,52 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                     ) {
                         Icon(iconeOrigem("nuvem"), null, Modifier.size(18.dp), tint = c.apoio)
                         Text(
-                            "Roda nos servidores da Anthropic, a partir do repositório do GitHub da pasta, e continua mesmo com o computador desligado. Você acompanha por aqui; para responder, abre no claude.ai.",
+                            "Roda nos servidores da Anthropic, a partir do repositório escolhido, e continua mesmo com o computador desligado. Repositório que não está no computador ganha uma cópia leve na pasta do duckV. Você acompanha por aqui; para responder, abre no claude.ai.",
                             style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 10.dp),
                         )
                     }
                 }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (naNuvem) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CabecalhoAjuste("Repositório do GitHub", null, Modifier.padding(bottom = 0.dp))
+                OutlinedTextField(
+                    buscaRepo, { buscaRepo = it }, Modifier.fillMaxWidth(), singleLine = true,
+                    placeholder = { Text("Buscar entre os seus repositórios", color = c.apoio) },
+                    shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
+                )
+                erroRepos?.let { Text(it, style = Texto.apoio, color = c.perigo) }
+                val lista = repos
+                if (lista == null) Text("Buscando seus repositórios…", style = Texto.apoio, color = c.apoio)
+                else {
+                    val q = buscaRepo.trim().lowercase()
+                    val achados = lista.filter { q.isEmpty() || "${it.repo} ${it.descricao.orEmpty()}".lowercase().contains(q) }.take(40)
+                    if (achados.isEmpty()) Text(if (q.isEmpty()) "Nenhum repositório encontrado." else "Nenhum repositório com esse nome.", style = Texto.apoio, color = c.apoio)
+                    val forma = RoundedCornerShape(16.dp)
+                    Column(Modifier.fillMaxWidth().clip(forma).background(c.cartao)) {
+                        for ((i, r) in achados.withIndex()) {
+                            if (i > 0) Divisoria(Modifier.padding(start = 16.dp))
+                            val marcado = repo == r.repo
+                            Row(
+                                Modifier.fillMaxWidth().background(if (marcado) c.invFundo else Color.Transparent)
+                                    .clickable(role = androidx.compose.ui.semantics.Role.RadioButton) { repo = r.repo }
+                                    .heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(if (r.pasta != null) Icons.Rounded.Folder else iconeOrigem("nuvem"), null, Modifier.size(20.dp), tint = if (marcado) c.invTexto else c.apoio)
+                                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                                    Text(r.repo, style = Texto.rotulo, color = if (marcado) c.invTexto else c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        listOfNotNull(if (r.pasta != null) "Neste computador" else "Baixa uma cópia leve ao criar", if (r.privado) "privado" else null, r.descricao).joinToString(" · "),
+                                        style = Texto.pequeno, color = if (marcado) c.invApoio else c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                androidx.compose.material3.RadioButton(marcado, { repo = r.repo }, colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = c.realce))
+                            }
+                        }
+                    }
+                }
+            }
+            if (!naNuvem) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 CabecalhoAjuste("Pasta do projeto", null, Modifier.padding(bottom = 0.dp))
                 OutlinedTextField(
                     cwd, { cwd = it; erroPasta = null }, Modifier.fillMaxWidth(),
@@ -239,20 +296,24 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                     if (abrindo) (if (naNuvem) "Criando na nuvem" else "Abrindo") else if (naNuvem) "Criar na nuvem" else "Abrir sessão",
                     {
                         erro = null
-                        if (cwd.isBlank()) {
-                            erroPasta = "Escolha a pasta do projeto."
-                            return@Botao
-                        }
                         if (naNuvem) {
+                            if (repo == null) {
+                                erro = "Escolha o repositório do GitHub."
+                                return@Botao
+                            }
                             if (tarefa.trim().length < 3) {
                                 erro = "Escreva o que a sessão deve fazer."
                                 return@Botao
                             }
                             abrindo = true
-                            Hub.mandar(JSONObject().put("t", "nuvemNova").put("account", conta).put("cwd", cwd.trim()).put("texto", tarefa)) { er, r ->
+                            Hub.mandar(JSONObject().put("t", "nuvemNova").put("account", conta).put("repo", repo).put("texto", tarefa)) { er, r ->
                                 abrindo = false
                                 if (er != null) erro = er else r?.optString("instance")?.let(aoAbriu)
                             }
+                            return@Botao
+                        }
+                        if (cwd.isBlank()) {
+                            erroPasta = "Escolha a pasta do projeto."
                             return@Botao
                         }
                         abrindo = true
@@ -284,3 +345,6 @@ private fun LinhaPasta(icone: androidx.compose.ui.graphics.vector.ImageVector, t
         }
     }
 }
+
+/** Um repositorio do GitHub para a sessao na nuvem; [pasta] quando ele ja esta no computador. */
+private data class RepoGh(val repo: String, val descricao: String?, val privado: Boolean, val pasta: String?)

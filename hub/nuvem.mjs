@@ -338,3 +338,32 @@ export function criar({ exe, texto, cwd, env, executar }) {
     });
   });
 }
+
+// --------------------------------------------------------------- repositorios do GitHub
+// A sessao na nuvem nasce do repositorio do GitHub da pasta. Para escolher qualquer repositorio (mesmo
+// um que nao esta no computador), o duckV lista os seus pelo GitHub CLI (gh) e, se preciso, baixa uma
+// copia leve (so a ultima versao) numa pasta propria dele.
+export const nomeRepoValido = (r) => typeof r === 'string' && /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(r) && !r.split('/').some((p) => p === '.' || p === '..');
+
+// "owner/nome" de um endereco do GitHub (https ou ssh); null se nao for do GitHub.
+export function repoDoRemoto(url) {
+  const m = /github\.com[:/]+([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(String(url || '').trim());
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+// Lista vinda de `gh api user/repos`: so o que a tela precisa.
+export function lerRepos(json) {
+  let lista;
+  try {
+    lista = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  return (Array.isArray(lista) ? lista : [])
+    .filter((r) => r && nomeRepoValido(r.full_name))
+    .map((r) => ({ repo: r.full_name, descricao: clip(r.description || '', 120) || null, privado: !!r.private, atualizado: quando(r.pushed_at, r.updated_at), arquivado: !!r.archived }))
+    .filter((r) => !r.arquivado);
+}
+
+// Pasta da copia leve de um repositorio, dentro da pasta de dados do duckV.
+export const pastaDoRepo = (dados, repo) => path.join(dados, 'repos', repo.replace('/', '__'));

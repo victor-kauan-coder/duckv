@@ -935,6 +935,12 @@ async function onPhoneMessage(c, m) {
       break;
     }
     // Nova sessao na nuvem: `claude --cloud "tarefa"` na pasta escolhida, com o login da conta.
+    // Repositorios do GitHub para a sessao na nuvem: os seus (pelo gh) e os que ja estao no computador.
+    case 'repos': {
+      const r = await reposParaNuvem(!!m.atualizar);
+      send(c, { t: 'ack', ref: m.ref, ...r });
+      break;
+    }
     case 'nuvemNova': {
       const r = await criarNaNuvem(m);
       send(c, r.err ? { t: 'err', ref: m.ref, msg: r.err } : { t: 'ack', ref: m.ref, instance: r.instance, link: r.link });
@@ -2144,20 +2150,112 @@ const DEMO_NUVEM = process.env.PAINEL_DEMO === '1' ? nuvem.demo() : null;
 const PASTA_NUVEM = path.join(DATA, 'nuvem');
 const RECENTE_NUVEM = 6 * 3600 * 1000;
 
+// --- repositorios do GitHub (para escolher onde a sessao na nuvem trabalha)
+const rodar = (bin, args, opts = {}) =>
+  new Promise((ok) => execFile(bin, args, { windowsHide: true, timeout: 30_000, maxBuffer: 8 * 1024 * 1024, ...opts }, (err, out, erro) => ok({ err, out: String(out || ''), erro: String(erro || '') })));
+const ultimaLinha = (t) =>
+  String(t || '')
+    .trim()
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .at(-1) || '';
+let reposCache = { at: 0, itens: null, erro: null };
+async function reposDoGithub(forcar) {
+  if (DEMO_NUVEM) {
+    const t = (d) => now() - d * 86_400_000;
+    return {
+      itens: [
+        { repo: 'exemplo/loja-api', descricao: 'API da loja', privado: true, atualizado: t(0) },
+        { repo: 'exemplo/site-novo', descricao: 'Site novo da empresa', privado: false, atualizado: t(1) },
+        { repo: 'exemplo/blog', descricao: null, privado: false, atualizado: t(6) },
+        { repo: 'exemplo/app-entregas', descricao: 'App de entregas (React Native)', privado: true, atualizado: t(12) },
+      ],
+      erro: null,
+    };
+  }
+  if (!forcar && reposCache.itens && now() - reposCache.at < 5 * 60_000) return reposCache;
+  const r = await rodar('gh', ['api', 'user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member']);
+  if (r.err) {
+    const semGh = r.err.code === 'ENOENT';
+    const erro = semGh
+      ? 'Instale o GitHub CLI (gh) e entre com "gh auth login" para escolher repositórios do GitHub.'
+      : /auth|login|401/i.test(r.erro)
+        ? 'Entre no GitHub CLI com "gh auth login" para ver seus repositórios.'
+        : `O GitHub não respondeu (${ultimaLinha(r.erro) || r.err.message}).`;
+    reposCache = { at: now(), itens: reposCache.itens || [], erro };
+    return reposCache;
+  }
+  reposCache = { at: now(), itens: nuvem.lerRepos(r.out), erro: null };
+  return reposCache;
+}
+// Pastas recentes que sao repositorios do GitHub: repo -> pasta
+let locaisCache = { at: 0, mapa: new Map() };
+async function reposLocais() {
+  if (now() - locaisCache.at < 60_000) return locaisCache.mapa;
+  const mapa = new Map();
+  await Promise.all(
+    folders.slice(0, 20).map(async (f) => {
+      const r = await rodar('git', ['-C', f, 'remote', 'get-url', 'origin'], { timeout: 5000 });
+      const repo = r.err ? null : nuvem.repoDoRemoto(r.out);
+      if (repo && !mapa.has(repo)) mapa.set(repo, f);
+    }),
+  );
+  locaisCache = { at: now(), mapa };
+  return mapa;
+}
+async function reposParaNuvem(forcar) {
+  const [gh, locais] = await Promise.all([reposDoGithub(forcar), DEMO_NUVEM ? new Map([['exemplo/loja-api', ROOT]]) : reposLocais()]);
+  const porNome = new Map((gh.itens || []).map((r) => [r.repo, { ...r, pasta: null }]));
+  for (const [repo, pasta] of locais) porNome.set(repo, { ...(porNome.get(repo) || { repo, descricao: null, privado: null, atualizado: 0 }), pasta });
+  // os que ja estao no computador primeiro; depois os mexidos ha menos tempo
+  const itens = [...porNome.values()].sort((a, b) => (b.pasta ? 1 : 0) - (a.pasta ? 1 : 0) || b.atualizado - a.atualizado);
+  return { itens, erro: gh.erro };
+}
+// Pasta de onde a sessao na nuvem nasce para um repositorio: a do computador, ou uma copia leve do duckV.
+async function pastaParaRepo(repo) {
+  if (!nuvem.nomeRepoValido(repo)) return { err: 'Repositório inválido.' };
+  if (DEMO_NUVEM) return { cwd: ROOT };
+  const local = (await reposLocais()).get(repo);
+  if (local && fs.existsSync(local)) return { cwd: local };
+  const dest = nuvem.pastaDoRepo(DATA, repo);
+  if (fs.existsSync(path.join(dest, '.git'))) {
+    // copia do duckV: traz a versao mais nova do ramo principal (a pasta e so dele, pode ser refeita)
+    const f = await rodar('git', ['-C', dest, 'fetch', '--depth', '1', 'origin'], { timeout: 120_000 });
+    if (!f.err) await rodar('git', ['-C', dest, 'reset', '--hard', 'FETCH_HEAD'], { timeout: 60_000 });
+    return { cwd: dest };
+  }
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const r = await rodar('gh', ['repo', 'clone', repo, dest, '--', '--depth', '1'], { timeout: 300_000 });
+  if (r.err) {
+    fs.rmSync(dest, { recursive: true, force: true });
+    return { err: r.err.code === 'ENOENT' ? 'Instale o GitHub CLI (gh) para usar repositórios que não estão no computador.' : `Não consegui baixar ${repo}: ${ultimaLinha(r.erro) || r.err.message}` };
+  }
+  return { cwd: dest };
+}
+
 // Cria uma sessao na nuvem e devolve a instancia (so leitura) para o app abrir na hora.
+// A tarefa nasce de um repositorio do GitHub (m.repo) ou, como antes, de uma pasta do computador (m.cwd).
 async function criarNaNuvem(m) {
   const acc = accounts.get(m.account);
   if (!acc || (acc.agente || 'claude') !== 'claude') return { err: 'Sessões na nuvem são só para contas do Claude Code.' };
   const texto = nuvem.textoDaTarefa(m.texto);
   if (!texto) return { err: 'Escreva o que a sessão deve fazer.' };
-  const cwd = folderAllowed(String(m.cwd || ''), cfg.pastasPermitidas || [], folders);
-  if (!cwd) return { err: 'Pasta não encontrada ou fora das pastas permitidas. Escolha a pasta de um repositório do GitHub em que você já abriu uma sessão.' };
+  let cwd;
+  if (m.repo) {
+    const p = await pastaParaRepo(String(m.repo));
+    if (p.err) return { err: p.err };
+    cwd = p.cwd;
+  } else {
+    cwd = folderAllowed(String(m.cwd || ''), cfg.pastasPermitidas || [], folders);
+    if (!cwd) return { err: 'Pasta não encontrada ou fora das pastas permitidas. Escolha um repositório do GitHub.' };
+  }
   let r;
   if (DEMO_NUVEM) {
     // demonstracao: a sessao "nasce" na lista de mentira, com a sua tarefa como primeira mensagem
     const sid = `session_demo_nova_${crypto.randomBytes(4).toString('hex')}`;
     const agora = new Date().toISOString();
-    DEMO_NUVEM.sessoes.unshift({ id: sid, title: clip(texto.replace(/\s+/g, ' '), 60), environment_kind: 'anthropic_cloud', origin: 'desktop_app', session_status: 'running', created_at: agora, updated_at: agora, session_context: { sources: [{ type: 'git_repository', url: `https://github.com/exemplo/${path.basename(cwd)}` }] } });
+    DEMO_NUVEM.sessoes.unshift({ id: sid, title: clip(texto.replace(/\s+/g, ' '), 60), environment_kind: 'anthropic_cloud', origin: 'desktop_app', session_status: 'running', created_at: agora, updated_at: agora, session_context: { sources: [{ type: 'git_repository', url: `https://github.com/${m.repo && nuvem.nomeRepoValido(String(m.repo)) ? m.repo : `exemplo/${path.basename(cwd)}`}` }] } });
     DEMO_NUVEM.novas.set(sid, texto);
     r = { sid, link: `https://claude.ai/code/${sid}` };
   } else {
@@ -2168,7 +2266,7 @@ async function criarNaNuvem(m) {
     r = await nuvem.criar({ exe, texto, cwd, env, executar: execFile });
   }
   if (!r.sid) return { err: `A nuvem não aceitou: ${r.erro}` };
-  rememberFolder(cwd);
+  if (!m.repo) rememberFolder(cwd);
   const n = await nuvemDa(acc, true).catch(() => null);
   const item = n?.itens.find((x) => x.sid === r.sid) || { sid: r.sid, origem: 'nuvem', titulo: clip(texto.replace(/\s+/g, ' '), 60), estado: 'working', criada: now(), mtime: now(), cwd, link: r.link, pastas: [] };
   const inst = instDaNuvem(acc, item);

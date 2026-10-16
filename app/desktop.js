@@ -2697,7 +2697,7 @@ function abrirNova(opts = {}) {
   // Na nuvem: so a tarefa e a pasta (o repositorio do GitHub dela); o resto a nuvem decide.
   const tarefa = el('textarea', { id: 'nova-tarefa', class: 'campo-texto', rows: 3, maxLength: 4000, placeholder: 'Ex.: Corrija o teste de pagamento que está falhando e abra um pull request.' });
   const campoTarefa = el('div', { class: 'campo', hidden: true }, el('label', { for: 'nova-tarefa', text: 'O que a sessão deve fazer' }), tarefa);
-  const ajudaNuvem = el('p', { class: 'ajuda nuvem-ajuda', hidden: true }, icone('cloud', 16), el('span', { text: 'Roda nos servidores da Anthropic, a partir do repositório do GitHub desta pasta, e continua mesmo com o computador desligado. Você acompanha por aqui; para responder, abra no claude.ai.' }));
+  const ajudaNuvem = el('p', { class: 'ajuda nuvem-ajuda', hidden: true }, icone('cloud', 16), el('span', { text: 'Roda nos servidores da Anthropic, a partir do repositório escolhido, e continua mesmo com o computador desligado. Repositório que não está no computador ganha uma cópia leve na pasta do duckV. Você acompanha por aqui; para responder, abra no claude.ai.' }));
   const contas = el('div', { class: 'escolhas', role: 'radiogroup', 'aria-label': 'Conta' });
   const caminho = el('input', { id: 'nova-pasta', type: 'text', autocomplete: 'off', spellcheck: false, placeholder: S.host.home || '' });
   const procurar = el('button', { class: 'botao quieto', type: 'button' }, icone('folder-open', 18), 'Procurar');
@@ -2720,10 +2720,51 @@ function abrirNova(opts = {}) {
   const ajustes = el('div', { class: 'lado-a-lado' }, el('div', { class: 'campo' }, el('label', { for: 'nova-modelo', text: 'Modelo' }), modelo), el('div', { class: 'campo' }, el('label', { for: 'nova-esforco', text: 'Esforço' }), esforco), el('div', { class: 'campo' }, el('label', { for: 'nova-modo', text: 'Permissões' }), modo));
 
   const campoNome = el('div', { class: 'campo' }, el('label', { for: 'nova-nome', text: 'Nome da sessão' }), nome);
+  const campoPasta = el('div', { class: 'campo' }, el('label', { for: 'nova-pasta', text: 'Pasta do projeto' }), el('div', { class: 'pasta-linha' }, caminho, procurar), erroPasta, navegador, recentes);
+  // Na nuvem: um repositorio do GitHub (os seus, pelo gh), esteja ele no computador ou nao.
+  let repoEscolhido = null;
+  let repos = null;
+  const buscaRepo = el('input', { id: 'nova-repo', type: 'search', autocomplete: 'off', spellcheck: false, placeholder: 'Buscar entre os seus repositórios', 'aria-label': 'Buscar repositório do GitHub' });
+  const listaRepos = el('div', { class: 'escolhas repos-lista', role: 'radiogroup', 'aria-label': 'Repositório do GitHub' });
+  const avisoRepos = el('p', { class: 'historico-aviso', hidden: true });
+  const campoRepo = el('div', { class: 'campo', hidden: true }, el('label', { for: 'nova-repo', text: 'Repositório do GitHub' }), buscaRepo, avisoRepos, listaRepos);
+  function desenharRepos() {
+    if (!repos) return listaRepos.replaceChildren(...Array.from({ length: 4 }, () => el('div', { class: 'escolha esqueleto', 'aria-hidden': 'true' }, el('i'), el('span', { class: 't' }, el('b'), el('span')))));
+    const q = semAcento(buscaRepo.value.trim());
+    const achados = repos.filter((r) => !q || semAcento(`${r.repo} ${r.descricao || ''}`).includes(q)).slice(0, 60);
+    listaRepos.replaceChildren(
+      ...(achados.length
+        ? achados.map((r) =>
+            el(
+              'button',
+              { class: 'escolha', type: 'button', role: 'radio', 'aria-checked': String(repoEscolhido === r.repo), onclick: () => ((repoEscolhido = r.repo), desenharRepos()) },
+              el('span', { class: 'hist-ic' }, icone(r.pasta ? 'folder' : 'globe', 18)),
+              el('span', { class: 't' }, el('b', { text: r.repo }), el('span', { text: [r.pasta ? 'Neste computador' : 'Baixa uma cópia leve ao criar', r.privado ? 'privado' : null, r.descricao].filter(Boolean).join(' · ') })),
+              el('span', { class: 'radio' }),
+            ),
+          )
+        : [el('p', { class: 'p-nota historico-nada', text: q ? 'Nenhum repositório com esse nome.' : 'Nenhum repositório encontrado.' })]),
+    );
+  }
+  function carregarRepos() {
+    if (repos) return;
+    desenharRepos();
+    mandar({ t: 'repos' }, (erro, r) => {
+      repos = erro ? [] : r.itens || [];
+      const aviso = erro || r.erro;
+      avisoRepos.hidden = !aviso;
+      avisoRepos.replaceChildren(icone('warning-circle', 16), el('span', { text: aviso || '' }));
+      // ja vem escolhido o repositorio da pasta padrao da conta, se ele estiver na lista
+      if (!repoEscolhido) repoEscolhido = repos.find((x) => x.pasta && x.pasta === caminho.value.trim())?.repo || null;
+      desenharRepos();
+    });
+  }
+  buscaRepo.addEventListener('input', desenharRepos);
   corpo.append(
     el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Conta' }), contas),
     el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Onde roda' }), ondeChips),
-    el('div', { class: 'campo' }, el('label', { for: 'nova-pasta', text: 'Pasta do projeto' }), el('div', { class: 'pasta-linha' }, caminho, procurar), erroPasta, navegador, recentes),
+    campoPasta,
+    campoRepo,
     campoTarefa,
     ajudaNuvem,
     campoNome,
@@ -2791,6 +2832,9 @@ function abrirNova(opts = {}) {
     ajustes.hidden = onde !== 'duckv';
     ajudaModo.hidden = onde !== 'duckv';
     campoNome.hidden = nuvem;
+    campoPasta.hidden = nuvem;
+    campoRepo.hidden = !nuvem;
+    if (nuvem) carregarRepos();
     campoTarefa.hidden = !nuvem;
     ajudaNuvem.hidden = !nuvem;
     ajudaModo.textContent = MODOS_AJUDA[modo.value] || '';
@@ -2828,7 +2872,11 @@ function abrirNova(opts = {}) {
     const c = contaEscolhida();
     const cwd = caminho.value.trim();
     if (!c) return falhou('Escolha uma conta.');
-    if (!cwd) {
+    if (onde === 'nuvem' && !repoEscolhido) {
+      falhou('Escolha o repositório do GitHub.');
+      return buscaRepo.focus();
+    }
+    if (!cwd && onde !== 'nuvem') {
       erroPasta.textContent = 'Escolha a pasta do projeto.';
       erroPasta.hidden = false;
       return caminho.focus();
@@ -2840,7 +2888,9 @@ function abrirNova(opts = {}) {
     abrir.disabled = true;
     if (onde === 'nuvem') {
       abrir.textContent = 'Criando na nuvem…';
-      return mandar({ t: 'nuvemNova', account: c.id, cwd, texto: tarefa.value }, (erro, r) => {
+      const local = repos?.find((x) => x.repo === repoEscolhido)?.pasta;
+      abrir.textContent = local ? 'Criando na nuvem…' : 'Baixando e criando…';
+      return mandar({ t: 'nuvemNova', account: c.id, repo: repoEscolhido, texto: tarefa.value }, (erro, r) => {
         abrir.disabled = false;
         abrir.textContent = 'Criar na nuvem';
         if (erro) return falhou(erro);
