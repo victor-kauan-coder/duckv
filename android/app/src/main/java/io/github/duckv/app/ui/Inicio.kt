@@ -193,7 +193,8 @@ fun Inicio(
                 Aviso(
                     Icons.Rounded.WifiOff,
                     if (ligado == false) "Sem conexão com o computador" else "Conectando ao computador",
-                    "Confira se ele está ligado, com o duckV aberto, e se o Tailscale está ativo neste celular. O app continua tentando.",
+                    if (ligado == false) "Confira se ele está ligado, com o duckV aberto, e se o Tailscale está ativo neste celular. O app continua tentando; enquanto isso, a nuvem está logo abaixo."
+                    else "Confira se ele está ligado, com o duckV aberto, e se o Tailscale está ativo neste celular. O app continua tentando.",
                     erro = ligado == false,
                 )
             }
@@ -209,8 +210,10 @@ fun Inicio(
             if (e?.demo == true) Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                 Aviso(null, "Modo demonstração", "As contas, as sessões e os números desta tela são de mentira.", erro = false)
             }
+            // sem o computador: o que esta na nuvem continua rodando; o celular mostra a ultima lista e leva ao app Claude
+            if (ligado == false) PainelNuvemSemComputador(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp))
             if (e == null) {
-                Column(Modifier.padding(16.dp)) { Esqueleto() }
+                if (ligado != false) Column(Modifier.padding(16.dp)) { Esqueleto() }
                 return@Column
             }
 

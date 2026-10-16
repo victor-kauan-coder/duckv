@@ -412,7 +412,7 @@ Cada conta tem o seu patinho (Clássico, De borracha, Marreco, Pêssego, Chocola
 - As perguntas viram botões porque o duckV lê a tela do terminal. Se uma pergunta não virar botão, abra **Controles › Avançado › Ver a tela do terminal** e responda por lá.
 - O modo de permissão não tem escolha direta: o botão passa para o próximo modo, como o Shift+Tab, e o app mostra o que o Claude Code diz estar ativo.
 - O texto das perguntas vem do próprio agente, em geral em inglês.
-- O computador precisa ficar ligado e acordado. As sessões da nuvem continuam rodando com ele desligado, mas o duckV só as mostra com o computador ligado (é ele que guarda o login).
+- O computador precisa ficar ligado e acordado. As sessões da nuvem continuam rodando com ele desligado: sem o computador, o celular mostra a última lista da nuvem que viu (com a hora da leitura), e cada sessão abre no app Claude ou no claude.ai, onde também dá para criar uma nova. O login das contas fica só no computador.
 - As conversas normais do claude.ai (os chats, fora do Claude Code) não aparecem: o login do Claude Code não tem permissão para lê-las.
 - Responder uma sessão da nuvem é pelo claude.ai ou pelo app Claude: conectar o Claude Code a uma sessão da nuvem que já existe ainda não é liberado pela Anthropic.
 - As tarefas do Cowork que a Anthropic já apagou não aparecem mais, mesmo que o app Claude ainda lembre delas.

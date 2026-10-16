@@ -57,8 +57,12 @@ object Hub {
     val base get() = prefs.getString("base", null)
     private val token get() = prefs.getString("token", null)
 
+    private lateinit var appCtx: Context
+
     fun iniciar(ctx: Context) {
+        appCtx = ctx.applicationContext
         prefs = ctx.getSharedPreferences("claudev", Context.MODE_PRIVATE)
+        NuvemGuardada.carregar(appCtx)
         opcoes.value = OpcoesLocais.ler(prefs)
         pareado.value = base != null && token != null
     }
@@ -328,6 +332,8 @@ object Hub {
             "state" -> {
                 val e = lerEstado(m)
                 estado.value = e
+                // a lista da nuvem fica guardada para quando o computador estiver fora de alcance
+                NuvemGuardada.guardar(appCtx, e)
                 aoMudarEstado?.invoke(e)
             }
             "history" -> if (m.optString("instance") == aberta) conversa.value = lerMsgs(m.optJSONArray("items"))

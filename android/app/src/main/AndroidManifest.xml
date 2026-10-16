@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <queries>
+        <!-- o app Claude: sem o computador, as sessoes da nuvem abrem nele -->
+        <package android:name="com.anthropic.claude" />
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
