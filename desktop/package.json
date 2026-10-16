@@ -5,7 +5,11 @@
   "description": "duckV no computador: todas as contas e sessoes de agentes de codigo numa janela",
   "private": true,
   "main": "main.cjs",
-  "author": "victor-kauan-coder",
+  "author": {
+    "name": "victor-kauan-coder",
+    "email": "174162495+victor-kauan-coder@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/victor-kauan-coder/duckv",
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
