@@ -131,6 +131,8 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
     BackHandler(aba == "terminal") { aba = "controles" }
     val s = e?.sessoes?.find { it.id == id }
     val conta = s?.let { e.conta(it.conta) }
+    // o pato da caixa de mensagem: um so por sessao, que continua no lugar quando a caixa muda de modo
+    val patoVivo = lembrarPato(id)
     val cor = conta?.let { Color(it.cor) } ?: Laranja
     LaunchedEffect(s?.hospedada, aba) { if (aba == "terminal" && s != null && !s.hospedada) aba = "controles" }
     // Entrar numa conta de outro agente acontece na tela do terminal.
@@ -187,7 +189,7 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                     Pedidos(e, listOf(s)) { aba = "terminal" }
                 }
             }
-            if (aba == "conversa") Escrever(e, s, cor, pato, conta?.pato, aoIrPara)
+            if (aba == "conversa") Escrever(e, s, cor, pato, conta?.pato, patoVivo, aoIrPara)
             else Box(Modifier.navigationBarsPadding())
         }
     }
@@ -800,12 +802,13 @@ private fun MarcaDeTempo(ts: Long) {
  * respira parado no canto esperando e cochila quando a sessao acaba. Um toque nele faz ele reagir.
  */
 @Composable
-private fun Doca(s: Sessao, cor: Color, pato: String, tipo: String?, conteudo: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+private fun Doca(s: Sessao, cor: Color, pato: String, tipo: String?, vivo: PatoVivo, conteudo: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     val c = cores
     val estado = bichoDaSessao(s)
     val forma = RoundedCornerShape(26.dp)
     val borda by androidx.compose.animation.animateColorAsState(if (estado == "pede") c.realce else Color.Transparent, androidx.compose.animation.core.tween(240), label = "bordaDoca")
-    Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 30.dp, bottom = 8.dp)) {
+    // sem pato (Opcoes), a caixa sobe para perto da conversa
+    Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = if (pato == "nenhum") 8.dp else 30.dp, bottom = 8.dp)) {
         Column(
             Modifier.fillMaxWidth().clip(forma).background(c.elevada).border(1.5.dp, borda, forma)
                 .animateContentSize(androidx.compose.animation.core.tween(220, easing = Suave)),
@@ -814,7 +817,7 @@ private fun Doca(s: Sessao, cor: Color, pato: String, tipo: String?, conteudo: @
         Pato(
             estado, pato, cor,
             Modifier.align(Alignment.TopStart).offset(y = (-33).dp).padding(horizontal = 16.dp).fillMaxWidth().height(36.dp),
-            andar = true, tipo = tipo, repouso = 0f,
+            andar = true, tipo = tipo, repouso = 0f, vivo = vivo,
         )
     }
 }
@@ -884,7 +887,7 @@ private fun Modifier.wrapIfShort() = this.then(Modifier.width(androidx.compose.f
 
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-private fun Escrever(e: Estado, s: Sessao, cor: Color, pato: String, tipo: String?, aoIrPara: (String) -> Unit) {
+private fun Escrever(e: Estado, s: Sessao, cor: Color, pato: String, tipo: String?, vivo: PatoVivo, aoIrPara: (String) -> Unit) {
     val c = cores
     val aviso = LocalAviso.current
     // TextFieldValue para escolher um comando da lista e deixar o cursor no fim
@@ -1059,7 +1062,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, pato: String, tipo: Strin
     Column(Modifier.fillMaxWidth().background(c.fundo).navigationBarsPadding()) {
         // Sessao que o celular so acompanha: no lugar da caixa, o que da para fazer com ela. O pato continua em cima.
         if (s.desktop || s.remota || !s.viva || !s.podeEnviar) {
-            Doca(s, cor, pato, tipo) { LeituraDaSessao(s, aoIrPara) }
+            Doca(s, cor, pato, tipo, vivo) { LeituraDaSessao(s, aoIrPara) }
             return@Column
         }
         val trabalhando = s.hospedada && s.status == "working"
@@ -1125,7 +1128,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, pato: String, tipo: Strin
             )
             return@Column
         }
-        Doca(s, cor, pato, tipo) {
+        Doca(s, cor, pato, tipo, vivo) {
             // o campo (ou, segurando o microfone, a faixa da gravacao) no mesmo lugar, para nada pular
             Box(Modifier.fillMaxWidth().heightIn(min = 56.dp), contentAlignment = Alignment.CenterStart) {
                 if (gravandoSegurando) FaixaSegurando(ditado, Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp))

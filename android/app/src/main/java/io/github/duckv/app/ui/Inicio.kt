@@ -603,7 +603,7 @@ private fun CartaoConta(e: Estado, conta: Conta, agora: Long, pato: String, modi
         if (sub.isNotEmpty()) Text(sub, style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp))
 
         // a pista: o chao de pixels na cor da conta e o pato em cima; um toque e ele reage
-        Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp).height(78.dp)) {
+        if (pato != "nenhum") Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp).height(78.dp)) {
             Chao(cor, Modifier.align(Alignment.BottomCenter).fillMaxWidth())
             Pato(est.bicho, pato, cor, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(72.dp).padding(bottom = 3.dp), andar = true, tipo = conta.pato)
         }

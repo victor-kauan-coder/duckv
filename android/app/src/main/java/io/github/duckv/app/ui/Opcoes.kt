@@ -92,7 +92,7 @@ fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
                 }
                 Text("Pato", style = Texto.rotulo, color = c.texto)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for ((v, t) in listOf("animado" to "Animado, com gracinhas", "calmo" to "Sem gracinhas", "parado" to "Parado")) Escolha(t, local.pato == v, { Hub.guardar(local.copy(pato = v)) })
+                    for ((v, t) in listOf("animado" to "Animado, com gracinhas", "calmo" to "Sem gracinhas", "parado" to "Parado", "nenhum" to "Sem pato")) Escolha(t, local.pato == v, { Hub.guardar(local.copy(pato = v)) })
                 }
                 Chave("Mostrar na conversa as ferramentas que o agente usa", local.ferramentas) { Hub.guardar(local.copy(ferramentas = it)) }
                 Chave("Sons dos botões", local.somBotoes) { Hub.guardar(local.copy(somBotoes = it)) }

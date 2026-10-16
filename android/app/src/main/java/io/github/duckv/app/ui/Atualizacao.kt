@@ -62,7 +62,7 @@ fun CartaoAtualizacao(v: VersaoApp, pato: String, aoVer: () -> Unit, aoDepois: (
             .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Pato("festa", pato, Laranja, Modifier.size(48.dp), andar = false, tocavel = false)
+        Pato("festa", if (pato == "nenhum") "parado" else pato, Laranja, Modifier.size(48.dp), andar = false, tocavel = false)
         EspacoLargo(12.dp)
         Column(Modifier.weight(1f)) {
             Text("duckV ${v.versao} chegou", style = Texto.rotulo, color = c.texto)
@@ -109,7 +109,7 @@ fun FolhaAtualizacao(v: VersaoApp, pato: String, aoFechar: () -> Unit) {
                     is Etapa.Erro -> "dorme"
                     Etapa.Parada -> "parado"
                 }
-                Pato(humor, pato, Laranja, Modifier.size(104.dp), andar = false)
+                Pato(humor, if (pato == "nenhum") "parado" else pato, Laranja, Modifier.size(104.dp), andar = false)
             }
 
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {

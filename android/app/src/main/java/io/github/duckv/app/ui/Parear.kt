@@ -78,7 +78,7 @@ fun TelaParear(pato: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Pato(if (ocupado) "trabalha" else "dorme", pato, Laranja, Modifier.widthIn(max = 420.dp).fillMaxWidth().height(150.dp).padding(top = 24.dp))
+        Pato(if (ocupado) "trabalha" else "dorme", if (pato == "nenhum") "parado" else pato, Laranja, Modifier.widthIn(max = 420.dp).fillMaxWidth().height(150.dp).padding(top = 24.dp))
         Logo(tamanho = 40)
         Text(
             "Acompanhe e comande seus agentes de código, como Claude Code, Codex e Gemini, direto do celular.",

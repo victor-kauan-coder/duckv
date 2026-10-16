@@ -393,7 +393,9 @@ Cada conta tem um pato, e o que ele faz diz como a conta está:
 | fica cinza e tombado | o limite de 5 horas acabou |
 | corre e pula | o limite acabou de reiniciar |
 
-Na caixa de mensagem e no cartão da conta ele segue um roteiro sorteado, então nunca repete o mesmo vai e vem. Toque (ou clique) nele para ver uma reação. Com a opção de reduzir movimento do celular ligada, o pato fica parado e o estado continua escrito ao lado.
+Na caixa de mensagem e no cartão da conta ele segue um roteiro sorteado, então nunca repete o mesmo vai e vem. Toque (ou clique) nele para ver uma reação.
+
+Cada conta tem o seu patinho (Clássico, De borracha, Marreco, Pêssego, Chocolate, Do mar, Noturno ou Rosa), escolhido em **Opções › Contas**, no celular ou no computador; a cor da conta vem junto. O pato da caixa de mensagem é sempre o da conta da sessão. Em **Opções › Pato** dá para deixá-lo animado, sem gracinhas, parado ou **sem pato** (ele sai da tela; no computador, a lateral mostra o ponto da cor da conta). Com a opção de reduzir movimento do celular ligada, o pato fica parado e o estado continua escrito ao lado.
 
 ## O que os números significam
 

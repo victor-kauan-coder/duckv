@@ -90,11 +90,11 @@ fun Saudacao(e: Estado, agora: Long, pato: String, modifier: Modifier = Modifier
 
     // o patinho do bando ao lado do cumprimento; os numeros ficam no cartao de cada conta
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        if (pato != "nenhum") Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Pato(bicho, pato, Laranja, Modifier.size(width = 52.dp, height = 40.dp), andar = false)
             ChaoSaudacao(Modifier.width(46.dp))
         }
-        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+        Column(Modifier.weight(1f).padding(start = if (pato == "nenhum") 0.dp else 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (nome != null) "${p.oi}, $nome" else p.oi, style = Texto.titulo, color = c.texto, maxLines = 1)
                 // o sol ou a lua, pequenos, depois do nome

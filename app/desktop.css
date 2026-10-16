@@ -604,6 +604,19 @@ a { color: var(--laranja-texto); text-underline-offset: 3px; }
 .leitura p { flex: 1 1 260px; font-size: 13px; line-height: 20px; color: var(--tinta-v); }
 .leitura-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
 .leitura a.botao { text-decoration: none; }
+/* escolha do patinho da conta, nas Opcoes */
+.patinhos { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+.patinho { display: grid; justify-items: center; gap: 2px; padding: 8px 4px 6px; border: 0; border-radius: 12px; background: transparent; color: var(--tinta-v); font: 500 12px/16px var(--ui); transition: background var(--rapido); }
+.patinho:hover { background: color-mix(in srgb, var(--tinta) 6%, transparent); }
+.patinho[aria-checked='true'] { background: var(--pessego); color: var(--no-pessego); }
+.patinho .mini-pato { width: 44px; height: 38px; }
+.patinho .mini-pato .bicho { width: 40px; }
+/* "Sem pato" nas Opcoes: o pato sai de cena; na lateral fica o ponto da cor da conta */
+:root[data-pato='escondido'] .doca-pato, :root[data-pato='escondido'] .pato-grande, :root[data-pato='escondido'] .gaveta-vazia .mini-pato, :root[data-pato='escondido'] .inteira .mini-pato { display: none; }
+:root[data-pato='escondido'] .doca { margin-top: 10px; }
+:root[data-pato='escondido'] .conta-cartao .cabeca { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+:root[data-pato='escondido'] .mini-pato:not(.patinho .mini-pato) .pista { display: none; }
+:root[data-pato='escondido'] .mini-pato:not(.patinho .mini-pato)::after { content: ''; position: absolute; inset: 0; margin: auto; width: 10px; height: 10px; border-radius: 50%; background: var(--cor, var(--laranja)); }
 .nuvem-ajuda { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--c-low); }
 .nuvem-ajuda .icone { flex: none; margin-top: 2px; }
 #nova-tarefa { width: 100%; resize: vertical; min-height: 76px; }
@@ -1076,9 +1089,13 @@ body.corpo-aviso { background: transparent; overflow: hidden; padding: 0; user-s
 .bicho { position: absolute; left: 0; bottom: 4px; width: 64px; color: var(--laranja); }
 .bicho svg { display: block; width: 100%; height: auto; overflow: visible; shape-rendering: crispEdges; }
 .bicho .olho, .bicho .olho-fechado, .bicho .queixo { fill: #221a15; }
-.bicho .contorno { fill: var(--pato-contorno); }
+.bicho .contorno { fill: var(--pato-contorno-claro, var(--pato-contorno)); }
+/* no tema escuro todo pato ganha o contorno claro, para nao sumir no fundo (como no celular) */
+:root[data-tema='escuro'] .bicho .contorno { fill: var(--pato-contorno); }
+@media (prefers-color-scheme: dark) { :root:not([data-tema='claro']) .bicho .contorno { fill: var(--pato-contorno); } }
 .bicho .pe { fill: var(--pato-pe); }
 .bicho .penas { fill: var(--pato-penas); }
+.bicho .cabeca .penas { fill: var(--pato-cabeca, var(--pato-penas)); }
 .bicho .asa { fill: var(--pato-asa); }
 .bicho .bico { fill: var(--pato-bico); }
 .bicho .sombra-pato { fill: var(--cor, var(--laranja)); opacity: 0.55; }
@@ -1107,7 +1124,7 @@ body.corpo-aviso { background: transparent; overflow: hidden; padding: 0; user-s
 .pista[data-estado='dorme'] svg { transform: translateY(8%); }
 .pista[data-estado='dorme'] .sinal.sono { display: inline; animation: sono 2.6s ease-in infinite; }
 .pista[data-estado='cansado'] svg { transform: translateY(8%) rotate(-8deg); }
-.pista[data-estado='cansado'] .penas { fill: var(--pato-cansado); }
+.pista[data-estado='cansado'] .penas, .pista[data-estado='cansado'] .cabeca .penas { fill: var(--pato-cansado); }
 .pista[data-estado='cansado'] .asa { fill: var(--pato-asa-cansada); }
 .pista[data-estado='cansado'] .bico { fill: var(--pato-bico-cansado); }
 .pista[data-truque='grasna'] .queixo { animation: abre 0.22s steps(2, jump-none) 4 alternate; }
@@ -1138,9 +1155,16 @@ body.corpo-aviso { background: transparent; overflow: hidden; padding: 0; user-s
    A posicao vem do JavaScript; o CSS cuida do corpo: passos so enquanto anda, meia-volta no proprio pato
    (nao na pista), e as gracinhas novas. */
 .pista[data-roteiro] .trilho, .pista[data-roteiro] .vira, .pista[data-roteiro] .bicho { animation: none; }
-.pista[data-roteiro] .trilho { will-change: transform; }
-.pista[data-roteiro] .bicho { transition: transform 140ms steps(2, jump-none); pointer-events: auto; cursor: pointer; }
+.pista[data-roteiro] .trilho { will-change: transform; transform: translateX(0); }
+/* meia-volta seca, como num jogo de pixel: sem transicao (uma transicao em passos fazia o pato sumir por um instante) */
+.pista[data-roteiro] .bicho { pointer-events: auto; cursor: pointer; }
 .pista[data-roteiro][data-lado='esq'] .bicho { transform: scaleX(-1); }
+/* a pista nunca espelha: so o pato vira (regras antigas de vai-e-volta espelhavam a pista inteira e o pato
+   aparecia do outro lado por um instante) */
+.pista[data-roteiro] .vira { transform: none !important; }
+/* olhar para tras: o pato vira no proprio lugar */
+.pista[data-roteiro][data-truque='olha'] .bicho { transform: scaleX(-1); }
+.pista[data-roteiro][data-lado='esq'][data-truque='olha'] .bicho { transform: none; }
 .pista[data-roteiro] .pe-a, .pista[data-roteiro] .pe-b { animation: none; }
 .pista[data-roteiro][data-anda] svg { animation: passo-corpo 0.3s steps(2, jump-none) infinite alternate; }
 .pista[data-roteiro][data-anda] .pe-a { animation: passo 0.3s steps(2, jump-none) infinite alternate; }

@@ -171,7 +171,8 @@ function bicho(comGracinhas = true, opts = {}) {
     delete pista.dataset.truque;
     pista.reagir?.();
   };
-  if (opts.roteiro) roteiro(pista);
+  if (opts.tipo) vestirPato(pista, opts.tipo);
+  if (opts.roteiro) roteiro(pista, opts.inicio ?? 0.1);
   else if (comGracinhas) {
     let sumiu = 0;
     const gracinha = () => {
@@ -195,8 +196,8 @@ function bicho(comGracinhas = true, opts = {}) {
 // indo e voltando: ele escolhe o que fazer conforme o estado da sessao. Trabalhando, caminha ate um
 // ponto, para, bica como quem digita, olha em volta, bate as asas; esperando, quase nao sai do lugar
 // e faz uma gracinha de vez em quando; pedindo, corre para perto do botao de enviar e pula; dormindo,
-// senta e cochila. Cada passo e uma animacao curta (Web Animations); trocar de estado interrompe o
-// que ele estava fazendo, e ele segue de onde parou, sem saltos.
+// senta e cochila. Trocar de estado interrompe o que ele estava fazendo, e ele segue de onde parou,
+// sem saltos.
 const sorteio = (opcoes) => {
   const total = opcoes.reduce((s, [, p]) => s + p, 0);
   let r = Math.random() * total;
@@ -214,21 +215,44 @@ const ROTEIROS = {
 };
 // quanto dura cada gracinha (ms); as que ja existiam no CSS mantem o tempo delas
 const TEMPO = { ...DURACAO, bica: 1500, gira: 700, alonga: 1500, respira: 2600, amor: 1500, senta: 0, cochila: 0 };
-function roteiro(pista) {
+// curva de cada passada: sai devagar, anda, chega devagar
+const passada = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+function roteiro(pista, inicio = 0.1) {
   const trilho = pista.querySelector('.trilho');
   const bicho = pista.querySelector('.bicho');
   pista.dataset.roteiro = 'sim';
+  // A posicao (px a partir da esquerda) mora so aqui e e escrita no trilho a cada quadro. Nada e lido
+  // do estilo calculado: assim nao ha salto quando a conversa sai da tela ou a janela fica escondida.
   let x = null;
-  let geracao = 0; // muda a cada troca de estado: o que estava em andamento para
-  let anim = null;
-  let parado = 0;
+  let geracao = 0; // muda a cada troca de estado: o que estava em andamento para ali mesmo
+  let fora = 0;
   const larguraLivre = () => Math.max(0, pista.clientWidth - bicho.offsetWidth);
+  // Pista sem largura (fora da tela): a posicao nao e tocada, para nao "prender" o pato na ponta.
   const por = (v) => {
-    x = Math.max(0, Math.min(larguraLivre(), v));
-    trilho.style.transform = `translateX(${x}px)`;
+    x = pista.clientWidth ? Math.max(0, Math.min(larguraLivre(), v)) : v;
+    trilho.style.transform = `translateX(${x.toFixed(2)}px)`;
   };
   const virar = (dir) => (pista.dataset.lado = dir > 0 ? 'dir' : 'esq');
-  const quieto = () => document.hidden || semMovimento.matches || LOCAL.pato === 'parado' || !pista.isConnected || !pista.clientWidth;
+  const visivel = () => pista.isConnected && pista.clientWidth > 0 && !document.hidden;
+  const quieto = () => !visivel() || semMovimento.matches || LOCAL.pato === 'parado' || LOCAL.pato === 'escondido';
+  // Lugar inicial: assim que a pista tem largura (antes do primeiro quadro pintado), sem passar pelo meio.
+  const assentar = () => x === null && pista.clientWidth > 0 && por(larguraLivre() * inicio);
+  // A pista encolheu e a borda passou do pato: ele desliza para dentro em vez de pular.
+  let deslizando = 0;
+  const deslizar = (L) => {
+    trilho.style.transition = 'transform 600ms cubic-bezier(0.33, 0, 0.2, 1)';
+    por(L);
+    clearTimeout(deslizando);
+    deslizando = setTimeout(() => (trilho.style.transition = ''), 620);
+  };
+  new ResizeObserver(() => {
+    if (!pista.clientWidth) return;
+    if (x === null) return assentar();
+    const L = larguraLivre();
+    if (x <= L) return;
+    pista.reagir(); // um passo que ia alem da borda nova para aqui
+    deslizar(L);
+  }).observe(pista);
   // espera que acaba antes se o estado mudar
   const espera = (ms, g) =>
     new Promise((ok) => {
@@ -236,22 +260,42 @@ function roteiro(pista) {
       const tique = () => (g !== geracao || Date.now() >= fim ? ok(g === geracao) : setTimeout(tique, Math.min(120, fim - Date.now())));
       tique();
     });
-  async function andar(destino, pxPorSegundo, g) {
-    destino = Math.max(0, Math.min(larguraLivre(), destino));
-    const dist = Math.abs(destino - x);
-    if (dist < 4) return true;
-    virar(destino > x ? 1 : -1);
-    pista.dataset.anda = pxPorSegundo > 90 ? 'corre' : 'sim';
-    anim = trilho.animate([{ transform: `translateX(${x}px)` }, { transform: `translateX(${destino}px)` }], { duration: (dist / pxPorSegundo) * 1000, easing: 'cubic-bezier(0.45, 0.05, 0.4, 1)', fill: 'forwards' });
-    const terminou = await anim.finished.then(() => true, () => false);
-    // interrompido: fica onde estava naquele instante
-    const m = new DOMMatrixReadOnly(getComputedStyle(trilho).transform);
-    anim.cancel();
-    anim = null;
-    por(terminou ? destino : m.m41);
-    delete pista.dataset.anda;
-    return terminou && g === geracao;
-  }
+  // Caminha ate o destino quadro a quadro. Pista escondida (outra aba, Terminal, janela minimizada):
+  // o relogio do passo para junto e continua de onde estava quando ela volta.
+  const andar = (destino, pxPorSegundo, g) =>
+    new Promise((ok) => {
+      const de = x;
+      const ate = Math.max(0, Math.min(larguraLivre(), destino));
+      const dist = Math.abs(ate - de);
+      if (dist < 4) return ok(true);
+      const duracao = (dist / pxPorSegundo) * 1000;
+      virar(ate > de ? 1 : -1);
+      pista.dataset.anda = pxPorSegundo > 90 ? 'corre' : 'sim';
+      let andado = 0;
+      let antes = performance.now();
+      const quadro = (agora) => {
+        const dt = Math.min(agora - antes, 50); // nunca um pulo maior que um quadro lento
+        antes = agora;
+        if (g !== geracao) return fim(false);
+        if (visivel()) andado += dt;
+        const p = Math.min(1, andado / duracao);
+        const alvo = de + (ate - de) * passada(p);
+        // a pista encolheu no meio do passo (um painel abriu ao lado): para e desliza para dentro
+        const L = larguraLivre();
+        if (pista.clientWidth && alvo > L + 0.5) {
+          deslizar(L);
+          return fim(false);
+        }
+        por(alvo);
+        if (p >= 1) return fim(true);
+        requestAnimationFrame(quadro);
+      };
+      const fim = (chegou) => {
+        delete pista.dataset.anda;
+        ok(chegou && g === geracao);
+      };
+      requestAnimationFrame(quadro);
+    });
   async function truque(nome, g, ms = TEMPO[nome] || 900) {
     pista.dataset.truque = nome;
     const seguiu = await espera(ms, g);
@@ -265,7 +309,7 @@ function roteiro(pista) {
     if (LOCAL.pato === 'calmo' && !['anda', 'corre', 'chama', 'cochila', 'respira'].includes(acao)) return espera(1500, g);
     switch (acao) {
       case 'anda': {
-        // um trecho de um terco a dois tercos da pista, sem ir sempre para o mesmo lado
+        // um trecho de um quarto a dois tercos da pista, sem ir sempre para o mesmo lado
         const alvo = x + (Math.random() < 0.5 ? -1 : 1) * entre(L * 0.25, L * 0.65);
         await andar(alvo < 0 || alvo > L ? x - (alvo - x) : alvo, entre(45, 80), g);
         return espera(entre(200, 700), g);
@@ -279,20 +323,20 @@ function roteiro(pista) {
       case 'chama':
         // perto do botao de enviar (a direita) e virado para a pessoa
         if (x < L * 0.75) await andar(entre(L * 0.8, L), 110, g);
-        virar(-1);
+        if (g === geracao) virar(-1);
         return espera(entre(1400, 2600), g);
       case 'senta':
         pista.dataset.truque = 'senta';
         await espera(entre(3000, 6000), g);
         if (pista.dataset.truque === 'senta') delete pista.dataset.truque;
-        return truque('alonga', g);
+        return g === geracao && truque('alonga', g);
       case 'respira':
         return espera(entre(1200, 2400), g);
       case 'cochila':
         return espera(entre(4000, 8000), g);
       case 'olha':
         await truque('olha', g, 700);
-        virar(pista.dataset.lado === 'esq' ? 1 : -1);
+        if (g === geracao) virar(pista.dataset.lado === 'esq' ? 1 : -1);
         return espera(entre(500, 1100), g);
       default:
         return truque(acao, g);
@@ -301,14 +345,14 @@ function roteiro(pista) {
   async function viver() {
     while (true) {
       if (!pista.isConnected) {
-        if (++parado > 30) return; // saiu da tela de vez
+        if (++fora > 120) return; // saiu da tela de vez (painel fechado)
         await new Promise((ok) => setTimeout(ok, 1000));
         continue;
       }
-      parado = 0;
-      if (x === null && pista.clientWidth) por(larguraLivre() * entre(0.05, 0.3));
-      if (quieto()) {
-        await new Promise((ok) => setTimeout(ok, 800));
+      fora = 0;
+      assentar();
+      if (x === null || quieto()) {
+        await new Promise((ok) => setTimeout(ok, 600));
         continue;
       }
       const g = geracao;
@@ -316,9 +360,9 @@ function roteiro(pista) {
       if (g === geracao) await espera(entre(250, 900), g);
     }
   }
+  // troca de estado: o passo em andamento para onde estiver (a posicao ja esta em x)
   pista.reagir = () => {
     geracao++;
-    anim?.pause();
     delete pista.dataset.anda;
   };
   // Um clique no pato: ele reage (coracao, giro ou pulinho com grasnado).
@@ -329,15 +373,43 @@ function roteiro(pista) {
     pista.dataset.truque = r;
     setTimeout(() => pista.dataset.truque === r && delete pista.dataset.truque, TEMPO[r] || 900);
   });
-  new ResizeObserver(() => x !== null && por(x)).observe(pista);
   viver();
 }
-const miniPato = (estado, cor) => {
+
+// ------------------------------------------------------------ tipos de patinho
+// Os mesmos do celular: cada conta escolhe o seu, e a cor da conta vem junto. O pato e pintado pelas
+// variaveis --pato-* no proprio elemento, entao o pato da caixa de mensagem e o da conta sao o mesmo.
+const TIPOS_PATO = [
+  { id: 'classico', nome: 'Clássico', sobre: 'Branquinho, bico amarelo', penas: '#fff6ee', asa: '#e6d3bf', bico: '#ffd84a', pe: '#ff9a3d', cor: '#ff7a1a' },
+  { id: 'borracha', nome: 'De borracha', sobre: 'O da banheira', penas: '#ffd23f', asa: '#f2b705', bico: '#ff8a00', pe: '#ff8a00', cor: '#f2a900' },
+  { id: 'marreco', nome: 'Marreco', sobre: 'Cabeça verde de lago', penas: '#d9c7a8', asa: '#8c6e4e', bico: '#e8c547', pe: '#f28c28', cor: '#2b8a6e', cabeca: '#2e7d4f' },
+  { id: 'pessego', nome: 'Pêssego', sobre: 'Rosado e fofo', penas: '#ffdccb', asa: '#f7b79a', bico: '#ff8a65', pe: '#ff8a65', cor: '#f26b4e' },
+  { id: 'chocolate', nome: 'Chocolate', sobre: 'Marrom de quintal', penas: '#9a6644', asa: '#6b4226', bico: '#f2b24c', pe: '#e07b39', cor: '#b5651d' },
+  { id: 'mar', nome: 'Do mar', sobre: 'Penas cinza-azuladas', penas: '#e6eef5', asa: '#9ec3dd', bico: '#ffc94a', pe: '#6fa8dc', cor: '#3d8bfd' },
+  { id: 'noturno', nome: 'Noturno', sobre: 'Plumagem de madrugada', penas: '#4a4152', asa: '#6e6279', bico: '#ffb347', pe: '#ffb347', cor: '#7e57c2', contorno: '#15111a' },
+  { id: 'rosa', nome: 'Rosa', sobre: 'Para quem gosta de cor', penas: '#ffc9df', asa: '#f48fb1', bico: '#ffd84a', pe: '#f06292', cor: '#e0569a' },
+];
+const tipoPato = (id) => TIPOS_PATO.find((t) => t.id === id) || TIPOS_PATO[0];
+function vestirPato(no, id) {
+  const t = tipoPato(id);
+  if (!no || no.dataset.tipo === t.id) return;
+  no.dataset.tipo = t.id;
+  no.style.setProperty('--pato-penas', t.penas);
+  no.style.setProperty('--pato-asa', t.asa);
+  no.style.setProperty('--pato-bico', t.bico);
+  no.style.setProperty('--pato-pe', t.pe);
+  no.style.setProperty('--pato-cabeca', t.cabeca || t.penas);
+  if (t.contorno) no.style.setProperty('--pato-contorno-claro', t.contorno);
+  else no.style.removeProperty('--pato-contorno-claro');
+}
+const miniPato = (estado, cor, tipo) => {
   const p = bicho(false);
   p.definir(estado);
   const caixa = el('span', { class: 'mini-pato' }, p);
   if (cor) caixa.style.setProperty('--cor', cor);
+  vestirPato(caixa, tipo);
   caixa.definir = p.definir;
+  caixa.vestir = (t) => vestirPato(caixa, t);
   return caixa;
 };
 
@@ -1415,7 +1487,7 @@ function criarPainel(id, opts = {}) {
   const prontos = el('div', { class: 'anexos-prontos', role: 'list', 'aria-label': 'Anexos desta mensagem', hidden: true });
   // O pato da sessao mora em cima da caixa de mensagem: anda de ponta a ponta enquanto o agente
   // trabalha, pula com a exclamacao quando precisa de voce e cochila quando a sessao acaba.
-  const pato = bicho(true, { roteiro: true });
+  const pato = bicho(true, { roteiro: true, inicio: 0.06 });
   const estadoTxt = el('span', { class: 'doca-estado', role: 'status', 'aria-live': 'polite' });
   const anel = anelContexto();
   const barraEscrever = el('div', { class: 'escrever-barra' }, anexar, estadoTxt, anel.raiz, enviar);
@@ -1919,6 +1991,9 @@ function criarPainel(id, opts = {}) {
     const ondeTxt = [conta.nome, s.model, s.cwd].filter(Boolean).join(' · ');
     linha.replaceChildren(chipAgente(conta), ...(origemDe(s).selo ? [seloOrigem(s.origem)] : []), el('span', { class: 'onde', text: ondeTxt, title: ondeTxt }));
     pato.definir(estadoDoPato(s));
+    // o mesmo patinho da conta (tipo e cor), como no celular
+    pato.style.setProperty('--cor', conta.cor);
+    vestirPato(pato, conta.pato);
     doca.dataset.estado = estadoDoPato(s);
     segTerminal.disabled = !S.desktop;
     dicaEm(segTerminal, S.desktop ? (s.hosted ? 'Terminal de verdade desta sessão' : 'Esta sessão roda num terminal do computador') : 'Só no app do duckV para o computador');
@@ -2297,6 +2372,7 @@ const lateral = (() => {
       pato.style.setProperty('--cor', conta.cor);
       const e = estadoDaConta(conta);
       pato.definir(e.bicho);
+      pato.vestir(conta.pato);
       nome.textContent = conta.nome;
       if (!nome.nextSibling) nome.after(chipAgente(conta));
       else nome.nextSibling.replaceWith(chipAgente(conta));
@@ -2525,7 +2601,7 @@ function criarVisao() {
   const cartoes = new Map();
 
   function cartao(c) {
-    const pista = bicho(true, { roteiro: true });
+    const pista = bicho(true, { roteiro: true, inicio: 0.5 });
     const nome = el('h3');
     const estado = el('p');
     const cinco = el('div', { class: 'limite' });
@@ -2537,6 +2613,7 @@ function criarVisao() {
       raizC.style.setProperty('--cor', conta.cor);
       const e = estadoDaConta(conta);
       pista.definir(e.bicho);
+      vestirPato(pista, conta.pato);
       nome.replaceChildren(conta.nome, chipAgente(conta));
       estado.textContent = conta.email ? `${e.texto} · ${conta.email}` : e.texto;
       estado.classList.toggle('pede', !!e.pede);
@@ -3191,12 +3268,19 @@ function criarOpcoes() {
     }, icone('trash', 16), 'Remover conta');
     const podeSair = c.email && !c.padrao && ag.podeSair;
     const sair = podeSair ? el('button', { class: 'botao quieto pequeno', type: 'button', onclick: () => sairDaConta(c) }, icone('sign-out', 16), 'Sair desta conta') : null;
-    const pato = miniPato('parado', c.cor);
+    const pato = miniPato('parado', c.cor, c.pato);
+    // o patinho da conta: escolher um troca a cara do pato e a cor da conta de uma vez, como no celular
+    const patinhos = el('div', { class: 'patinhos', role: 'radiogroup', 'aria-label': 'Patinho da conta' });
+    for (const t of TIPOS_PATO) {
+      const b = el('button', { type: 'button', role: 'radio', class: 'patinho', title: `${t.nome}: ${t.sobre}`, 'aria-label': t.nome, 'aria-checked': String(tipoPato(c.pato).id === t.id), onclick: () => ([...patinhos.children].forEach((o) => o.setAttribute('aria-checked', String(o === b))), salvar({ op: 'conta', id: c.id, pato: t.id, cor: t.cor }, `Patinho: ${t.nome}`)) }, miniPato('parado', t.cor, t.id), el('span', { text: t.nome }));
+      patinhos.append(b);
+    }
     return el(
       'div',
       { class: 'conta-edicao' },
       el('div', { class: 'cab' }, pato, el('span', { class: 't' }, el('b', null, c.nome, chipAgente(c)), el('span', { text: [c.email || 'Sem login', c.plano].filter(Boolean).join(' · ') })), entrar),
       el('div', { class: 'lado-a-lado' }, el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Nome' }), nome), el('div', { class: 'campo', style: 'grid-column: span 2' }, el('span', { class: 'rotulo', text: 'Cor' }), cores)),
+      el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Patinho' }), patinhos),
       el('div', { class: 'lado-a-lado' }, sel('Modelo ao abrir', ag.modelos.map((m) => [m.id, m.rotulo]), p.model || 'default', 'model'), sel('Esforço', [['', 'Padrão'], ...ag.esforcos.map((e) => [e.id, e.rotulo])], p.effort || '', 'effort'), sel('Permissões', ag.modos.map((m) => [m.id, m.rotulo]), p.mode || ag.modos[0]?.id, 'mode')),
       el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Pasta padrão' }), pastaPadrao),
       el('div', { class: 'chips' }, sair, remover),
@@ -3204,7 +3288,7 @@ function criarOpcoes() {
     );
   }
   function desenharContas() {
-    const nova = JSON.stringify(S.contas.map((c) => [c.id, c.nome, c.cor, c.email, c.padroes, c.agente, c.instalado]));
+    const nova = JSON.stringify(S.contas.map((c) => [c.id, c.nome, c.cor, c.pato, c.email, c.padroes, c.agente, c.instalado]));
     if (nova === marcaContas) return;
     if (caixaContas.contains(document.activeElement) && marcaContas) return;
     marcaContas = nova;
@@ -3257,7 +3341,7 @@ function criarOpcoes() {
           { class: 'bloco' },
           el('h3', { text: 'Aparência' }),
           chipsUnicos('Tema', [['sistema', 'Igual ao sistema'], ['claro', 'Claro'], ['escuro', 'Escuro']], LOCAL.tema, (v) => guardarLocal('tema', v)),
-          chipsUnicos('Pato', [['animado', 'Animado, com gracinhas'], ['calmo', 'Sem gracinhas'], ['parado', 'Parado']], LOCAL.pato, (v) => guardarLocal('pato', v)),
+          chipsUnicos('Pato', [['animado', 'Animado, com gracinhas'], ['calmo', 'Sem gracinhas'], ['parado', 'Parado'], ['escondido', 'Sem pato']], LOCAL.pato, (v) => guardarLocal('pato', v)),
           linhaSwitch('Mostrar as ferramentas na conversa', 'As linhas com cada ferramenta que o agente usa.', LOCAL.ferramentas, (v) => (guardarLocal('ferramentas', v), area.paineis().forEach((p) => p.iniciar()))),
         ),
         caixaContas,

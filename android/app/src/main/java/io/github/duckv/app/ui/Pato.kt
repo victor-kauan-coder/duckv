@@ -88,13 +88,21 @@ private fun entre(a: Float, b: Float) = a + Random.nextFloat() * (b - a)
 private fun entre(a: Long, b: Long) = a + Random.nextLong(b - a)
 private val Passada = androidx.compose.animation.core.CubicBezierEasing(0.45f, 0.05f, 0.4f, 1f)
 
-/** Onde o pato esta na pista (0 a 1), para que lado olha, se anda ou corre e se esta sentado. */
-private class Roteiro {
+/**
+ * Onde o pato esta na pista (0 a 1), para que lado olha, se anda ou corre e se esta sentado.
+ * Quem guarda isto fora do Pato (lembrarPato) mantem o mesmo pato no mesmo lugar mesmo quando a tela
+ * em volta e refeita: a caixa de mensagem trocando de modo, por exemplo, nao faz ele reaparecer na ponta.
+ */
+class PatoVivo internal constructor() {
     val x = androidx.compose.animation.core.Animatable(-1f)
     var direita by mutableStateOf(true)
     var anda by mutableStateOf<String?>(null)
     var senta by mutableStateOf(false)
 }
+/** O pato de uma tela, guardado pela chave (o id da sessao): o mesmo pato no mesmo lugar. */
+@Composable
+fun lembrarPato(chave: Any?): PatoVivo = remember(chave) { PatoVivo() }
+
 private data class Pose(val x: Float, val direita: Boolean, val anda: String?, val senta: Boolean)
 private val REACOES = listOf("amor", "salto", "danca", "quaa")
 private val Coracao = Color(0xFFFF5A5F)
@@ -131,7 +139,9 @@ private val BicoCansado = Color(0xFFCDB35C)
  * @param repouso onde ele fica quando nao anda: 0 na ponta esquerda, 0.5 no meio
  */
 @Composable
-fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier, andar: Boolean = true, tocavel: Boolean = true, tipo: String? = null, repouso: Float = 0.5f) {
+fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier, andar: Boolean = true, tocavel: Boolean = true, tipo: String? = null, repouso: Float = 0.5f, vivo: PatoVivo? = null) {
+    // "Sem pato" nas Opcoes: nada e desenhado
+    if (modo == "nenhum") return
     val ctx = LocalContext.current
     val semMovimento = remember {
         Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
@@ -145,7 +155,7 @@ fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier
     var truque by remember { mutableStateOf<String?>(null) }
     var truqueDesde by remember { mutableLongStateOf(0L) }
     // pista larga: o roteiro decide; pato pequeno e parado: so as gracinhas de sempre
-    val rot = remember { Roteiro() }
+    val rot = vivo ?: remember { PatoVivo() }
     var livrePx by remember { mutableFloatStateOf(0f) }
     val densidade = androidx.compose.ui.platform.LocalDensity.current.density
     val usaRoteiro = andar && anima
@@ -155,7 +165,7 @@ fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier
         rot.senta = false
         if (!usaRoteiro) return@LaunchedEffect
         while (livrePx <= 0f) delay(200)
-        if (rot.x.value < 0f) rot.x.snapTo(if (repouso <= 0f) entre(0.05f, 0.3f) else repouso)
+        if (rot.x.value < 0f) rot.x.snapTo(repouso)
         suspend fun fazer(nome: String, ms: Long = DURACAO[nome] ?: 900L) {
             truque = nome
             truqueDesde = System.nanoTime() / 1_000_000
@@ -265,7 +275,8 @@ fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier
     val medir = Modifier.onSizeChanged { val u = it.height / 19.5f; livrePx = (it.width - 18 * u).coerceAtLeast(0f) }
     Canvas(modifier.then(medir).then(if (tocavel) tocar else Modifier)) {
         val dt = System.nanoTime() / 1_000_000 - truqueDesde
-        val pose = if (usaRoteiro && rot.x.value >= 0f) Pose(rot.x.value, rot.direita, rot.anda, rot.senta) else null
+        // ja tem lugar na pista: fica nele (mesmo se o movimento for desligado nas Opcoes)
+        val pose = if (andar && rot.x.value >= 0f) Pose(rot.x.value, rot.direita, if (usaRoteiro) rot.anda else null, usaRoteiro && rot.senta) else null
         desenhar(estado, if (anima) t else 0L, truque, dt, andar && anima, cor, c, tipoPato(tipo), repouso, pose)
     }
 }
