@@ -86,12 +86,17 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
     var erro by remember { mutableStateOf<String?>(null) }
     var abrindo by remember { mutableStateOf(false) }
     var ajustar by rememberSaveable { mutableStateOf(false) }
+    // Onde roda: neste computador (o de sempre) ou na nuvem da Anthropic (so contas do Claude Code)
+    var naNuvem by rememberSaveable { mutableStateOf(false) }
+    var tarefa by rememberSaveable { mutableStateOf("") }
     var lista by remember { mutableStateOf<Listagem?>(null) }
     var erroLista by remember { mutableStateOf<String?>(null) }
 
     // O agente da conta escolhida define modelos, esforcos e modos.
     val ag = e.agenteDa(conta.orEmpty())
     val instalado = e.contas.find { it.id == conta }?.instalado != false
+    val nuvemPode = ag.id == "claude"
+    LaunchedEffect(nuvemPode) { if (!nuvemPode) naNuvem = false }
     // Preenche com o jeito de comecar que a conta tem nas Opcoes.
     LaunchedEffect(conta) {
         val p = e.contas.find { it.id == conta }?.padroes ?: return@LaunchedEffect
@@ -116,7 +121,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
     }
 
     Column(Modifier.fillMaxSize().background(c.fundo).imePadding()) {
-        Topo("Abrir sessão", "Abre no computador, você comanda daqui.", aoVoltar)
+        Topo("Abrir sessão", if (naNuvem) "Roda na nuvem da Anthropic." else "Abre no computador, você comanda daqui.", aoVoltar)
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(36.dp),
@@ -130,6 +135,25 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                 // qual agente vai abrir: sem duvida antes de tocar em Abrir sessao
                 SeloAgente(ag, Modifier.padding(top = 10.dp), completo = true)
                 if (!instalado) Text("O ${ag.nome} não está instalado no computador. Rode o instalador do duckV de novo.", style = Texto.apoio, color = c.perigo, modifier = Modifier.padding(top = 6.dp))
+            }
+            if (nuvemPode) Column {
+                CabecalhoAjuste("Onde roda", null)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Escolha("Neste computador", !naNuvem, { naNuvem = false })
+                    Escolha("Na nuvem", naNuvem, { naNuvem = true })
+                }
+                AnimatedVisibility(naNuvem) {
+                    Row(
+                        Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.superficie).padding(12.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Icon(iconeOrigem("nuvem"), null, Modifier.size(18.dp), tint = c.apoio)
+                        Text(
+                            "Roda nos servidores da Anthropic, a partir do repositório do GitHub da pasta, e continua mesmo com o computador desligado. Você acompanha por aqui; para responder, abre no claude.ai.",
+                            style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 10.dp),
+                        )
+                    }
+                }
             }
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 CabecalhoAjuste("Pasta do projeto", null, Modifier.padding(bottom = 0.dp))
@@ -157,12 +181,17 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                     for (f in e.host.pastas.take(6)) LinhaPasta(Icons.Rounded.History, io.github.duckv.app.pasta(f), f.dropLast(io.github.duckv.app.pasta(f).length).trimEnd('\\', '/')) { cwd = f; lista = null; erroPasta = null }
                 }
             }
-            OutlinedTextField(
+            if (naNuvem) OutlinedTextField(
+                tarefa, { tarefa = it.take(4000) }, Modifier.fillMaxWidth(), label = { Text("O que a sessão deve fazer") },
+                placeholder = { Text("Ex.: corrija o teste que está falhando e abra um pull request", color = c.apoio) },
+                minLines = 3, maxLines = 8, shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
+            )
+            else OutlinedTextField(
                 nome, { nome = it.take(50) }, Modifier.fillMaxWidth(), label = { Text("Nome da sessão (opcional)") },
                 singleLine = true, shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
             )
           }
-          Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+          if (!naNuvem) Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             TituloSecao("Como começar", Modifier.padding(bottom = 0.dp))
             // Os padroes da conta ja vem escolhidos; o resumo evita tres listas longas no caminho de quem so quer abrir.
             val resumo = listOfNotNull(nomeDoModelo(ag, modelo), if (ag.esforcos.isEmpty()) null else ag.esforcos.find { it.id == esforco }?.rotulo ?: ESFORCOS[esforco] ?: "Esforço padrão").joinToString(" · ")
@@ -204,14 +233,26 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
         Column(Modifier.fillMaxWidth().background(c.fundo).navigationBarsPadding()) {
             Divisoria()
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                val aviso = if (!e.host.disponivel) "O computador não conseguiu carregar o terminal virtual, então não dá para abrir sessões por aqui. Rode a instalação de novo." else erro
+                val aviso = if (!e.host.disponivel && !naNuvem) "O computador não conseguiu carregar o terminal virtual, então não dá para abrir sessões por aqui. Rode a instalação de novo." else erro
                 aviso?.let { Text(it, style = Texto.apoio, color = c.perigo) }
                 Botao(
-                    if (abrindo) "Abrindo" else "Abrir sessão",
+                    if (abrindo) (if (naNuvem) "Criando na nuvem" else "Abrindo") else if (naNuvem) "Criar na nuvem" else "Abrir sessão",
                     {
                         erro = null
                         if (cwd.isBlank()) {
                             erroPasta = "Escolha a pasta do projeto."
+                            return@Botao
+                        }
+                        if (naNuvem) {
+                            if (tarefa.trim().length < 3) {
+                                erro = "Escreva o que a sessão deve fazer."
+                                return@Botao
+                            }
+                            abrindo = true
+                            Hub.mandar(JSONObject().put("t", "nuvemNova").put("account", conta).put("cwd", cwd.trim()).put("texto", tarefa)) { er, r ->
+                                abrindo = false
+                                if (er != null) erro = er else r?.optString("instance")?.let(aoAbriu)
+                            }
                             return@Botao
                         }
                         abrindo = true
@@ -223,7 +264,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                             if (er != null) erro = er else r?.optString("instance")?.let(aoAbriu)
                         }
                     },
-                    Modifier.fillMaxWidth(), peso = Peso.Principal, habilitado = e.host.disponivel && !abrindo && conta != null && instalado,
+                    Modifier.fillMaxWidth(), if (naNuvem) iconeOrigem("nuvem") else null, Peso.Principal, habilitado = (naNuvem || e.host.disponivel) && !abrindo && conta != null && instalado,
                 )
             }
         }

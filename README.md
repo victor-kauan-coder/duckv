@@ -261,7 +261,9 @@ Em **Todas as conversas** ficam todas as conversas de cada conta, com o título 
 
 Nas contas do Claude Code, o duckV também mostra as sessões que rodam **na nuvem da Anthropic** (as abertas em claude.ai/code ou no "Code" do app Claude) e as tarefas do **Cowork**. As que estão trabalhando, esperando você ou mexidas nas últimas horas aparecem na lista de sessões com o selo **Nuvem** ou **Cowork**; todas ficam em **Todas as conversas**, com um filtro por origem (Computador, App Claude, Nuvem, Cowork).
 
-Essas sessões são **só para ler**: a conversa inteira aparece, com as ferramentas e as imagens, e quando uma delas para esperando você, ela entra em **Precisa de você** com o botão **Responder no claude.ai** (as do Cowork se respondem no app Claude do computador). O duckV lê tudo com o login que o Claude Code já guarda na pasta de cada conta; nada é criado, mudado ou apagado na nuvem. As sessões do próprio computador que aparecem na nuvem pelo Controle Remoto ficam de fora, para não aparecerem duas vezes.
+Para **criar** uma sessão na nuvem, use **Nova sessão › Onde roda › Na nuvem** (no celular ou no computador): escolha a conta, a pasta de um repositório do GitHub e escreva a tarefa. O duckV roda `claude --cloud` com o login daquela conta, e a sessão aparece na lista na hora. Ela continua trabalhando mesmo com o computador desligado.
+
+Depois de criadas, essas sessões são **só para ler** pelo duckV (a Anthropic ainda não libera conectar o Claude Code a uma sessão da nuvem que já existe): a conversa inteira aparece, com as ferramentas e as imagens, e quando uma delas para esperando você, ela entra em **Precisa de você** com o botão **Responder no claude.ai** (as do Cowork se respondem no app Claude do computador). O duckV lê tudo com o login que o Claude Code já guarda na pasta de cada conta; nada é criado, mudado ou apagado na nuvem. As sessões do próprio computador que aparecem na nuvem pelo Controle Remoto ficam de fora, para não aparecerem duas vezes.
 
 Para conferir o que a Anthropic deixa o duckV ler em cada conta: `node tools/sondar.mjs` (mostra só os códigos de resposta e os nomes dos campos, nunca o conteúdo).
 
@@ -410,6 +412,7 @@ Toque nele para ver uma reação. De vez em quando ele faz uma gracinha por cont
 - O texto das perguntas vem do próprio agente, em geral em inglês.
 - O computador precisa ficar ligado e acordado. As sessões da nuvem continuam rodando com ele desligado, mas o duckV só as mostra com o computador ligado (é ele que guarda o login).
 - As conversas normais do claude.ai (os chats, fora do Claude Code) não aparecem: o login do Claude Code não tem permissão para lê-las.
+- Responder uma sessão da nuvem é pelo claude.ai ou pelo app Claude: conectar o Claude Code a uma sessão da nuvem que já existe ainda não é liberado pela Anthropic.
 - As tarefas do Cowork que a Anthropic já apagou não aparecem mais, mesmo que o app Claude ainda lembre delas.
 
 ## Problemas comuns

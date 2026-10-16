@@ -123,6 +123,7 @@ const EXTRAS = {
   som: [[17, 1], [18, 0], [17, 3.6]],
   'sinal exclama': [[11, -5], [11, -4], [11, -3], [11, -1]],
   'sinal sono': [[14, -4], [15, -4], [16, -4], [15, -3], [14, -2], [15, -2], [16, -2]],
+  'sinal coracao': [[12, -4], [14, -4], [11, -3], [12, -3], [13, -3], [14, -3], [15, -3], [12, -2], [13, -2], [14, -2], [13, -1]],
 };
 const TRUQUES = {
   parado: ['grasna', 'bate', 'rabo', 'pisca', 'cisca', 'olha', 'pulinho'],
@@ -135,7 +136,7 @@ const TRUQUES = {
 const DURACAO = { grasna: 900, bate: 800, rabo: 800, pisca: 320, cisca: 1300, olha: 1200, pulinho: 480, espia: 1100 };
 const semMovimento = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-function bicho(comGracinhas = true) {
+function bicho(comGracinhas = true, opts = {}) {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('viewBox', '-1 -5.5 20 20');
   svg.setAttribute('aria-hidden', 'true');
@@ -164,25 +165,172 @@ function bicho(comGracinhas = true) {
     for (const [x, y, w, h] of pontos) ponto(g, x, y, w, h);
   }
   const pista = el('div', { class: 'pista', 'data-estado': 'dorme' }, el('div', { class: 'trilho' }, el('div', { class: 'vira' }, el('div', { class: 'bicho' }, svg))));
-  let sumiu = 0;
-  function gracinha() {
-    if (!pista.isConnected && ++sumiu > 3) return;
-    const opcoes = TRUQUES[pista.dataset.estado] || [];
-    if (pista.isConnected && opcoes.length && !document.hidden && !semMovimento.matches && LOCAL.pato === 'animado') {
-      sumiu = 0;
-      const truque = opcoes[Math.floor(Math.random() * opcoes.length)];
-      pista.dataset.truque = truque;
-      setTimeout(() => pista.dataset.truque === truque && delete pista.dataset.truque, DURACAO[truque]);
-    }
-    setTimeout(gracinha, 3500 + Math.random() * 6000);
-  }
-  if (comGracinhas) setTimeout(gracinha, 1500 + Math.random() * 4000);
   pista.definir = (estado) => {
     if (pista.dataset.estado === estado) return;
     pista.dataset.estado = estado;
     delete pista.dataset.truque;
+    pista.reagir?.();
   };
+  if (opts.roteiro) roteiro(pista);
+  else if (comGracinhas) {
+    let sumiu = 0;
+    const gracinha = () => {
+      if (!pista.isConnected && ++sumiu > 3) return;
+      const opcoes = TRUQUES[pista.dataset.estado] || [];
+      if (pista.isConnected && opcoes.length && !document.hidden && !semMovimento.matches && LOCAL.pato === 'animado') {
+        sumiu = 0;
+        const truque = opcoes[Math.floor(Math.random() * opcoes.length)];
+        pista.dataset.truque = truque;
+        setTimeout(() => pista.dataset.truque === truque && delete pista.dataset.truque, DURACAO[truque]);
+      }
+      setTimeout(gracinha, 3500 + Math.random() * 6000);
+    };
+    setTimeout(gracinha, 1500 + Math.random() * 4000);
+  }
   return pista;
+}
+
+// ------------------------------------------------------------ o roteiro do pato
+// O pato que mora numa pista larga (em cima da caixa de mensagem, no cartao da conta) nao fica so
+// indo e voltando: ele escolhe o que fazer conforme o estado da sessao. Trabalhando, caminha ate um
+// ponto, para, bica como quem digita, olha em volta, bate as asas; esperando, quase nao sai do lugar
+// e faz uma gracinha de vez em quando; pedindo, corre para perto do botao de enviar e pula; dormindo,
+// senta e cochila. Cada passo e uma animacao curta (Web Animations); trocar de estado interrompe o
+// que ele estava fazendo, e ele segue de onde parou, sem saltos.
+const sorteio = (opcoes) => {
+  const total = opcoes.reduce((s, [, p]) => s + p, 0);
+  let r = Math.random() * total;
+  for (const [o, p] of opcoes) if ((r -= p) <= 0) return o;
+  return opcoes[0][0];
+};
+const entre = (a, b) => a + Math.random() * (b - a);
+const ROTEIROS = {
+  trabalha: [['anda', 34], ['bica', 18], ['olha', 12], ['bate', 8], ['pulinho', 8], ['grasna', 7], ['pisca', 7], ['gira', 4], ['alonga', 2]],
+  festa: [['corre', 50], ['pulinho', 20], ['bate', 15], ['gira', 15]],
+  parado: [['respira', 14], ['pisca', 14], ['olha', 14], ['rabo', 10], ['passeio', 16], ['alonga', 10], ['senta', 8], ['cisca', 8], ['grasna', 6]],
+  pede: [['chama', 70], ['bate', 20], ['olha', 10]],
+  dorme: [['cochila', 80], ['espia', 20]],
+  cansado: [['cochila', 100]],
+};
+// quanto dura cada gracinha (ms); as que ja existiam no CSS mantem o tempo delas
+const TEMPO = { ...DURACAO, bica: 1500, gira: 700, alonga: 1500, respira: 2600, amor: 1500, senta: 0, cochila: 0 };
+function roteiro(pista) {
+  const trilho = pista.querySelector('.trilho');
+  const bicho = pista.querySelector('.bicho');
+  pista.dataset.roteiro = 'sim';
+  let x = null;
+  let geracao = 0; // muda a cada troca de estado: o que estava em andamento para
+  let anim = null;
+  let parado = 0;
+  const larguraLivre = () => Math.max(0, pista.clientWidth - bicho.offsetWidth);
+  const por = (v) => {
+    x = Math.max(0, Math.min(larguraLivre(), v));
+    trilho.style.transform = `translateX(${x}px)`;
+  };
+  const virar = (dir) => (pista.dataset.lado = dir > 0 ? 'dir' : 'esq');
+  const quieto = () => document.hidden || semMovimento.matches || LOCAL.pato === 'parado' || !pista.isConnected || !pista.clientWidth;
+  // espera que acaba antes se o estado mudar
+  const espera = (ms, g) =>
+    new Promise((ok) => {
+      const fim = Date.now() + ms;
+      const tique = () => (g !== geracao || Date.now() >= fim ? ok(g === geracao) : setTimeout(tique, Math.min(120, fim - Date.now())));
+      tique();
+    });
+  async function andar(destino, pxPorSegundo, g) {
+    destino = Math.max(0, Math.min(larguraLivre(), destino));
+    const dist = Math.abs(destino - x);
+    if (dist < 4) return true;
+    virar(destino > x ? 1 : -1);
+    pista.dataset.anda = pxPorSegundo > 90 ? 'corre' : 'sim';
+    anim = trilho.animate([{ transform: `translateX(${x}px)` }, { transform: `translateX(${destino}px)` }], { duration: (dist / pxPorSegundo) * 1000, easing: 'cubic-bezier(0.45, 0.05, 0.4, 1)', fill: 'forwards' });
+    const terminou = await anim.finished.then(() => true, () => false);
+    // interrompido: fica onde estava naquele instante
+    const m = new DOMMatrixReadOnly(getComputedStyle(trilho).transform);
+    anim.cancel();
+    anim = null;
+    por(terminou ? destino : m.m41);
+    delete pista.dataset.anda;
+    return terminou && g === geracao;
+  }
+  async function truque(nome, g, ms = TEMPO[nome] || 900) {
+    pista.dataset.truque = nome;
+    const seguiu = await espera(ms, g);
+    if (pista.dataset.truque === nome) delete pista.dataset.truque;
+    return seguiu;
+  }
+  async function passo(estado, g) {
+    const L = larguraLivre();
+    const acao = sorteio(ROTEIROS[estado] || ROTEIROS.parado);
+    // "Sem gracinhas": so anda quando trabalha
+    if (LOCAL.pato === 'calmo' && !['anda', 'corre', 'chama', 'cochila', 'respira'].includes(acao)) return espera(1500, g);
+    switch (acao) {
+      case 'anda': {
+        // um trecho de um terco a dois tercos da pista, sem ir sempre para o mesmo lado
+        const alvo = x + (Math.random() < 0.5 ? -1 : 1) * entre(L * 0.25, L * 0.65);
+        await andar(alvo < 0 || alvo > L ? x - (alvo - x) : alvo, entre(45, 80), g);
+        return espera(entre(200, 700), g);
+      }
+      case 'corre':
+        await andar(x < L / 2 ? entre(L * 0.7, L) : entre(0, L * 0.3), entre(120, 170), g);
+        return truque('pulinho', g);
+      case 'passeio':
+        await andar(x + (Math.random() < 0.5 ? -1 : 1) * entre(24, 70), entre(25, 38), g);
+        return espera(entre(800, 1800), g);
+      case 'chama':
+        // perto do botao de enviar (a direita) e virado para a pessoa
+        if (x < L * 0.75) await andar(entre(L * 0.8, L), 110, g);
+        virar(-1);
+        return espera(entre(1400, 2600), g);
+      case 'senta':
+        pista.dataset.truque = 'senta';
+        await espera(entre(3000, 6000), g);
+        if (pista.dataset.truque === 'senta') delete pista.dataset.truque;
+        return truque('alonga', g);
+      case 'respira':
+        return espera(entre(1200, 2400), g);
+      case 'cochila':
+        return espera(entre(4000, 8000), g);
+      case 'olha':
+        await truque('olha', g, 700);
+        virar(pista.dataset.lado === 'esq' ? 1 : -1);
+        return espera(entre(500, 1100), g);
+      default:
+        return truque(acao, g);
+    }
+  }
+  async function viver() {
+    while (true) {
+      if (!pista.isConnected) {
+        if (++parado > 30) return; // saiu da tela de vez
+        await new Promise((ok) => setTimeout(ok, 1000));
+        continue;
+      }
+      parado = 0;
+      if (x === null && pista.clientWidth) por(larguraLivre() * entre(0.05, 0.3));
+      if (quieto()) {
+        await new Promise((ok) => setTimeout(ok, 800));
+        continue;
+      }
+      const g = geracao;
+      await passo(pista.dataset.estado, g);
+      if (g === geracao) await espera(entre(250, 900), g);
+    }
+  }
+  pista.reagir = () => {
+    geracao++;
+    anim?.pause();
+    delete pista.dataset.anda;
+  };
+  // Um clique no pato: ele reage (coracao, giro ou pulinho com grasnado).
+  bicho.addEventListener('click', () => {
+    if (quieto()) return;
+    const r = ['amor', 'gira', 'pulinho', 'grasna'][Math.floor(Math.random() * 4)];
+    pista.reagir();
+    pista.dataset.truque = r;
+    setTimeout(() => pista.dataset.truque === r && delete pista.dataset.truque, TEMPO[r] || 900);
+  });
+  new ResizeObserver(() => x !== null && por(x)).observe(pista);
+  viver();
 }
 const miniPato = (estado, cor) => {
   const p = bicho(false);
@@ -1267,7 +1415,7 @@ function criarPainel(id, opts = {}) {
   const prontos = el('div', { class: 'anexos-prontos', role: 'list', 'aria-label': 'Anexos desta mensagem', hidden: true });
   // O pato da sessao mora em cima da caixa de mensagem: anda de ponta a ponta enquanto o agente
   // trabalha, pula com a exclamacao quando precisa de voce e cochila quando a sessao acaba.
-  const pato = bicho(true);
+  const pato = bicho(true, { roteiro: true });
   const estadoTxt = el('span', { class: 'doca-estado', role: 'status', 'aria-live': 'polite' });
   const anel = anelContexto();
   const barraEscrever = el('div', { class: 'escrever-barra' }, anexar, estadoTxt, anel.raiz, enviar);
@@ -2377,7 +2525,7 @@ function criarVisao() {
   const cartoes = new Map();
 
   function cartao(c) {
-    const pista = bicho();
+    const pista = bicho(true, { roteiro: true });
     const nome = el('h3');
     const estado = el('p');
     const cinco = el('div', { class: 'limite' });
@@ -2468,7 +2616,11 @@ function abrirNova(opts = {}) {
   if (!S.host.available) return avisar('Este computador não conseguiu carregar o terminal virtual. Rode a instalação de novo.');
   const { d, corpo, pe, form } = dialogo('Nova sessão', 'Abre no computador. Você acompanha e comanda daqui, do celular ou pelo terminal.');
   let contaId = opts.conta || 'auto';
-  let onde = opts.onde === 'sistema' && S.desktop ? 'sistema' : 'duckv';
+  let onde = opts.onde === 'sistema' && S.desktop ? 'sistema' : opts.onde === 'nuvem' ? 'nuvem' : 'duckv';
+  // Na nuvem: so a tarefa e a pasta (o repositorio do GitHub dela); o resto a nuvem decide.
+  const tarefa = el('textarea', { id: 'nova-tarefa', class: 'campo-texto', rows: 3, maxLength: 4000, placeholder: 'Ex.: Corrija o teste de pagamento que está falhando e abra um pull request.' });
+  const campoTarefa = el('div', { class: 'campo', hidden: true }, el('label', { for: 'nova-tarefa', text: 'O que a sessão deve fazer' }), tarefa);
+  const ajudaNuvem = el('p', { class: 'ajuda nuvem-ajuda', hidden: true }, icone('cloud', 16), el('span', { text: 'Roda nos servidores da Anthropic, a partir do repositório do GitHub desta pasta, e continua mesmo com o computador desligado. Você acompanha por aqui; para responder, abra no claude.ai.' }));
   const contas = el('div', { class: 'escolhas', role: 'radiogroup', 'aria-label': 'Conta' });
   const caminho = el('input', { id: 'nova-pasta', type: 'text', autocomplete: 'off', spellcheck: false, placeholder: S.host.home || '' });
   const procurar = el('button', { class: 'botao quieto', type: 'button' }, icone('folder-open', 18), 'Procurar');
@@ -2482,16 +2634,24 @@ function abrirNova(opts = {}) {
   const ajudaModo = el('p', { class: 'ajuda' });
   const ondeChips = el('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'Onde abrir' });
   const erroGeral = el('p', { class: 'erro', role: 'alert', hidden: true });
+  // o erro aparece onde a pessoa esta olhando: o dialogo rola ate ele
+  const falhou = (texto) => {
+    Object.assign(erroGeral, { hidden: false, textContent: texto });
+    erroGeral.scrollIntoView({ block: 'nearest', behavior: semMovimento.matches ? 'auto' : 'smooth' });
+  };
   const abrir = el('button', { class: 'botao principal', type: 'submit', value: 'abrir', text: 'Abrir sessão' });
   const ajustes = el('div', { class: 'lado-a-lado' }, el('div', { class: 'campo' }, el('label', { for: 'nova-modelo', text: 'Modelo' }), modelo), el('div', { class: 'campo' }, el('label', { for: 'nova-esforco', text: 'Esforço' }), esforco), el('div', { class: 'campo' }, el('label', { for: 'nova-modo', text: 'Permissões' }), modo));
 
+  const campoNome = el('div', { class: 'campo' }, el('label', { for: 'nova-nome', text: 'Nome da sessão' }), nome);
   corpo.append(
     el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Conta' }), contas),
+    el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Onde roda' }), ondeChips),
     el('div', { class: 'campo' }, el('label', { for: 'nova-pasta', text: 'Pasta do projeto' }), el('div', { class: 'pasta-linha' }, caminho, procurar), erroPasta, navegador, recentes),
-    el('div', { class: 'campo' }, el('label', { for: 'nova-nome', text: 'Nome da sessão' }), nome),
+    campoTarefa,
+    ajudaNuvem,
+    campoNome,
     ajustes,
     ajudaModo,
-    S.desktop ? el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Onde abrir' }), ondeChips) : null,
     erroGeral,
   );
   pe.append(el('button', { class: 'botao texto', type: 'button', text: 'Cancelar', onclick: () => d.close() }), abrir);
@@ -2502,7 +2662,7 @@ function abrirNova(opts = {}) {
     const linhaEscolha = (id, rotulo, apoio, cor, uso) => {
       const b = el(
         'button',
-        { class: 'escolha', type: 'button', role: 'radio', 'aria-checked': String(contaId === id), onclick: () => ((contaId = id), desenharContas(), aplicarAgente(true)) },
+        { class: 'escolha', type: 'button', role: 'radio', 'aria-checked': String(contaId === id), onclick: () => ((contaId = id), desenharContas(), desenharOnde(), aplicarAgente(true)) },
         cor ? el('i', { class: 'ponto-conta' }) : icone('sparkle', 18),
         el('span', { class: 't' }, el('b', { text: rotulo }), el('span', { text: apoio })),
         el('span', { class: 'uso-escolha', text: uso || '' }),
@@ -2519,11 +2679,17 @@ function abrirNova(opts = {}) {
     );
   }
   function desenharOnde() {
+    // A nuvem e so do Claude Code; o terminal do sistema, so no app do computador.
+    const claude = (contaEscolhida()?.agente || 'claude') === 'claude';
+    if (onde === 'nuvem' && !claude) onde = 'duckv';
     ondeChips.replaceChildren(
       ...[
-        ['duckv', 'Aqui no duckV', 'chat-text'],
-        ['sistema', 'Terminal do sistema', 'terminal-window'],
-      ].map(([v, t, ic]) => el('button', { class: 'chip', type: 'button', role: 'radio', 'aria-checked': String(onde === v), onclick: () => ((onde = v), desenharOnde(), aplicarAgente(false)) }, icone(ic, 16), t)),
+        ['duckv', 'Neste computador', 'monitor', true],
+        ['nuvem', 'Na nuvem', 'cloud', claude],
+        ['sistema', 'Terminal do sistema', 'terminal-window', !!S.desktop],
+      ]
+        .filter(([, , , pode]) => pode)
+        .map(([v, t, ic]) => el('button', { class: 'chip', type: 'button', role: 'radio', 'aria-checked': String(onde === v), onclick: () => ((onde = v), desenharOnde(), aplicarAgente(false)) }, icone(ic, 16), t)),
     );
   }
   let agenteAtual = null;
@@ -2544,10 +2710,15 @@ function abrirNova(opts = {}) {
       if (p.cwd && !caminho.value.trim()) caminho.value = p.cwd;
     }
     esforco.disabled = !ag.esforcos.length;
-    ajustes.hidden = onde === 'sistema';
-    ajudaModo.hidden = onde === 'sistema';
+    const nuvem = onde === 'nuvem';
+    ajustes.hidden = onde !== 'duckv';
+    ajudaModo.hidden = onde !== 'duckv';
+    campoNome.hidden = nuvem;
+    campoTarefa.hidden = !nuvem;
+    ajudaNuvem.hidden = !nuvem;
     ajudaModo.textContent = MODOS_AJUDA[modo.value] || '';
-    abrir.textContent = onde === 'sistema' ? 'Abrir no terminal' : 'Abrir sessão';
+    abrir.textContent = onde === 'sistema' ? 'Abrir no terminal' : nuvem ? 'Criar na nuvem' : 'Abrir sessão';
+    d.querySelector('.dialogo-topo p').textContent = nuvem ? 'Cria uma sessão do Claude Code na nuvem da Anthropic.' : 'Abre no computador. Você acompanha e comanda daqui, do celular ou pelo terminal.';
   }
   modo.addEventListener('change', () => (ajudaModo.textContent = MODOS_AJUDA[modo.value] || ''));
   function navegar(dir) {
@@ -2579,24 +2750,39 @@ function abrirNova(opts = {}) {
     erroGeral.hidden = true;
     const c = contaEscolhida();
     const cwd = caminho.value.trim();
-    if (!c) return Object.assign(erroGeral, { hidden: false, textContent: 'Escolha uma conta.' });
+    if (!c) return falhou('Escolha uma conta.');
     if (!cwd) {
       erroPasta.textContent = 'Escolha a pasta do projeto.';
       erroPasta.hidden = false;
       return caminho.focus();
     }
+    if (onde === 'nuvem' && tarefa.value.trim().length < 3) {
+      falhou('Escreva o que a sessão deve fazer.');
+      return tarefa.focus();
+    }
     abrir.disabled = true;
+    if (onde === 'nuvem') {
+      abrir.textContent = 'Criando na nuvem…';
+      return mandar({ t: 'nuvemNova', account: c.id, cwd, texto: tarefa.value }, (erro, r) => {
+        abrir.disabled = false;
+        abrir.textContent = 'Criar na nuvem';
+        if (erro) return falhou(erro);
+        avisar('Sessão criada na nuvem');
+        d.close();
+        area.abrir(r.instance, { aoLado: opts.aoLado });
+      });
+    }
     if (onde === 'sistema') {
       return mandar({ t: 'terminalDoSistema', account: c.id, cwd }, (erro) => {
         abrir.disabled = false;
-        if (erro) return Object.assign(erroGeral, { hidden: false, textContent: erro });
+        if (erro) return falhou(erro);
         avisar(`Abrindo ${c.nome} numa janela de terminal`);
         d.close();
       });
     }
     mandar({ t: 'start', account: c.id, cwd, name: nome.value.trim(), model: modelo.value, effort: esforco.value || null, mode: modo.value, cols: 110, rows: 34 }, (erro, r) => {
       abrir.disabled = false;
-      if (erro) return Object.assign(erroGeral, { hidden: false, textContent: erro });
+      if (erro) return falhou(erro);
       d.close();
       area.abrir(r.instance, { aoLado: opts.aoLado });
     });

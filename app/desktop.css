@@ -573,9 +573,9 @@ a { color: var(--laranja-texto); text-underline-offset: 3px; }
 .rapidas .botao { min-height: 30px; font-size: 13px; padding: 0 12px; flex: none; }
 .doca { position: relative; margin-top: 30px; }
 .doca-pato { position: absolute; left: 18px; right: 18px; bottom: calc(100% - 6px); height: 32px; pointer-events: none; z-index: 1; }
+.doca-pato .pista[data-roteiro] .trilho { transition: none; }
 .doca-pato .pista { --bicho: 38px; }
 .doca-pato .bicho { width: 38px; bottom: 0; }
-.doca-pato .pista[data-estado='parado'] .trilho, .doca-pato .pista[data-estado='pede'] .trilho, .doca-pato .pista[data-estado='dorme'] .trilho, .doca-pato .pista[data-estado='cansado'] .trilho { transform: translateX(0); }
 .doca-pato .pista[data-estado='dorme'] { opacity: 0.85; }
 .escrever { display: flex; flex-direction: column; gap: 2px; background: var(--c-high); border-radius: 24px; padding: 10px 8px 8px 18px; position: relative; transition: box-shadow var(--medio), background var(--rapido); }
 .escrever:focus-within { box-shadow: inset 0 0 0 1.5px var(--contorno), 0 6px 20px -8px color-mix(in srgb, var(--tinta) 22%, transparent); }
@@ -604,6 +604,9 @@ a { color: var(--laranja-texto); text-underline-offset: 3px; }
 .leitura p { flex: 1 1 260px; font-size: 13px; line-height: 20px; color: var(--tinta-v); }
 .leitura-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
 .leitura a.botao { text-decoration: none; }
+.nuvem-ajuda { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--c-low); }
+.nuvem-ajuda .icone { flex: none; margin-top: 2px; }
+#nova-tarefa { width: 100%; resize: vertical; min-height: 76px; }
 
 .anexos-prontos { order: -1; display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0 4px; }
 .anexo-item { position: relative; border-radius: 14px; background: var(--c-highest); }
@@ -1131,12 +1134,43 @@ body.corpo-aviso { background: transparent; overflow: hidden; padding: 0; user-s
 @keyframes pula-pouco { from { transform: translateY(0); } to { transform: translateY(-6%); } }
 @keyframes pisca { to { opacity: 0.25; } }
 @keyframes sono { from { transform: translate(0, 0); opacity: 0; } 30% { opacity: 1; } to { transform: translate(1.5px, -2.5px); opacity: 0; } }
+/* ------------------------------------------------------------ o pato com roteiro (app/desktop.js, roteiro())
+   A posicao vem do JavaScript; o CSS cuida do corpo: passos so enquanto anda, meia-volta no proprio pato
+   (nao na pista), e as gracinhas novas. */
+.pista[data-roteiro] .trilho, .pista[data-roteiro] .vira, .pista[data-roteiro] .bicho { animation: none; }
+.pista[data-roteiro] .trilho { will-change: transform; }
+.pista[data-roteiro] .bicho { transition: transform 140ms steps(2, jump-none); pointer-events: auto; cursor: pointer; }
+.pista[data-roteiro][data-lado='esq'] .bicho { transform: scaleX(-1); }
+.pista[data-roteiro] .pe-a, .pista[data-roteiro] .pe-b { animation: none; }
+.pista[data-roteiro][data-anda] svg { animation: passo-corpo 0.3s steps(2, jump-none) infinite alternate; }
+.pista[data-roteiro][data-anda] .pe-a { animation: passo 0.3s steps(2, jump-none) infinite alternate; }
+.pista[data-roteiro][data-anda] .pe-b { animation: passo 0.3s steps(2, jump-none) infinite alternate-reverse; }
+.pista[data-roteiro][data-anda='corre'] svg, .pista[data-roteiro][data-anda='corre'] .pe-a, .pista[data-roteiro][data-anda='corre'] .pe-b { animation-duration: 0.16s; }
+.pista[data-roteiro][data-anda='corre'] .asa { animation: bate 0.12s steps(2, jump-none) infinite alternate; }
+/* parado ele respira: o corpo sobe meio pixel, devagar */
+.pista[data-roteiro][data-estado='parado']:not([data-anda]):not([data-truque]) .tronco { animation: respira-pato 2.4s ease-in-out infinite; }
+/* gracinhas novas */
+.pista[data-truque='bica'] .cabeca { animation: cisca 0.17s cubic-bezier(0.3, 0, 0.3, 1) 8 alternate; }
+.pista[data-truque='gira'] svg { animation: gira-pato 0.7s steps(4, jump-none); }
+.pista[data-truque='alonga'] .cabeca { animation: alonga-pescoco 1.5s ease-in-out; }
+.pista[data-truque='alonga'] .asa { animation: bate 0.18s steps(2, jump-none) 6 alternate; }
+.pista[data-truque='senta'] svg { transform: translateY(8%); transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1); }
+.pista[data-truque='senta'] .pes { display: none; }
+.pista[data-truque='amor'] .sinal.coracao { display: inline; fill: #ff5a5f; animation: sobe-coracao 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.pista[data-truque='amor'] svg { animation: pula-pouco 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 2 alternate; }
+/* cochilando, a cabeca pende de leve */
+.pista[data-roteiro][data-estado='dorme'] .cabeca { animation: cochilo 3.2s ease-in-out infinite; }
+@keyframes passo-corpo { from { transform: translateY(0); } to { transform: translateY(-4%); } }
+@keyframes respira-pato { 50% { transform: translateY(-0.5px); } }
+@keyframes gira-pato { 0% { transform: scaleX(1); } 25% { transform: scaleX(0.2); } 50% { transform: scaleX(-1); } 75% { transform: scaleX(0.2); } 100% { transform: scaleX(1); } }
+@keyframes alonga-pescoco { 30%, 70% { transform: translateY(-1.2px); } }
+@keyframes sobe-coracao { from { transform: translateY(2px); opacity: 0; } 25% { opacity: 1; } to { transform: translateY(-3px); opacity: 0; } }
+@keyframes cochilo { 50% { transform: rotate(10deg) translateY(0.4px); } }
 :root[data-pato='parado'] .pista *, :root[data-pato='parado'] .pista { animation: none !important; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
   .pista[data-estado='trabalha'] .trilho, .pista[data-estado='festa'] .trilho { transform: translateX(calc(50% - 32px)); }
-  .doca-pato .pista[data-estado] .trilho { transform: translateX(0); }
 }
 
 /* janelas estreitas: a barra lateral vira gaveta */

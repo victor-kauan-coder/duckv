@@ -934,6 +934,12 @@ async function onPhoneMessage(c, m) {
       send(c, { t: 'ack', ref: m.ref, itens, nuvem: { erro: (acc.agente || 'claude') === 'claude' ? n.erro : null, total: daNuvem.length } });
       break;
     }
+    // Nova sessao na nuvem: `claude --cloud "tarefa"` na pasta escolhida, com o login da conta.
+    case 'nuvemNova': {
+      const r = await criarNaNuvem(m);
+      send(c, r.err ? { t: 'err', ref: m.ref, msg: r.err } : { t: 'ack', ref: m.ref, instance: r.instance, link: r.link });
+      break;
+    }
     case 'abrirHistorico': {
       const acc = accounts.get(m.account);
       // Sessao da nuvem ou do Cowork: abre para ler e baixa as mensagens.
@@ -2137,6 +2143,39 @@ setInterval(consultarContas, 60000).unref();
 const DEMO_NUVEM = process.env.PAINEL_DEMO === '1' ? nuvem.demo() : null;
 const PASTA_NUVEM = path.join(DATA, 'nuvem');
 const RECENTE_NUVEM = 6 * 3600 * 1000;
+
+// Cria uma sessao na nuvem e devolve a instancia (so leitura) para o app abrir na hora.
+async function criarNaNuvem(m) {
+  const acc = accounts.get(m.account);
+  if (!acc || (acc.agente || 'claude') !== 'claude') return { err: 'Sessões na nuvem são só para contas do Claude Code.' };
+  const texto = nuvem.textoDaTarefa(m.texto);
+  if (!texto) return { err: 'Escreva o que a sessão deve fazer.' };
+  const cwd = folderAllowed(String(m.cwd || ''), cfg.pastasPermitidas || [], folders);
+  if (!cwd) return { err: 'Pasta não encontrada ou fora das pastas permitidas. Escolha a pasta de um repositório do GitHub em que você já abriu uma sessão.' };
+  let r;
+  if (DEMO_NUVEM) {
+    // demonstracao: a sessao "nasce" na lista de mentira, com a sua tarefa como primeira mensagem
+    const sid = `session_demo_nova_${crypto.randomBytes(4).toString('hex')}`;
+    const agora = new Date().toISOString();
+    DEMO_NUVEM.sessoes.unshift({ id: sid, title: clip(texto.replace(/\s+/g, ' '), 60), environment_kind: 'anthropic_cloud', origin: 'desktop_app', session_status: 'running', created_at: agora, updated_at: agora, session_context: { sources: [{ type: 'git_repository', url: `https://github.com/exemplo/${path.basename(cwd)}` }] } });
+    DEMO_NUVEM.novas.set(sid, texto);
+    r = { sid, link: `https://claude.ai/code/${sid}` };
+  } else {
+    const exe = nuvem.acharClaude();
+    if (!exe) return { err: 'Não achei o Claude Code instalado neste computador.' };
+    const env = { ...process.env, ...agenteDe('claude').env(acc.dir, acc.padrao) };
+    for (const k of Object.keys(env)) if (/^PAINEL_|^CLAUDECODE$|^CLAUDE_CODE_ENTRYPOINT$/.test(k)) delete env[k];
+    r = await nuvem.criar({ exe, texto, cwd, env, executar: execFile });
+  }
+  if (!r.sid) return { err: `A nuvem não aceitou: ${r.erro}` };
+  rememberFolder(cwd);
+  const n = await nuvemDa(acc, true).catch(() => null);
+  const item = n?.itens.find((x) => x.sid === r.sid) || { sid: r.sid, origem: 'nuvem', titulo: clip(texto.replace(/\s+/g, ' '), 60), estado: 'working', criada: now(), mtime: now(), cwd, link: r.link, pastas: [] };
+  const inst = instDaNuvem(acc, item);
+  carregarNuvem(inst);
+  dirty();
+  return { instance: inst.id, link: r.link };
+}
 
 // Token de acesso da conta, renovado se venceu. null: sem login; undefined: sem rede agora.
 async function tokenDe(a) {

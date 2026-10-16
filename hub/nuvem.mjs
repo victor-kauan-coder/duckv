@@ -282,6 +282,59 @@ export function demo(agoraMs = Date.now()) {
     ],
     session_demo_nuvem_3: [['user', 't4', 5 * 24 * 60, 'Atualize as dependências do blog.'], ['assistant', 'd1', 5 * 24 * 60 - 3, [{ type: 'text', text: 'Atualizei 12 pacotes e abri o pull request #44.' }]]],
   };
-  const eventosDe = (sid) => (falas[sid] || []).map(([type, uuid, m, content]) => ({ type, uuid: `${sid}-${uuid}`, created_at: quando(m), message: { role: type, content } }));
-  return { sessoes, cowork, eventosDe };
+  const novas = new Map(); // sid -> tarefa das sessoes criadas na demonstracao
+  const eventosDe = (sid) =>
+    novas.has(sid)
+      ? [{ type: 'user', uuid: `${sid}-t`, created_at: new Date(agoraMs).toISOString(), message: { role: 'user', content: novas.get(sid) } }, { type: 'assistant', uuid: `${sid}-a`, created_at: new Date(agoraMs).toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'Comecei. Vou clonar o repositório e ler o código antes de mudar qualquer coisa.' }] } }]
+      : (falas[sid] || []).map(([type, uuid, m, content]) => ({ type, uuid: `${sid}-${uuid}`, created_at: quando(m), message: { role: type, content } }));
+  return { sessoes, cowork, eventosDe, novas };
+}
+
+// --------------------------------------------------------------- criar uma sessao na nuvem
+// `claude --cloud "tarefa"` cria a sessao na nuvem a partir do repositorio do GitHub da pasta e sai
+// na hora, dizendo o id. A tarefa e texto livre: por isso o Claude Code e chamado direto pelo
+// executavel, nunca pelo cmd.exe (onde & e | virariam comandos).
+export function acharClaude({ plataforma = process.platform, caminho = process.env.PATH || process.env.Path || '', existe = fs.existsSync } = {}) {
+  const P = plataforma === 'win32' ? path.win32 : path.posix;
+  const pastas = caminho.split(P.delimiter).filter(Boolean);
+  if (plataforma !== 'win32') return pastas.map((d) => P.join(d, 'claude')).find(existe) || null;
+  for (const d of pastas) {
+    const exe = P.join(d, 'claude.exe');
+    if (existe(exe)) return exe;
+    // instalado pelo npm: o claude.cmd da pasta aponta para o executavel dentro do pacote
+    if (existe(P.join(d, 'claude.cmd'))) {
+      const dentro = P.join(d, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
+      if (existe(dentro)) return dentro;
+    }
+  }
+  return null;
+}
+
+// O texto da tarefa como o Claude Code vai receber: sem caracteres de controle, ate 4000 letras, e
+// sem comecar com "-" (senao viraria uma opcao da linha de comando).
+export function textoDaTarefa(t) {
+  let s = String(t ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim();
+  if (s.startsWith('-')) s = `Tarefa: ${s}`;
+  return s.length >= 3 ? s.slice(0, 4000) : null;
+}
+
+const semCores = (s) => String(s || '').replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+// Le a resposta do `claude --cloud`: o id da sessao criada ou o motivo de nao ter criado.
+export function lerCriacao(saida) {
+  const t = semCores(saida);
+  const m = /\b(session_[A-Za-z0-9]{8,60})\b/.exec(t);
+  if (m && /Created cloud session|claude\.ai\/code\//i.test(t)) return { sid: m[1], link: `https://claude.ai/code/${m[1]}` };
+  const linhas = t.split('\n').map((l) => l.trim()).filter(Boolean);
+  const erro = linhas.find((l) => /^error[:\s]/i.test(l)) || linhas.at(-1) || 'O Claude Code não criou a sessão.';
+  return { erro: erro.replace(/^error:\s*/i, '').slice(0, 300) };
+}
+
+export function criar({ exe, texto, cwd, env, executar }) {
+  return new Promise((resolve) => {
+    executar(exe, ['--cloud', texto], { cwd, env, timeout: 120_000, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+      const r = lerCriacao(`${stdout || ''}\n${stderr || ''}`);
+      if (!r.sid && err?.killed) r.erro = 'O Claude Code demorou demais para criar a sessão.';
+      resolve(r);
+    });
+  });
 }

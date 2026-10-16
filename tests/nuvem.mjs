@@ -132,3 +132,19 @@ const itens = d.sessoes.map((x) => nv.sessaoDaApi(x, d.cowork.get(x.id), Date.pa
 ok(itens.some((x) => x.origem === 'cowork') && itens.some((x) => x.estado === 'working') && itens.some((x) => x.estado === 'waiting'), 'demonstracao mostra nuvem, Cowork, trabalhando e pedindo');
 ok(d.sessoes.filter((x) => x.environment_kind !== 'bridge').every((x) => nv.eventosParaLinhas(d.eventosDe(x.id)).length > 0), 'toda sessao da demonstracao tem conversa');
 fs.rmSync(app, { recursive: true, force: true });
+
+// --- criar uma sessao na nuvem (claude --cloud)
+const W = path.win32;
+const EXE = W.join('C:', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
+const existe = (f) => [W.join('C:', 'npm', 'claude.cmd'), EXE].includes(f);
+ok(nv.acharClaude({ plataforma: 'win32', caminho: [W.join('C:', 'outra'), W.join('C:', 'npm')].join(';'), existe }) === EXE, 'acha o claude.exe por tras do claude.cmd do npm');
+ok(nv.acharClaude({ plataforma: 'win32', caminho: W.join('C:', 'nada'), existe }) === null, 'sem Claude Code instalado, nao inventa caminho');
+ok(nv.textoDaTarefa('--dangerously-skip-permissions').startsWith('Tarefa: '), 'tarefa que comeca com "-" nao vira opcao da linha de comando');
+ok(nv.textoDaTarefa('oi\u0007\u001b[31m') === 'oi[31m', 'caracteres de controle saem da tarefa');
+ok(nv.textoDaTarefa('  ') === null && nv.textoDaTarefa('x'.repeat(5000)).length === 4000, 'tarefa vazia recusada; longa cortada em 4000');
+const criada = nv.lerCriacao('\u001b[32mCreated cloud session: Teste\u001b[0m\nView: https://claude.ai/code/session_01PW7Rzr4Tknuq1zXsoj9rFh?from=cli\n');
+ok(criada.sid === 'session_01PW7Rzr4Tknuq1zXsoj9rFh' && criada.link === 'https://claude.ai/code/session_01PW7Rzr4Tknuq1zXsoj9rFh', 'le o id e o link da sessao criada');
+ok(nv.lerCriacao('Error: This directory is not a GitHub repository').erro === 'This directory is not a GitHub repository', 'motivo da recusa vem do proprio Claude Code');
+let chamada = null;
+const r = await nv.criar({ exe: 'claude.exe', texto: 'faca & del *', cwd: String.raw`C:\proj`, env: { A: '1' }, executar: (f, a, o, cb) => ((chamada = { f, a, o }), cb(null, 'Created cloud session: x\nhttps://claude.ai/code/session_0123456789ab', '')) });
+ok(r.sid === 'session_0123456789ab' && chamada.f === 'claude.exe' && chamada.a[0] === '--cloud' && chamada.a[1] === 'faca & del *' && chamada.o.cwd === String.raw`C:\proj`, 'tarefa vai como um argumento so, direto para o executavel');
