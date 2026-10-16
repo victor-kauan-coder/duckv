@@ -43,6 +43,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardReturn
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -786,9 +788,9 @@ private fun MarcaDeTempo(ts: Long) {
     val dia = when {
         mesmoDia(ts, agora) -> "Hoje"
         mesmoDia(ts, agora - 86_400_000) -> "Ontem"
-        else -> java.text.SimpleDateFormat("d 'de' MMM", java.util.Locale("pt", "BR")).format(java.util.Date(ts))
+        else -> java.text.SimpleDateFormat("d 'de' MMM", java.util.Locale.forLanguageTag("pt-BR")).format(java.util.Date(ts))
     }
-    val hora = java.text.SimpleDateFormat("HH:mm", java.util.Locale("pt", "BR")).format(java.util.Date(ts))
+    val hora = java.text.SimpleDateFormat("HH:mm", java.util.Locale.forLanguageTag("pt-BR")).format(java.util.Date(ts))
     Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f).height(1.dp).background(c.linha))
         Text("$dia, $hora", style = Texto.pequeno.copy(fontWeight = FontWeight.Medium), color = c.apoio, modifier = Modifier.padding(horizontal = 12.dp))
@@ -1384,8 +1386,8 @@ private val TECLAS: List<Triple<String, String?, ImageVector?>> = listOf(
     Triple("esc", "Esc", null),
     Triple("up", null, Icons.Rounded.KeyboardArrowUp),
     Triple("down", null, Icons.Rounded.KeyboardArrowDown),
-    Triple("left", null, Icons.Rounded.KeyboardArrowLeft),
-    Triple("right", null, Icons.Rounded.KeyboardArrowRight),
+    Triple("left", null, Icons.AutoMirrored.Rounded.KeyboardArrowLeft),
+    Triple("right", null, Icons.AutoMirrored.Rounded.KeyboardArrowRight),
     Triple("tab", "Tab", null),
     Triple("shift-tab", "Shift+Tab", null),
     Triple("enter", null, Icons.AutoMirrored.Rounded.KeyboardReturn),

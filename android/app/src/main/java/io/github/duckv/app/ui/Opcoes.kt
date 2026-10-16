@@ -316,7 +316,7 @@ private fun EscolhaPatinho(conta: Conta, aoEscolher: (TipoPato) -> Unit) {
     var aberto by remember { mutableStateOf(false) }
     androidx.compose.material3.ExposedDropdownMenuBox(aberto, { aberto = it }) {
         OutlinedTextField(
-            atual.nome, {}, Modifier.fillMaxWidth().menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryNotEditable),
+            atual.nome, {}, Modifier.fillMaxWidth().menuAnchor(androidx.compose.material3.ExposedDropdownMenuAnchorType.PrimaryNotEditable),
             readOnly = true, singleLine = true, label = { Text("Patinho e cor da conta") },
             leadingIcon = { Pato("parado", "parado", Color(conta.cor), Modifier.size(width = 36.dp, height = 28.dp), andar = false, tocavel = false, tipo = atual.id) },
             trailingIcon = { androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(aberto) },

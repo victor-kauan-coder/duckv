@@ -9,7 +9,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # O app Android: plugin do Android, Kotlin, Gradle e bibliotecas dependem uns dos outros (uma
+  # biblioteca nova costuma exigir plugin e SDK novos). Por isso vem tudo num PR so, testado junto.
   - package-ecosystem: gradle
     directory: /android
     schedule:
       interval: weekly
+    groups:
+      android:
+        patterns: ['*']

@@ -217,6 +217,6 @@ private fun quandoDia(ms: Long): String {
         dias == 0 && hoje.get(java.util.Calendar.DAY_OF_YEAR) == d.get(java.util.Calendar.DAY_OF_YEAR) -> "Hoje"
         dias <= 1 -> "Ontem"
         dias < 7 -> diaDaSemana(ms).replaceFirstChar { it.uppercase() }
-        else -> java.text.SimpleDateFormat("d 'de' MMMM", java.util.Locale("pt", "BR")).format(java.util.Date(ms))
+        else -> java.text.SimpleDateFormat("d 'de' MMMM", java.util.Locale.forLanguageTag("pt-BR")).format(java.util.Date(ms))
     }
 }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Android
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.Close
@@ -239,7 +240,7 @@ fun CartaoArquivo(e: Estado?, a: Arquivo, modifier: Modifier = Modifier) {
                 }
             }
             is Baixa.Pronto -> Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Botao("Abrir", { Baixados.abrir(ctx, a, b.uri)?.let(aviso) }, Modifier.weight(1f), Icons.Rounded.OpenInNew, Peso.Principal, altura = 44.dp)
+                Botao("Abrir", { Baixados.abrir(ctx, a, b.uri)?.let(aviso) }, Modifier.weight(1f), Icons.AutoMirrored.Rounded.OpenInNew, Peso.Principal, altura = 44.dp)
                 Botao("Compartilhar", { Baixados.compartilhar(ctx, a, b.uri) }, Modifier.weight(1f), Icons.Rounded.Share, Peso.Comum, altura = 44.dp)
             }
             is Baixa.Falhou -> Column(Modifier.padding(top = 10.dp)) {

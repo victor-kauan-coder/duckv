@@ -60,7 +60,7 @@ import kotlin.math.ceil
 
 // ------------------------------------------------------------ formatos
 
-private val BR = Locale("pt", "BR")
+private val BR = Locale.forLanguageTag("pt-BR")
 fun hora(ms: Long): String = SimpleDateFormat("HH:mm", BR).format(Date(ms))
 fun diaDaSemana(ms: Long): String = SimpleDateFormat("EEEE", BR).format(Date(ms))
 
