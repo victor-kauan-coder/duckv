@@ -121,6 +121,8 @@ data class Estado(
     val arquivos: List<Arquivo> = emptyList(),
     /** Ultima versao do app publicada no GitHub, ja baixada no computador (null se ainda nao olhou ou deu erro). */
     val app: VersaoApp? = null,
+    /** Login no GitHub do computador (pelo gh), para as sessoes na nuvem. */
+    val github: GithubEstado = GithubEstado(),
 ) {
     fun conta(id: String) = contas.find { it.id == id }
         ?: Conta(id, id, 0xFFFF7A1A, Padroes(null, null, null, null), null, null, null, null, null)
@@ -128,6 +130,9 @@ data class Estado(
     fun agente(id: String?) = host.agentes.find { it.id == id } ?: host.agentes.find { it.id == "claude" } ?: CLAUDE_PADRAO
     fun agenteDa(conta: String) = agente(conta(conta).agente)
 }
+
+/** Quem esta logado no GitHub do computador e, durante o login, o codigo de dispositivo. */
+data class GithubEstado(val instalado: Boolean? = null, val login: String? = null, val codigo: String? = null, val url: String? = null, val ate: Long = 0, val erro: String? = null)
 
 data class Msg(val id: String, val papel: String, val texto: String, val tool: String?, val doCelular: Boolean, val img: String? = null, val via: String? = null, val arq: String? = null, val ts: Long = 0)
 
@@ -251,6 +256,18 @@ fun lerEstado(m: JSONObject): Estado {
         arquivos = m.optJSONArray("arquivos").mapa {
             Arquivo(it.optString("id"), it.optString("nome"), it.optLong("tamanho"), it.optString("tipo"), it.optLong("em"), it.optString("nota"), it.s("conta"))
         },
+        github = m.optJSONObject("github")?.let { g ->
+            val ent = g.optJSONObject("entrando")
+            GithubEstado(
+                instalado = if (g.isNull("instalado")) null else g.optBoolean("instalado"),
+                login = g.s("login"),
+                codigo = ent?.s("codigo"),
+                // so o endereco do GitHub vira botao
+                url = ent?.s("url")?.takeIf { it.startsWith("https://github.com/") },
+                ate = ent?.optLong("ate") ?: 0,
+                erro = g.s("erro"),
+            )
+        } ?: GithubEstado(),
         app = lerVersaoApp(m.optJSONObject("app")),
     )
 }

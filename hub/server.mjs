@@ -16,6 +16,7 @@ import { Tail, parseEntry, TaskTracker, scanWindowTokens } from './transcript.mj
 import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter } from './hosted.mjs';
 import * as previas from './previas.mjs';
 import * as nuvem from './nuvem.mjs';
+import { criarGithub } from './github.mjs';
 import { agenteDe, ehAgente, catalogo, instalado, sairDaConta } from './agentes.mjs';
 import { listarComandos } from './comandos.mjs';
 import { criarAtualizacao } from './atualizacao.mjs';
@@ -421,6 +422,7 @@ function snapshot() {
     demo: process.env.PAINEL_DEMO === '1',
     prefs: { avisos: prefs.avisos, rapidas: prefs.rapidas },
     arquivos: arquivos.slice(-50).reverse().map(pubArquivo),
+    github: github.publico(),
     app: atualizacao.publico(),
     accounts: [...accounts.values()].map((a) => ({
       id: a.id,
@@ -936,6 +938,19 @@ async function onPhoneMessage(c, m) {
     }
     // Nova sessao na nuvem: `claude --cloud "tarefa"` na pasta escolhida, com o login da conta.
     // Repositorios do GitHub para a sessao na nuvem: os seus (pelo gh) e os que ja estao no computador.
+    // Login no GitHub (pelo gh do computador), para escolher repositorios das sessoes na nuvem.
+    case 'githubEntrar':
+      github.entrar();
+      send(c, { t: 'ack', ref: m.ref, github: github.publico() });
+      break;
+    case 'githubCancelar':
+      github.cancelar();
+      send(c, { t: 'ack', ref: m.ref });
+      break;
+    case 'githubSair':
+      await github.sair();
+      send(c, { t: 'ack', ref: m.ref });
+      break;
     case 'repos': {
       const r = await reposParaNuvem(!!m.atualizar);
       send(c, { t: 'ack', ref: m.ref, ...r });
@@ -2150,6 +2165,23 @@ const DEMO_NUVEM = process.env.PAINEL_DEMO === '1' ? nuvem.demo() : null;
 const PASTA_NUVEM = path.join(DATA, 'nuvem');
 const RECENTE_NUVEM = 6 * 3600 * 1000;
 
+// --- login no GitHub: quem esta logado no gh e o codigo de dispositivo em andamento
+let reposCache = { at: 0, itens: null, erro: null };
+let loginGithub = null;
+const github = criarGithub({
+  demo: process.env.PAINEL_DEMO === '1',
+  aoMudar: (e) => {
+    // trocou a conta do GitHub: a lista de repositorios e outra
+    if (e.login !== loginGithub) {
+      loginGithub = e.login;
+      reposCache = { at: 0, itens: null, erro: null };
+    }
+    dirty();
+  },
+});
+setTimeout(() => github.atualizar().catch(() => {}), 1500).unref();
+setInterval(() => github.atualizar().catch(() => {}), 10 * 60_000).unref();
+
 // --- repositorios do GitHub (para escolher onde a sessao na nuvem trabalha)
 const rodar = (bin, args, opts = {}) =>
   new Promise((ok) => execFile(bin, args, { windowsHide: true, timeout: 30_000, maxBuffer: 8 * 1024 * 1024, ...opts }, (err, out, erro) => ok({ err, out: String(out || ''), erro: String(erro || '') })));
@@ -2160,7 +2192,6 @@ const ultimaLinha = (t) =>
     .map((l) => l.trim())
     .filter(Boolean)
     .at(-1) || '';
-let reposCache = { at: 0, itens: null, erro: null };
 async function reposDoGithub(forcar) {
   if (DEMO_NUVEM) {
     const t = (d) => now() - d * 86_400_000;
@@ -2179,9 +2210,9 @@ async function reposDoGithub(forcar) {
   if (r.err) {
     const semGh = r.err.code === 'ENOENT';
     const erro = semGh
-      ? 'Instale o GitHub CLI (gh) e entre com "gh auth login" para escolher repositórios do GitHub.'
+      ? 'O GitHub CLI (gh) não está instalado neste computador.'
       : /auth|login|401/i.test(r.erro)
-        ? 'Entre no GitHub CLI com "gh auth login" para ver seus repositórios.'
+        ? 'Entre no GitHub para ver seus repositórios.'
         : `O GitHub não respondeu (${ultimaLinha(r.erro) || r.err.message}).`;
     reposCache = { at: now(), itens: reposCache.itens || [], erro };
     return reposCache;

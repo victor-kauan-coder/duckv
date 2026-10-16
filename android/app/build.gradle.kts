@@ -19,8 +19,8 @@ android {
         applicationId = "io.github.duckv.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 29
-        versionName = "2.18.1"
+        versionCode = 30
+        versionName = "2.19.0"
     }
 
     signingConfigs {

@@ -483,6 +483,11 @@ function ligar() {
       S.arquivos = m.arquivos || [];
       S.desktop = m.desktop || null;
       if (m.prefs) S.prefs = m.prefs;
+      if (m.github) {
+        const mudouLogin = S.github?.login !== m.github.login;
+        S.github = m.github;
+        ouvintesGithub.forEach((f) => f(mudouLogin));
+      }
       S.desvio = Date.now() - m.now;
       if (antes) notificarMudancas(antes, S.sessoes);
       desenhar();
@@ -2689,6 +2694,62 @@ function dialogo(titulo, sub) {
   return { d, corpo, pe, form: d.firstChild };
 }
 
+// ------------------------------------------------------------ GitHub (login pelo gh do computador)
+// Um cartao so, usado nas Opcoes e na escolha de repositorio da sessao na nuvem: quem esta logado,
+// o botao de entrar e, durante o login, o codigo de 8 letras e o atalho para github.com/login/device.
+const ouvintesGithub = new Set();
+function cartaoGithub({ compacto = false, aoMudarLogin } = {}) {
+  const raiz = el('div', { class: `github${compacto ? ' compacto' : ''}`, 'aria-live': 'polite' });
+  let marca = '';
+  // replaceChildren escreveria "null" no lugar das partes ausentes
+  const pintar = (...partes) => raiz.replaceChildren(...partes.filter(Boolean));
+  const acao = (texto, ic, classe, f) => el('button', { class: `botao ${classe}`, type: 'button', onclick: f }, ic ? icone(ic, 18) : null, texto);
+  function desenhar(mudouLogin) {
+    if (mudouLogin && aoMudarLogin) aoMudarLogin(S.github?.login || null);
+    const g = S.github || {};
+    const nova = JSON.stringify([g.instalado, g.login, g.entrando?.codigo, g.erro]);
+    if (nova === marca) return;
+    marca = nova;
+    if (g.instalado === false) {
+      pintar(
+        el('div', { class: 'github-linha' }, el('span', { class: 'github-ic' }, icone('warning-circle', 18)), el('span', { class: 't' }, el('b', { text: 'GitHub CLI não instalado' }), el('span', { text: 'O duckV usa o GitHub CLI (gh) deste computador para entrar no GitHub. Instale e volte aqui.' }))),
+        el('div', { class: 'github-acoes' }, el('a', { class: 'botao quieto', href: 'https://cli.github.com', target: '_blank', rel: 'noopener noreferrer' }, icone('arrow-up-right', 18), 'Como instalar')),
+      );
+    } else if (g.entrando) {
+      const copiar = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Copiar o código', title: 'Copiar o código', onclick: () => navigator.clipboard.writeText(g.entrando.codigo).then(() => avisar('Código copiado')) }, icone('copy', 18));
+      const minutos = Math.max(1, Math.round((g.entrando.ate - agora()) / 60000));
+      pintar(
+        el('p', { class: 'github-passo', text: 'No GitHub, digite este código para liberar o duckV:' }),
+        el('div', { class: 'github-codigo' }, el('span', { text: g.entrando.codigo }), copiar),
+        el('div', { class: 'github-acoes' }, el('a', { class: 'botao principal', href: g.entrando.url, target: '_blank', rel: 'noopener noreferrer' }, icone('arrow-up-right', 18), 'Abrir github.com/login/device'), acao('Cancelar', null, 'texto', () => mandar({ t: 'githubCancelar' }))),
+        el('p', { class: 'ajuda', text: `Vale por ${minutos} min. Pode autorizar pelo celular também; quando terminar, esta tela atualiza sozinha.` }),
+      );
+      animarEntrada(raiz.querySelector('.github-codigo'));
+    } else if (g.login) {
+      pintar(
+        el('div', { class: 'github-linha' }, el('span', { class: 'github-ic ok' }, icone('check-circle', 18)), el('span', { class: 't' }, el('b', null, 'Conectado como ', el('code', { text: g.login })), compacto ? null : el('span', { text: 'Pelo GitHub CLI deste computador. O token fica no cofre do sistema, nunca no duckV.' }))),
+        compacto ? null : el('div', { class: 'github-acoes' }, acao('Trocar de conta', 'arrows-clockwise', 'quieto', () => mandar({ t: 'githubEntrar' }, (e) => e && avisar(e))), acao('Sair do GitHub', 'sign-out', 'perigo', async () => (await confirmar({ titulo: `Sair de ${g.login} no GitHub?`, texto: 'O GitHub CLI deste computador fica sem login. Outros programas que usam o gh também saem.', sim: 'Sair', perigo: true })) && mandar({ t: 'githubSair' }, (e) => avisar(e || 'Saiu do GitHub')))),
+      );
+    } else {
+      pintar(
+        el('div', { class: 'github-linha' }, el('span', { class: 'github-ic' }, icone('globe', 18)), el('span', { class: 't' }, el('b', { text: 'Entre no GitHub' }), el('span', { text: 'Para escolher os seus repositórios ao criar sessões na nuvem.' }))),
+        el('div', { class: 'github-acoes' }, acao('Entrar no GitHub', 'sign-in', 'principal', () => mandar({ t: 'githubEntrar' }, (e) => e && avisar(e)))),
+        g.erro ? el('p', { class: 'erro', text: g.erro }) : null,
+      );
+    }
+  }
+  // para de ouvir so depois de ter estado na tela e sair dela (dialogo fechado)
+  let esteve = false;
+  const ouvir = (m) => {
+    if (raiz.isConnected) esteve = true;
+    else if (esteve) return ouvintesGithub.delete(ouvir);
+    desenhar(m);
+  };
+  ouvintesGithub.add(ouvir);
+  desenhar(false);
+  return raiz;
+}
+
 function abrirNova(opts = {}) {
   if (!S.host.available) return avisar('Este computador não conseguiu carregar o terminal virtual. Rode a instalação de novo.');
   const { d, corpo, pe, form } = dialogo('Nova sessão', 'Abre no computador. Você acompanha e comanda daqui, do celular ou pelo terminal.');
@@ -2727,7 +2788,8 @@ function abrirNova(opts = {}) {
   const buscaRepo = el('input', { id: 'nova-repo', type: 'search', autocomplete: 'off', spellcheck: false, placeholder: 'Buscar entre os seus repositórios', 'aria-label': 'Buscar repositório do GitHub' });
   const listaRepos = el('div', { class: 'escolhas repos-lista', role: 'radiogroup', 'aria-label': 'Repositório do GitHub' });
   const avisoRepos = el('p', { class: 'historico-aviso', hidden: true });
-  const campoRepo = el('div', { class: 'campo', hidden: true }, el('label', { for: 'nova-repo', text: 'Repositório do GitHub' }), buscaRepo, avisoRepos, listaRepos);
+  const github = cartaoGithub({ compacto: true, aoMudarLogin: () => ((repos = null), carregarRepos()) });
+  const campoRepo = el('div', { class: 'campo', hidden: true }, el('label', { for: 'nova-repo', text: 'Repositório do GitHub' }), github, buscaRepo, avisoRepos, listaRepos);
   function desenharRepos() {
     if (!repos) return listaRepos.replaceChildren(...Array.from({ length: 4 }, () => el('div', { class: 'escolha esqueleto', 'aria-hidden': 'true' }, el('i'), el('span', { class: 't' }, el('b'), el('span')))));
     const q = semAcento(buscaRepo.value.trim());
@@ -2751,7 +2813,8 @@ function abrirNova(opts = {}) {
     desenharRepos();
     mandar({ t: 'repos' }, (erro, r) => {
       repos = erro ? [] : r.itens || [];
-      const aviso = erro || r.erro;
+      // sem login, quem explica e o cartao do GitHub logo acima
+      const aviso = S.github?.login === null || S.github?.instalado === false ? null : erro || r.erro;
       avisoRepos.hidden = !aviso;
       avisoRepos.replaceChildren(icone('warning-circle', 16), el('span', { text: aviso || '' }));
       // ja vem escolhido o repositorio da pasta padrao da conta, se ele estiver na lista
@@ -3412,6 +3475,7 @@ function criarOpcoes() {
           linhaSwitch('Quando uma sessão terminar a vez', null, a.fim, (v) => salvar({ op: 'avisos', fim: v })),
           linhaSwitch('Quando um limite reiniciar', null, a.reset, (v) => salvar({ op: 'avisos', reset: v })),
         ),
+        el('section', { class: 'bloco' }, el('h3', { text: 'GitHub' }), el('p', { class: 'ajuda', text: 'Para criar sessões na nuvem a partir dos seus repositórios.' }), cartaoGithub()),
         el('section', { class: 'bloco' }, el('h3', { text: 'Mensagens rápidas' }), el('p', { class: 'ajuda', text: 'Botões acima da caixa de mensagem de cada sessão, aqui e no celular.' }), caixaRapidas, formR),
         !JANELA_APP && window.duckvTrocarTela
           ? el(

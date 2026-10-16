@@ -621,6 +621,21 @@ a { color: var(--laranja-texto); text-underline-offset: 3px; }
 .nuvem-ajuda .icone { flex: none; margin-top: 2px; }
 #nova-tarefa { width: 100%; resize: vertical; min-height: 76px; }
 .repos-lista { max-height: 260px; overflow: auto; margin-top: 8px; }
+/* GitHub: quem esta logado e, durante o login, o codigo de dispositivo */
+.github { display: grid; gap: 10px; padding: 14px 16px; border-radius: 16px; background: var(--c); }
+.github.compacto { padding: 10px 12px; margin-bottom: 8px; }
+.github-linha { display: flex; align-items: center; gap: 12px; }
+.github-linha .t { display: grid; min-width: 0; }
+.github-linha .t b { font-weight: 500; }
+.github-linha .t span { font-size: 12px; line-height: 16px; color: var(--tinta-v); }
+.github-linha code { font: 500 13px/1 var(--mono); }
+.github-ic { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--c-high); color: var(--tinta-v); flex: none; }
+.github-ic.ok { color: var(--ok); }
+.github-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.github-passo { font-size: 13px; color: var(--tinta-v); }
+.github-codigo { display: flex; align-items: center; gap: 8px; justify-self: start; padding: 8px 8px 8px 18px; border-radius: 14px; background: var(--pessego); color: var(--no-pessego); }
+.github-codigo span { font: 500 26px/1 var(--mono); letter-spacing: 3px; font-variant-numeric: tabular-nums; }
+.github .ajuda { font-size: 12px; color: var(--tinta-v); }
 .repos-lista .escolha .t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .anexos-prontos { order: -1; display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0 4px; }

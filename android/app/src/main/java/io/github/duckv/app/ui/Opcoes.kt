@@ -128,6 +128,12 @@ fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
                     for (conta in e.contas) androidx.compose.runtime.key(conta.id) { BlocoConta(e, conta, salvar, e.contas.size > 1) }
                 }
 
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TituloSecao("GitHub")
+                    Text("Para criar sessões na nuvem a partir dos seus repositórios.", style = Texto.apoio, color = c.apoio)
+                    CartaoGithub(e.github)
+                }
+
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     val a = e.prefs.avisos
                     TituloSecao("Quais avisos chegam")

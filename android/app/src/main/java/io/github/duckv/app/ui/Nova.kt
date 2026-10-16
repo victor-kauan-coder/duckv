@@ -96,7 +96,10 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
     var repos by remember { mutableStateOf<List<RepoGh>?>(null) }
     var erroRepos by remember { mutableStateOf<String?>(null) }
     var buscaRepo by rememberSaveable { mutableStateOf("") }
-    LaunchedEffect(naNuvem) {
+    // entrar no GitHub (ou trocar de conta) muda a lista: busca de novo
+    var loginVisto by remember { mutableStateOf(e.github.login) }
+    LaunchedEffect(e.github.login) { if (e.github.login != loginVisto) { loginVisto = e.github.login; repos = null } }
+    LaunchedEffect(naNuvem, repos == null) {
         if (!naNuvem || repos != null) return@LaunchedEffect
         Hub.mandar(JSONObject().put("t", "repos")) { er, r ->
             val a = r?.optJSONArray("itens")
@@ -175,12 +178,14 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
             }
             if (naNuvem) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 CabecalhoAjuste("Repositório do GitHub", null, Modifier.padding(bottom = 0.dp))
+                CartaoGithub(e.github, compacto = true)
                 OutlinedTextField(
                     buscaRepo, { buscaRepo = it }, Modifier.fillMaxWidth(), singleLine = true,
                     placeholder = { Text("Buscar entre os seus repositórios", color = c.apoio) },
                     shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
                 )
-                erroRepos?.let { Text(it, style = Texto.apoio, color = c.perigo) }
+                // sem login no GitHub, quem explica e o cartao acima
+                if (e.github.login != null) erroRepos?.let { Text(it, style = Texto.apoio, color = c.perigo) }
                 val lista = repos
                 if (lista == null) Text("Buscando seus repositórios…", style = Texto.apoio, color = c.apoio)
                 else {
