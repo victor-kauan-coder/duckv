@@ -386,14 +386,14 @@ Cada conta tem um pato, e o que ele faz diz como a conta está:
 
 | O pato… | Quer dizer |
 |---|---|
-| anda de um lado para o outro | a conta está trabalhando |
-| pula e grasna com um ponto de exclamação | a conta precisa de você |
-| fica parado em pé | esperando sua mensagem |
-| dorme, com um z subindo | nenhuma sessão aberta |
+| caminha, para, bica como quem digita, olha em volta, bate as asas | a conta está trabalhando |
+| corre até o botão de enviar, pula e grasna com um ponto de exclamação | a conta precisa de você |
+| fica quase parado: respira, pisca, se alonga, senta, dá uma voltinha | esperando sua mensagem |
+| dorme sentado, cochilando, com um z subindo | nenhuma sessão aberta |
 | fica cinza e tombado | o limite de 5 horas acabou |
 | corre e pula | o limite acabou de reiniciar |
 
-Toque nele para ver uma reação. De vez em quando ele faz uma gracinha por conta própria. Com a opção de reduzir movimento do celular ligada, o pato fica parado e o estado continua escrito ao lado.
+Na caixa de mensagem e no cartão da conta ele segue um roteiro sorteado, então nunca repete o mesmo vai e vem. Toque (ou clique) nele para ver uma reação. Com a opção de reduzir movimento do celular ligada, o pato fica parado e o estado continua escrito ao lado.
 
 ## O que os números significam
 

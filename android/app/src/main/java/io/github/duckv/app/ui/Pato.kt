@@ -6,6 +6,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -59,7 +61,41 @@ private val DURACAO = mapOf(
     "grasna" to 900L, "bate" to 800L, "rabo" to 800L, "pisca" to 320L, "cisca" to 1300L, "olha" to 1200L, "pulinho" to 480L, "espia" to 1100L,
     // reacoes ao toque
     "amor" to 1600L, "salto" to 900L, "danca" to 1400L, "quaa" to 1000L, "bravo" to 1300L,
+    // gracinhas do roteiro
+    "bica" to 1500L, "gira" to 700L, "alonga" to 1500L,
 )
+
+// ------------------------------------------------------------ o roteiro
+// O pato que mora numa pista larga (caixa de mensagem, cartao da conta) nao fica so indo e voltando:
+// ele escolhe o que fazer conforme o estado. Trabalhando, caminha ate um ponto, para, bica como quem
+// digita, olha em volta, bate as asas; esperando, quase nao sai do lugar e faz uma gracinha de vez em
+// quando; pedindo, corre para perto do botao de enviar e pula; dormindo, senta e cochila. Trocar de
+// estado interrompe o passo, e ele segue de onde parou, sem saltos. (O mesmo roteiro do computador.)
+private val ROTEIROS = mapOf(
+    "trabalha" to listOf("anda" to 34, "bica" to 18, "olha" to 12, "bate" to 8, "pulinho" to 8, "grasna" to 7, "pisca" to 7, "gira" to 4, "alonga" to 2),
+    "festa" to listOf("corre" to 50, "pulinho" to 20, "bate" to 15, "gira" to 15),
+    "parado" to listOf("respira" to 14, "pisca" to 14, "olha" to 14, "rabo" to 10, "passeio" to 16, "alonga" to 10, "senta" to 8, "cisca" to 8, "grasna" to 6),
+    "pede" to listOf("chama" to 70, "bate" to 20, "olha" to 10),
+    "dorme" to listOf("cochila" to 80, "espia" to 20),
+    "cansado" to listOf("cochila" to 100),
+)
+private fun sortear(opcoes: List<Pair<String, Int>>): String {
+    var r = Random.nextInt(opcoes.sumOf { it.second })
+    for ((o, peso) in opcoes) { r -= peso; if (r < 0) return o }
+    return opcoes.first().first
+}
+private fun entre(a: Float, b: Float) = a + Random.nextFloat() * (b - a)
+private fun entre(a: Long, b: Long) = a + Random.nextLong(b - a)
+private val Passada = androidx.compose.animation.core.CubicBezierEasing(0.45f, 0.05f, 0.4f, 1f)
+
+/** Onde o pato esta na pista (0 a 1), para que lado olha, se anda ou corre e se esta sentado. */
+private class Roteiro {
+    val x = androidx.compose.animation.core.Animatable(-1f)
+    var direita by mutableStateOf(true)
+    var anda by mutableStateOf<String?>(null)
+    var senta by mutableStateOf(false)
+}
+private data class Pose(val x: Float, val direita: Boolean, val anda: String?, val senta: Boolean)
 private val REACOES = listOf("amor", "salto", "danca", "quaa")
 private val Coracao = Color(0xFFFF5A5F)
 
@@ -108,7 +144,86 @@ fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier
     }
     var truque by remember { mutableStateOf<String?>(null) }
     var truqueDesde by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(estado, anima, modo) {
+    // pista larga: o roteiro decide; pato pequeno e parado: so as gracinhas de sempre
+    val rot = remember { Roteiro() }
+    var livrePx by remember { mutableFloatStateOf(0f) }
+    val densidade = androidx.compose.ui.platform.LocalDensity.current.density
+    val usaRoteiro = andar && anima
+    LaunchedEffect(estado, usaRoteiro, modo) {
+        truque = null
+        rot.anda = null
+        rot.senta = false
+        if (!usaRoteiro) return@LaunchedEffect
+        while (livrePx <= 0f) delay(200)
+        if (rot.x.value < 0f) rot.x.snapTo(if (repouso <= 0f) entre(0.05f, 0.3f) else repouso)
+        suspend fun fazer(nome: String, ms: Long = DURACAO[nome] ?: 900L) {
+            truque = nome
+            truqueDesde = System.nanoTime() / 1_000_000
+            delay(ms)
+            if (truque == nome) truque = null
+        }
+        suspend fun andarAte(destino: Float, dpPorSegundo: Float) {
+            val d = destino.coerceIn(0f, 1f)
+            val dist = kotlin.math.abs(d - rot.x.value) * livrePx
+            if (dist < 4f) return
+            rot.direita = d > rot.x.value
+            rot.anda = if (dpPorSegundo > 90f) "corre" else "sim"
+            try {
+                rot.x.animateTo(d, androidx.compose.animation.core.tween((dist / (dpPorSegundo * densidade) * 1000).toInt().coerceAtLeast(120), easing = Passada))
+            } finally {
+                rot.anda = null
+            }
+        }
+        while (true) {
+            val acao = sortear(ROTEIROS[estado] ?: ROTEIROS.getValue("parado"))
+            // "Sem gracinhas": so anda quando trabalha
+            if (modo != "animado" && acao !in setOf("anda", "corre", "chama", "cochila", "respira")) {
+                delay(1500)
+                continue
+            }
+            val x = rot.x.value
+            when (acao) {
+                "anda" -> {
+                    // um trecho de um quarto a dois tercos da pista, sem ir sempre para o mesmo lado
+                    var alvo = x + (if (Random.nextBoolean()) -1 else 1) * entre(0.25f, 0.65f)
+                    if (alvo !in 0f..1f) alvo = x - (alvo - x)
+                    andarAte(alvo, entre(45f, 80f))
+                    delay(entre(200L, 700L))
+                }
+                "corre" -> {
+                    andarAte(if (x < 0.5f) entre(0.7f, 1f) else entre(0f, 0.3f), entre(120f, 170f))
+                    fazer("pulinho")
+                }
+                "passeio" -> {
+                    andarAte(x + (if (Random.nextBoolean()) -1 else 1) * entre(24f, 70f) * densidade / livrePx.coerceAtLeast(1f), entre(25f, 38f))
+                    delay(entre(800L, 1800L))
+                }
+                "chama" -> {
+                    // perto do botao de enviar (a direita) e virado para a pessoa
+                    if (x < 0.75f) andarAte(entre(0.8f, 1f), 110f)
+                    rot.direita = false
+                    delay(entre(1400L, 2600L))
+                }
+                "senta" -> {
+                    rot.senta = true
+                    delay(entre(3000L, 6000L))
+                    rot.senta = false
+                    fazer("alonga")
+                }
+                "respira" -> delay(entre(1200L, 2400L))
+                "cochila" -> delay(entre(4000L, 8000L))
+                "olha" -> {
+                    fazer("olha", 700)
+                    rot.direita = !rot.direita
+                    delay(entre(500L, 1100L))
+                }
+                else -> fazer(acao)
+            }
+            delay(entre(250L, 900L))
+        }
+    }
+    LaunchedEffect(estado, anima, modo, usaRoteiro) {
+        if (usaRoteiro) return@LaunchedEffect
         truque = null
         if (!anima || modo != "animado") return@LaunchedEffect
         delay(1500L + Random.nextLong(4000))
@@ -147,24 +262,30 @@ fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier
             if (truque == tr) truque = null
         }
     }
-    Canvas(modifier.then(if (tocavel) tocar else Modifier)) {
+    val medir = Modifier.onSizeChanged { val u = it.height / 19.5f; livrePx = (it.width - 18 * u).coerceAtLeast(0f) }
+    Canvas(modifier.then(medir).then(if (tocavel) tocar else Modifier)) {
         val dt = System.nanoTime() / 1_000_000 - truqueDesde
-        desenhar(estado, if (anima) t else 0L, truque, dt, andar && anima, cor, c, tipoPato(tipo), repouso)
+        val pose = if (usaRoteiro && rot.x.value >= 0f) Pose(rot.x.value, rot.direita, rot.anda, rot.senta) else null
+        desenhar(estado, if (anima) t else 0L, truque, dt, andar && anima, cor, c, tipoPato(tipo), repouso, pose)
     }
 }
 
-private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Long, andar: Boolean, cor: Color, c: Cores, tp: TipoPato, repouso: Float = 0.5f) {
+private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Long, andar: Boolean, cor: Color, c: Cores, tp: TipoPato, repouso: Float = 0.5f, pose: Pose? = null) {
     val u = size.height / 19.5f
     val largura = 16 * u
-    val anda = andar && (estado == "trabalha" || estado == "festa")
-    val sentado = estado == "dorme" || estado == "cansado"
-    val passo = (t / 220) % 2 == 0L
+    val anda = if (pose != null) pose.anda != null else andar && (estado == "trabalha" || estado == "festa")
+    val dormindo = estado == "dorme" || estado == "cansado"
+    val sentado = dormindo || pose?.senta == true
+    val passo = (t / (if (pose?.anda == "corre") 110 else 220)) % 2 == 0L
 
     // posicao na pista
     var x: Float
     var paraDireita = true
     val livre = (size.width - largura - u * 2).coerceAtLeast(0f)
-    if (anda) {
+    if (pose != null) {
+        x = u + livre * pose.x
+        paraDireita = pose.direita
+    } else if (anda) {
         val periodo = if (estado == "festa") 3400L else 10000L
         val fase = (t % periodo) / periodo.toFloat()
         val ida = fase < 0.5f
@@ -172,6 +293,8 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
         paraDireita = ida
     } else x = u + livre * repouso
     if (truque == "olha") paraDireita = !paraDireita
+    // giro: vira de um lado para o outro duas vezes
+    if (truque == "gira" && (dt / 175) % 2 == 1L) paraDireita = !paraDireita
     // meia-volta no ar durante o salto
     if (truque == "salto" && dt in 300..650) paraDireita = !paraDireita
 
@@ -204,6 +327,8 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
         estado == "festa" -> (t / 70) % 2 == 0L
         estado == "pede" -> (t / 100) % 2 == 0L
         truque == "bate" -> (dt / 65) % 2 == 0L
+        truque == "alonga" -> (dt / 90) % 2 == 0L
+        pose?.anda == "corre" -> (t / 60) % 2 == 0L
         else -> false
     }
     val bicoAbre = when {
@@ -214,8 +339,18 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
         else -> false
     }
     val rabo = if (truque == "rabo") (if ((dt / 65) % 2 == 0L) 0.4f else -0.4f) else 0f
-    val cisca = if (truque == "cisca") sin(dt / 650.0 * PI).toFloat().coerceAtLeast(0f) * 1.6f else 0f
-    val olhoFechado = sentado && truque != "espia" || truque == "pisca"
+    val cisca = when (truque) {
+        "cisca" -> sin(dt / 650.0 * PI).toFloat().coerceAtLeast(0f) * 1.6f
+        "bica" -> abs(sin(dt / 170.0 * PI)).toFloat() * 1.1f // bicadas rapidas, como quem digita
+        else -> 0f
+    }
+    // cabeca: estica no alongamento; balanca devagar cochilando
+    val pescoco = when {
+        truque == "alonga" -> -sin(dt / 1500.0 * PI).toFloat() * 1.1f
+        estado == "dorme" && pose != null -> sin(t / 1600.0 * PI).toFloat() * 0.35f
+        else -> 0f
+    }
+    val olhoFechado = dormindo && truque != "espia" || truque == "pisca"
     val pisa = anda || estado == "festa"
 
     val cansado = estado == "cansado"
@@ -254,8 +389,8 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
                 else -> pes // f, g
             }
             when (ch) {
-                'O', 'B', 'e', 'k' -> { dx = cisca * 0.4f; dy = cisca }
-                'q' -> { dx = cisca * 0.4f; dy = cisca + if (bicoAbre) 0.6f else 0f }
+                'O', 'B', 'e', 'k' -> { dx = cisca * 0.4f; dy = cisca + pescoco }
+                'q' -> { dx = cisca * 0.4f; dy = cisca + pescoco + if (bicoAbre) 0.6f else 0f }
                 'w' -> dy = if (asaSobe) -0.7f else 0f
                 'T', 't' -> dx = rabo
                 'f' -> { if (sentado) continue; dy = if (pisa && passo) -0.5f else 0f }
@@ -263,7 +398,7 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
             }
             cel(cx + dx, cy + dy, cor)
         }
-        if (olhoFechado) cel(10f + cisca * 0.4f, 2.6f + cisca, Tinta, 2f, 0.45f)
+        if (olhoFechado) cel(10f + cisca * 0.4f, 2.6f + cisca + pescoco, Tinta, 2f, 0.45f)
         if (bicoAbre) for ((sx2, sy) in SOM) cel(sx2, sy + cisca, c.texto)
         // bravo: sobrancelha franzida em cima do olho
         if (truque == "bravo") { cel(9f, 1.4f, Tinta, 1f, 0.5f); cel(10f, 1.7f, Tinta, 1f, 0.5f) }
