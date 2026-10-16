@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
@@ -72,8 +73,11 @@ fun estadoDaConta(e: Estado, conta: Conta, agora: Long): EstadoConta {
 
 fun oQueFaz(s: Sessao): String = when {
     s.status == "ended" -> "Encerrada"
+    s.precisa && s.remota -> s.atividade.ifBlank { "Esperando você na nuvem" }
     s.precisa -> if (s.perms.isNotEmpty()) "Pedindo permissão" else "Pedindo permissão no computador"
     s.status == "working" -> s.atividade.ifBlank { "Trabalhando" }
+    s.arquivada -> "Arquivada na nuvem"
+    s.remota -> s.ultimoTexto.ifBlank { if (s.origem == "cowork") "Parada no Cowork" else "Parada na nuvem" }
     s.desktop -> "No Claude desktop" + (s.ultimoTexto.takeIf { it.isNotBlank() }?.let { ": $it" } ?: "")
     s.status == "error" -> s.atividade.ifBlank { "Parou com erro" }
     else -> s.ultimoTexto.ifBlank { "Esperando sua mensagem" }
@@ -305,6 +309,27 @@ private fun RespostaLivre(s: Sessao, o: io.github.duckv.app.Opcao, ocupado: Bool
 fun CartaoLocal(conta: Conta, s: Sessao) {
     val c = cores
     val forma = RoundedCornerShape(16.dp)
+    // Na nuvem ou no Cowork, a resposta e la: o cartao diz o que ela pede e leva ate onde responder.
+    if (s.remota) {
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        Column(
+            Modifier.fillMaxWidth().clip(forma).background(c.cartao).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(iconeOrigem(s.origem), null, Modifier.size(20.dp), tint = c.texto)
+                Text(
+                    "${conta.nome} espera você ${if (s.origem == "nuvem") "na nuvem" else "no Cowork"}",
+                    style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto, modifier = Modifier.padding(start = 10.dp),
+                )
+            }
+            Text(s.atividade.ifBlank { "A sessão parou e espera uma resposta sua." }, style = Texto.apoio, color = c.apoio)
+            val link = s.link
+            if (link != null) Botao("Responder no claude.ai", { abrirLink(ctx, link) }, icone = Icons.AutoMirrored.Rounded.OpenInNew, peso = Peso.Principal)
+            else Text("Responda pelo app Claude do computador.", style = Texto.pequeno, color = c.apoio)
+        }
+        return
+    }
     Column(
         Modifier.fillMaxWidth().clip(forma).border(2.dp, c.texto, forma).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),

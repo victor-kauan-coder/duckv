@@ -92,9 +92,10 @@ private val BicoCansado = Color(0xFFCDB35C)
  * @param estado trabalha, festa, pede, parado, dorme ou cansado
  * @param modo animado, calmo (sem gracinhas) ou parado
  * @param andar se o pato pode passear de um lado a outro da largura toda
+ * @param repouso onde ele fica quando nao anda: 0 na ponta esquerda, 0.5 no meio
  */
 @Composable
-fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier, andar: Boolean = true, tocavel: Boolean = true, tipo: String? = null) {
+fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier, andar: Boolean = true, tocavel: Boolean = true, tipo: String? = null, repouso: Float = 0.5f) {
     val ctx = LocalContext.current
     val semMovimento = remember {
         Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
@@ -148,11 +149,11 @@ fun Pato(estado: String, modo: String, cor: Color, modifier: Modifier = Modifier
     }
     Canvas(modifier.then(if (tocavel) tocar else Modifier)) {
         val dt = System.nanoTime() / 1_000_000 - truqueDesde
-        desenhar(estado, if (anima) t else 0L, truque, dt, andar && anima, cor, c, tipoPato(tipo))
+        desenhar(estado, if (anima) t else 0L, truque, dt, andar && anima, cor, c, tipoPato(tipo), repouso)
     }
 }
 
-private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Long, andar: Boolean, cor: Color, c: Cores, tp: TipoPato) {
+private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Long, andar: Boolean, cor: Color, c: Cores, tp: TipoPato, repouso: Float = 0.5f) {
     val u = size.height / 19.5f
     val largura = 16 * u
     val anda = andar && (estado == "trabalha" || estado == "festa")
@@ -169,7 +170,7 @@ private fun DrawScope.desenhar(estado: String, t: Long, truque: String?, dt: Lon
         val ida = fase < 0.5f
         x = u + livre * (if (ida) fase * 2 else 2 - fase * 2)
         paraDireita = ida
-    } else x = u + livre / 2
+    } else x = u + livre * repouso
     if (truque == "olha") paraDireita = !paraDireita
     // meia-volta no ar durante o salto
     if (truque == "salto" && dt in 300..650) paraDireita = !paraDireita

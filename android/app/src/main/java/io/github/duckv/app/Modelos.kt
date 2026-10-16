@@ -84,10 +84,16 @@ data class Sessao(
     val links: List<String> = emptyList(),
     val previas: Previas = Previas(),
     val login: Boolean = false,
+    // de onde a sessao vem: duckv, terminal, app (Claude desktop), historico, nuvem ou cowork
+    val origem: String = "terminal",
+    val link: String? = null,
+    val arquivada: Boolean = false,
 ) {
     val viva get() = status != "ended"
     val precisa get() = status == "waiting" || perms.isNotEmpty()
     val titulo get() = nome?.takeIf { it.isNotBlank() } ?: pasta(cwd).ifEmpty { "Sessão" }
+    /** Roda fora deste computador: na nuvem da Anthropic ou no Cowork do app Claude. */
+    val remota get() = origem == "nuvem" || origem == "cowork"
 }
 
 data class Host(
@@ -123,7 +129,7 @@ data class Estado(
     fun agenteDa(conta: String) = agente(conta(conta).agente)
 }
 
-data class Msg(val id: String, val papel: String, val texto: String, val tool: String?, val doCelular: Boolean, val img: String? = null, val via: String? = null, val arq: String? = null)
+data class Msg(val id: String, val papel: String, val texto: String, val tool: String?, val doCelular: Boolean, val img: String? = null, val via: String? = null, val arq: String? = null, val ts: Long = 0)
 
 /** Um arquivo do computador para baixar no celular. */
 data class Arquivo(val id: String, val nome: String, val tamanho: Long, val tipo: String, val em: Long, val nota: String, val conta: String?)
@@ -207,6 +213,9 @@ fun lerEstado(m: JSONObject): Estado {
             podeEnviar = i.optBoolean("canSend"),
             desktop = i.optBoolean("desktop"),
             sessaoId = i.s("sessionId"),
+            origem = i.s("origem") ?: "terminal",
+            link = i.s("link")?.takeIf { it.startsWith("https://claude.ai/") },
+            arquivada = i.optBoolean("arquivada"),
             ultimoTexto = i.optString("lastText"),
             agente = i.optString("agente", "claude"),
             links = i.optJSONArray("links").strings(),
@@ -247,7 +256,7 @@ fun lerEstado(m: JSONObject): Estado {
 }
 
 fun lerMsgs(a: JSONArray?): List<Msg> = a.mapa {
-    Msg(it.optString("id"), it.optString("role"), it.optString("text"), it.s("tool"), it.optString("via") == "celular", it.s("img"), it.s("via"), it.s("arq"))
+    Msg(it.optString("id"), it.optString("role"), it.optString("text"), it.s("tool"), it.optString("via") == "celular", it.s("img"), it.s("via"), it.s("arq"), it.optLong("ts"))
 }
 
 fun lerTela(m: JSONObject) = Tela(m.optJSONArray("lines").strings(), m.optInt("cx"), m.optInt("cy"), m.optJSONArray("links").strings())

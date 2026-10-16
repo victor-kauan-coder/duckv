@@ -747,7 +747,8 @@ private fun LinhaSessao(s: Sessao, cor: Color, aoTocar: () -> Unit) {
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp),
             )
         }
-        s.ctx?.pct?.let { AnelPequeno(it, if (pede) c.invTexto else cor, Modifier.padding(start = 10.dp)) }
+        if (temSelo(s.origem)) Icon(iconeOrigem(s.origem), nomeOrigem(s.origem), Modifier.padding(start = 10.dp).size(20.dp), tint = if (pede) c.invApoio else c.apoio)
+        else s.ctx?.pct?.let { AnelPequeno(it, if (pede) c.invTexto else cor, Modifier.padding(start = 10.dp)) }
     }
 }
 

@@ -60,6 +60,7 @@ O **duckV** junta num app só os agentes de código que rodam no seu computador,
 | **Permissões no bolso** | Aceite, recuse ou recuse dizendo o que fazer no lugar. Direto na notificação, mesmo com o app fechado. |
 | **Abrir sessões pelo celular** | Escolha conta, pasta, modelo, esforço e modo de permissão; a sessão roda no computador e você comanda pelo app. |
 | **Conversas do Claude desktop** | Todas as conversas de cada conta, inclusive as feitas no app Claude desktop, para acompanhar ou continuar. |
+| **Nuvem e Cowork** | As sessões do Claude Code na nuvem (claude.ai/code) e as tarefas do Cowork aparecem junto das outras, para ler, com o que cada uma pede e um atalho para responder no claude.ai. |
 | **Anexos** | Mande arquivos do celular para o agente ler. |
 | **Mensagens de voz** | Toque no microfone e fale: o celular transcreve ao vivo, você revisa ou envia direto, e a mensagem aparece com o selo de voz. |
 | **Arquivos do computador** | Peça ao agente "manda esse arquivo para o meu celular" (ou rode `node tools\enviar.mjs arquivo`): ele aparece no app, com aviso, para baixar em Downloads/duckV, abrir ou compartilhar. |
@@ -256,6 +257,14 @@ Pelo celular você acompanha a sessão, conversa e responde permissões.
 
 Em **Todas as conversas** ficam todas as conversas de cada conta, com o título que o agente deu. Nas contas do Claude Code entram também as feitas no app **Claude desktop**, separadas pela conta de cada uma. Toque numa conversa para ler o histórico inteiro e continue de onde parou com **Continuar pelo celular**, sempre com o login da conta certa (feche a conversa no desktop antes, para as duas não escreverem juntas).
 
+### Nuvem e Cowork
+
+Nas contas do Claude Code, o duckV também mostra as sessões que rodam **na nuvem da Anthropic** (as abertas em claude.ai/code ou no "Code" do app Claude) e as tarefas do **Cowork**. As que estão trabalhando, esperando você ou mexidas nas últimas horas aparecem na lista de sessões com o selo **Nuvem** ou **Cowork**; todas ficam em **Todas as conversas**, com um filtro por origem (Computador, App Claude, Nuvem, Cowork).
+
+Essas sessões são **só para ler**: a conversa inteira aparece, com as ferramentas e as imagens, e quando uma delas para esperando você, ela entra em **Precisa de você** com o botão **Responder no claude.ai** (as do Cowork se respondem no app Claude do computador). O duckV lê tudo com o login que o Claude Code já guarda na pasta de cada conta; nada é criado, mudado ou apagado na nuvem. As sessões do próprio computador que aparecem na nuvem pelo Controle Remoto ficam de fora, para não aparecerem duas vezes.
+
+Para conferir o que a Anthropic deixa o duckV ler em cada conta: `node tools/sondar.mjs` (mostra só os códigos de resposta e os nomes dos campos, nunca o conteúdo).
+
 ### Anexos e imagens
 
 - **Colar um print**: no app do computador e no navegador, **Ctrl+V** (ou **⌘V**) com uma imagem copiada anexa a imagem. No app Android, quando há uma imagem copiada, aparece o botão **Colar imagem copiada** acima do campo (e a opção **Colar** no clipe).
@@ -399,7 +408,9 @@ Toque nele para ver uma reação. De vez em quando ele faz uma gracinha por cont
 - As perguntas viram botões porque o duckV lê a tela do terminal. Se uma pergunta não virar botão, abra **Controles › Avançado › Ver a tela do terminal** e responda por lá.
 - O modo de permissão não tem escolha direta: o botão passa para o próximo modo, como o Shift+Tab, e o app mostra o que o Claude Code diz estar ativo.
 - O texto das perguntas vem do próprio agente, em geral em inglês.
-- O computador precisa ficar ligado e acordado.
+- O computador precisa ficar ligado e acordado. As sessões da nuvem continuam rodando com ele desligado, mas o duckV só as mostra com o computador ligado (é ele que guarda o login).
+- As conversas normais do claude.ai (os chats, fora do Claude Code) não aparecem: o login do Claude Code não tem permissão para lê-las.
+- As tarefas do Cowork que a Anthropic já apagou não aparecem mais, mesmo que o app Claude ainda lembre delas.
 
 ## Problemas comuns
 

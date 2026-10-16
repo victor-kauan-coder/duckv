@@ -15,6 +15,7 @@ import { ROOT, DATA, CONFIG_FILE, ACCOUNTS_FILE, ensureConfig, loadAccounts, def
 import { Tail, parseEntry, TaskTracker, scanWindowTokens } from './transcript.mjs';
 import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter } from './hosted.mjs';
 import * as previas from './previas.mjs';
+import * as nuvem from './nuvem.mjs';
 import { agenteDe, ehAgente, catalogo, instalado, sairDaConta } from './agentes.mjs';
 import { listarComandos } from './comandos.mjs';
 import { criarAtualizacao } from './atualizacao.mjs';
@@ -403,7 +404,11 @@ function pubInst(i) {
     links: i.hosted ? i.links || [] : [],
     login: !!i.login,
     desktop: !!(i.desktop || i.historico),
-    sessionId: i.desktop || i.historico ? i.sessionId : undefined,
+    sessionId: i.desktop || i.historico || i.nuvem ? i.sessionId : undefined,
+    // de onde a sessao vem: aberta pelo duckV, num terminal, no app Claude, guardada, na nuvem ou no Cowork
+    origem: i.nuvem ? i.origem : i.hosted ? 'duckv' : i.desktop ? 'app' : i.historico ? 'historico' : 'terminal',
+    link: i.nuvem ? i.link || null : undefined,
+    arquivada: i.nuvem ? !!i.arquivada : undefined,
     lastText: i.lastText,
     previas: previas.publico(i),
   };
@@ -461,7 +466,7 @@ function persistSoon() {
     }
     const inst = {};
     for (const i of instances.values()) {
-      if (i.status === 'ended' || i.hosted) continue;
+      if (i.status === 'ended' || i.hosted || i.nuvem) continue;
       inst[i.id] = {
         account: i.account,
         sessionId: i.sessionId,
@@ -728,6 +733,7 @@ async function onPhoneMessage(c, m) {
         c.abertas.add(inst.id);
       } else c.open = inst ? inst.id : null;
       if (inst) send(c, { t: 'history', instance: inst.id, items: inst.messages });
+      if (inst?.nuvem) carregarNuvem(inst);
       break;
     }
     case 'close':
@@ -916,12 +922,29 @@ async function onPhoneMessage(c, m) {
     }
     case 'historico': {
       const acc = accounts.get(m.account);
-      if (!acc) send(c, { t: 'err', ref: m.ref, msg: 'Conta não encontrada.' });
-      else send(c, { t: 'ack', ref: m.ref, itens: historicoDa(acc).map(({ file, ...x }) => x) });
+      if (!acc) {
+        send(c, { t: 'err', ref: m.ref, msg: 'Conta não encontrada.' });
+        break;
+      }
+      // As do computador na hora; as da nuvem e do Cowork esperam a Anthropic responder (ate 15 s).
+      const local = historicoDa(acc).map(({ file, ...x }) => x);
+      const n = await nuvemDa(acc, !!m.atualizar).catch((e) => ({ itens: [], erro: e.message }));
+      const daNuvem = n.itens.map((x) => ({ sid: x.sid, origem: x.origem, titulo: x.titulo, mtime: x.mtime, cwd: x.cwd, estado: x.estado, resumo: x.resumo, naoLida: x.naoLida, repo: x.repo, ramo: x.ramo, link: x.link, pastas: x.pastas }));
+      const itens = [...local, ...daNuvem].sort((a, b) => b.mtime - a.mtime);
+      send(c, { t: 'ack', ref: m.ref, itens, nuvem: { erro: (acc.agente || 'claude') === 'claude' ? n.erro : null, total: daNuvem.length } });
       break;
     }
     case 'abrirHistorico': {
       const acc = accounts.get(m.account);
+      // Sessao da nuvem ou do Cowork: abre para ler e baixa as mensagens.
+      const daNuvem = acc && nuvem.idValido(m.sid) && (acc.nuvem?.itens || []).find((x) => x.sid === m.sid);
+      if (daNuvem) {
+        const inst = instDaNuvem(acc, daNuvem);
+        carregarNuvem(inst);
+        dirty();
+        send(c, { t: 'ack', ref: m.ref, instance: inst.id });
+        break;
+      }
       const item = acc && historicoDa(acc).find((x) => x.sid === m.sid);
       if (item && (acc.agente || 'claude') !== 'claude') {
         const viva = [...instances.values()].find((i) => i.sessionId === item.sid && i.status !== 'ended');
@@ -1944,7 +1967,8 @@ function historicoDa(acc) {
   }
   const pastas = [];
   if (acc.dir && !acc.padrao) pastas.push([path.join(acc.dir, 'projects'), 'conta']);
-  pastas.push([PROJETOS_DESKTOP, 'desktop']);
+  // A demonstracao nao le as conversas de verdade do app Claude.
+  if (process.env.PAINEL_DEMO !== '1') pastas.push([PROJETOS_DESKTOP, 'desktop']);
   const itens = [];
   for (const [raiz, origem] of pastas) {
     for (const proj of lerDir(raiz)) {
@@ -2105,6 +2129,148 @@ async function consultarContas() {
 }
 setTimeout(consultarContas, 1500).unref();
 setInterval(consultarContas, 60000).unref();
+
+// ---------------------------------------------------------------- nuvem e Cowork
+// Sessoes do Claude Code na nuvem e tarefas do Cowork, lidas com o login de cada conta (hub/nuvem.mjs).
+// As que estao trabalhando, pedindo algo ou mexidas ha pouco aparecem junto das outras sessoes, so
+// para leitura; todas entram em "Todas as conversas". Responder e na nuvem (claude.ai) ou no app Claude.
+const DEMO_NUVEM = process.env.PAINEL_DEMO === '1' ? nuvem.demo() : null;
+const PASTA_NUVEM = path.join(DATA, 'nuvem');
+const RECENTE_NUVEM = 6 * 3600 * 1000;
+
+// Token de acesso da conta, renovado se venceu. null: sem login; undefined: sem rede agora.
+async function tokenDe(a) {
+  const f = path.join(a.dir || path.join(os.homedir(), '.claude'), '.credentials.json');
+  let k;
+  try {
+    k = JSON.parse(fs.readFileSync(f, 'utf8')).claudeAiOauth;
+  } catch {
+    return null;
+  }
+  if (!k?.accessToken && !k?.refreshToken) return null;
+  if (!k.accessToken || (k.expiresAt && k.expiresAt < now() + 60000)) k = await renovarLogin(f).catch(() => undefined);
+  return k === undefined ? undefined : k?.accessToken || null;
+}
+function orgDe(a) {
+  const f = a.padrao || !a.dir ? path.join(os.homedir(), '.claude.json') : path.join(a.dir, '.claude.json');
+  return readJson(f, null)?.oauthAccount?.organizationUuid || null;
+}
+
+async function nuvemDa(a, forcar = false) {
+  if ((a.agente || 'claude') !== 'claude') return { itens: [], erro: null };
+  if (!forcar && a.nuvem && now() - a.nuvem.at < 45000) return a.nuvem;
+  if (a.nuvemBusca) return a.nuvemBusca;
+  a.nuvemBusca = (async () => {
+    let itens = [];
+    let erro = null;
+    if (DEMO_NUVEM) {
+      // na demonstracao, so a primeira conta tem sessoes na nuvem
+      if (a.id === [...accounts.keys()][0]) itens = DEMO_NUVEM.sessoes.map((s) => nuvem.sessaoDaApi(s, DEMO_NUVEM.cowork.get(s.id))).filter((s) => s && !s.ponte);
+    } else {
+      const token = await tokenDe(a);
+      if (token === null) erro = 'Entre nesta conta para ver as sessões da nuvem.';
+      else if (token === undefined) erro = 'Sem conexão com a Anthropic agora.';
+      else {
+        try {
+          itens = await nuvem.listar({ token, org: orgDe(a), conta: a.uuid || null, cowork: nuvem.sessoesDoCowork(nuvem.pastaDoAppClaude()) });
+        } catch (e) {
+          erro = e.codigo === 401 ? 'O login desta conta venceu. Entre de novo para ver a nuvem.' : e.codigo === 403 || e.codigo === 404 ? 'Esta conta não tem sessões na nuvem liberadas.' : e.message || 'Não consegui ler a nuvem.';
+          itens = a.nuvem?.itens || [];
+        }
+      }
+    }
+    a.nuvem = { at: now(), itens, erro };
+    return a.nuvem;
+  })().finally(() => {
+    a.nuvemBusca = null;
+  });
+  return a.nuvemBusca;
+}
+
+// Sessao da nuvem como instancia do duckV (so leitura). Reaproveita a que ja existe.
+function instDaNuvem(a, s) {
+  const id = `nuvem-${idCurto(s.sid)}`;
+  const inst = getInst(id, a.id);
+  Object.assign(inst, { nuvem: true, origem: s.origem, link: s.link, sessionId: s.sid, name: s.titulo, cwd: s.cwd, startedAt: s.criada || s.mtime });
+  if (s.modelo) inst.model = s.modelo;
+  if (s.ctx) inst.ctx = s.ctx;
+  const status = s.estado === 'ended' ? 'idle' : s.estado;
+  const onde = s.origem === 'cowork' ? 'no Cowork' : 'na nuvem';
+  const activity = s.estado === 'waiting' ? `Pede ${onde}${s.pendente ? `: ${s.pendente}` : ''}` : s.estado === 'working' ? `Trabalhando ${onde}` : s.estado === 'ended' ? 'Arquivada' : '';
+  // parada: o que ela fez por ultimo vira a frase da lista
+  inst.lastText = s.resumo || '';
+  if (inst.status !== status || inst.activity !== activity) {
+    inst.status = status;
+    inst.activity = activity;
+    inst.updatedAt = now();
+  }
+  inst.arquivada = s.estado === 'ended';
+  return inst;
+}
+
+// Baixa as mensagens que faltam e grava como historico local: o mesmo leitor das outras sessoes mostra.
+async function carregarNuvem(inst) {
+  if (!inst?.nuvem || inst.nuvemCarregando || !nuvem.idValido(inst.sessionId)) return;
+  const a = getAccount(inst.account);
+  inst.nuvemCarregando = true;
+  try {
+    let linhas;
+    if (DEMO_NUVEM) linhas = nuvem.eventosParaLinhas(DEMO_NUVEM.eventosDe(inst.sessionId));
+    else {
+      const token = await tokenDe(a);
+      if (!token) return;
+      linhas = await nuvem.eventos({ token, org: orgDe(a), sid: inst.sessionId });
+    }
+    fs.mkdirSync(PASTA_NUVEM, { recursive: true });
+    const file = path.join(PASTA_NUVEM, `${inst.sessionId}.jsonl`);
+    inst.nuvemVistos ||= new Set();
+    if (inst.transcript !== file) {
+      fs.writeFileSync(file, '');
+      inst.nuvemVistos.clear();
+    }
+    const novas = linhas.filter((l) => !inst.nuvemVistos.has(l.uuid));
+    if (novas.length) {
+      fs.appendFileSync(file, novas.map((l) => JSON.stringify(l)).join('\n') + '\n');
+      for (const l of novas) inst.nuvemVistos.add(l.uuid);
+    }
+    setTranscript(inst, file);
+    pollInst(inst);
+    inst.nuvemErro = null;
+  } catch (e) {
+    if (!inst.nuvemErro) sysMsg(inst, `Não consegui ler as mensagens desta sessão na nuvem (${e.message}).`);
+    inst.nuvemErro = e.message;
+  } finally {
+    inst.nuvemCarregando = false;
+    dirty();
+  }
+}
+
+async function sessoesDaNuvem() {
+  const vivas = new Set();
+  for (const a of accounts.values()) {
+    if ((a.agente || 'claude') !== 'claude') continue;
+    const r = await nuvemDa(a).catch(() => null);
+    for (const s of (r?.itens || []).filter((x) => x.estado === 'working' || x.estado === 'waiting' || (x.estado !== 'ended' && now() - x.mtime < RECENTE_NUVEM)).slice(0, 8)) {
+      vivas.add(instDaNuvem(a, s).id);
+    }
+  }
+  // Sessoes da nuvem que pararam ha muito tempo saem da lista (continuam em "Todas as conversas"),
+  // a nao ser que alguem esteja com ela aberta agora.
+  for (const inst of [...instances.values()]) {
+    if (inst.nuvem && !vivas.has(inst.id) && ![...phones].some((c) => olha(c, inst.id))) instances.delete(inst.id);
+  }
+  // Mensagens novas das que estao abertas em algum aparelho e ainda andando.
+  for (const inst of instances.values()) {
+    if (inst.nuvem && inst.status !== 'idle' && [...phones].some((c) => olha(c, inst.id))) carregarNuvem(inst);
+  }
+  dirty();
+}
+setTimeout(sessoesDaNuvem, DEMO_NUVEM ? 800 : 4000).unref();
+setInterval(sessoesDaNuvem, DEMO_NUVEM ? 15000 : 90000).unref();
+// Enquanto alguem le uma sessao da nuvem que esta trabalhando, as mensagens chegam a cada 8 s.
+setInterval(() => {
+  for (const inst of instances.values()) if (inst.nuvem && inst.status === 'working' && [...phones].some((c) => olha(c, inst.id))) carregarNuvem(inst);
+}, 8000).unref();
 
 // ---------------------------------------------------------------- http
 

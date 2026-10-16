@@ -331,7 +331,7 @@ function oQueFaz(s) {
   if (s.status === 'ended') return 'Encerrada';
   if (s.perms.length) return `Pede permissão: ${s.perms[0].tool}`;
   if (s.hosted && s.pergunta) return s.pergunta.titulo ? `Pergunta: ${s.pergunta.titulo}` : 'Fez uma pergunta';
-  if (s.status === 'waiting') return 'Pede permissão no terminal';
+  if (s.status === 'waiting') return s.origem === 'nuvem' || s.origem === 'cowork' ? s.activity || 'Pede algo na nuvem' : 'Pede permissão no terminal';
   if (s.status === 'working') return s.activity || 'Trabalhando';
   if (s.status === 'error') return s.activity || 'Parou com erro';
   return s.lastText || 'Esperando sua mensagem';
@@ -359,12 +359,74 @@ function barra(pct, cor) {
   if (p >= 100) b.dataset.cheia = 'sim';
   return b;
 }
+// Anel do contexto ao lado do botao de enviar, como no app do Claude: enche conforme a conversa ocupa a memoria.
+function anelContexto() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const circ = (classe) => {
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('cx', '12');
+    c.setAttribute('cy', '12');
+    c.setAttribute('r', '9');
+    c.setAttribute('pathLength', '100');
+    c.setAttribute('class', classe);
+    svg.append(c);
+    return c;
+  };
+  circ('fundo');
+  const cheio = circ('cheio');
+  const numero = el('b');
+  const raiz = el('span', { class: 'anel-ctx', role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': '100', hidden: true }, svg, numero);
+  raiz.definir = (pct, cor, dica) => {
+    raiz.hidden = pct == null;
+    if (pct == null) return;
+    const p = Math.max(0, Math.min(100, pct));
+    numero.textContent = `${Math.round(p)}%`;
+    cheio.style.strokeDasharray = `${p} 100`;
+    raiz.style.setProperty('--cor', cor || 'var(--laranja)');
+    raiz.dataset.alto = p >= 80 ? 'sim' : 'nao';
+    raiz.setAttribute('aria-valuenow', String(Math.round(p)));
+    raiz.setAttribute('aria-label', `Contexto ${Math.round(p)}% usado`);
+    dicaEm(raiz, dica);
+  };
+  return { raiz, definir: raiz.definir };
+}
 function chipAgente(conta) {
   const ag = agenteDaConta(conta);
   const c = el('span', { class: 'agente', title: ag.nome }, el('i'), ag.curto || ag.nome);
   if (ag.cor) c.style.setProperty('--ag', ag.cor);
   return c;
 }
+
+// De onde cada sessao vem. As do computador sao o caso comum e ficam sem selo; o resto se identifica.
+const ORIGENS = {
+  duckv: { rotulo: 'duckV', longo: 'Aberta pelo duckV', icone: 'terminal-window' },
+  terminal: { rotulo: 'Terminal', longo: 'Terminal do computador', icone: 'terminal-window' },
+  app: { rotulo: 'App Claude', longo: 'App Claude do computador', icone: 'monitor', selo: true },
+  desktop: { rotulo: 'App Claude', longo: 'App Claude do computador', icone: 'monitor', selo: true },
+  historico: { rotulo: 'Guardada', longo: 'Conversa guardada neste computador', icone: 'clock-counter-clockwise' },
+  conta: { rotulo: 'Computador', longo: 'Conversa guardada neste computador', icone: 'clock-counter-clockwise' },
+  nuvem: { rotulo: 'Nuvem', longo: 'Claude Code na nuvem', icone: 'cloud', selo: true },
+  cowork: { rotulo: 'Cowork', longo: 'Tarefa do Cowork', icone: 'briefcase', selo: true },
+};
+const origemDe = (s) => ORIGENS[s?.origem] || ORIGENS.terminal;
+function seloOrigem(origem, comTexto = true) {
+  const o = ORIGENS[origem] || ORIGENS.terminal;
+  return el('span', { class: 'origem', 'data-o': origem, title: o.longo }, icone(o.icone, 14), comTexto ? o.rotulo : null);
+}
+// Icone de cada ferramenta nas atividades da conversa.
+const ICONE_FERRAMENTA = (nome = '') =>
+  /^(Bash|PowerShell|BashOutput|KillShell|Monitor)$/.test(nome) ? 'terminal-window'
+    : /^(Edit|MultiEdit|Write|NotebookEdit)$/.test(nome) ? 'pencil-simple'
+      : /^(Read|NotebookRead)$/.test(nome) ? 'file-text'
+        : /^(Grep|Glob|LS|ToolSearch)$/.test(nome) ? 'magnifying-glass'
+          : /^(TodoWrite|TaskCreate|TaskUpdate|TaskList)$/.test(nome) ? 'list-checks'
+            : /^(WebFetch|WebSearch)$/.test(nome) || nome.startsWith('mcp__') ? 'globe'
+              : /^(Task|Agent|Skill|Workflow)$/.test(nome) ? 'sparkle'
+                : 'wrench';
+const nomeFerramenta = (nome = '') => (nome.startsWith('mcp__') ? nome.split('__').slice(1).join(' · ') : nome);
 
 const MODOS_AJUDA = {
   manual: 'Pede sua permissão antes de editar arquivos e rodar comandos.',
@@ -418,11 +480,12 @@ function markdown(texto) {
   while (i < linhas.length) {
     const l = linhas[i];
     if (/^```/.test(l)) {
+      const lingua = l.replace(/^```/, '').trim().split(/\s/)[0];
       const corpo = [];
       i++;
       while (i < linhas.length && !/^```/.test(linhas[i])) corpo.push(linhas[i++]);
       i++;
-      raiz.append(el('pre', { tabIndex: 0 }, el('code', { text: corpo.join('\n') })));
+      raiz.append(blocoDeCodigo(lingua, corpo.join('\n')));
       continue;
     }
     if (!l.trim()) {
@@ -470,8 +533,58 @@ function markdown(texto) {
   }
   return raiz;
 }
+// Bloco de codigo com a linguagem no cabecalho e o botao de copiar ao lado, como nos apps de agentes.
+function blocoDeCodigo(lingua, codigo) {
+  const copiar = el('button', { class: 'codigo-copiar', type: 'button', title: 'Copiar o código' }, icone('copy', 14), el('span', { text: 'Copiar' }));
+  copiar.addEventListener('click', () =>
+    navigator.clipboard.writeText(codigo).then(() => {
+      copiar.dataset.ok = 'sim';
+      copiar.lastChild.textContent = 'Copiado';
+      setTimeout(() => {
+        delete copiar.dataset.ok;
+        copiar.lastChild.textContent = 'Copiar';
+      }, 1600);
+    }),
+  );
+  return el('figure', { class: 'codigo' }, el('figcaption', null, el('span', { text: lingua || 'código' }), copiar), el('pre', { tabIndex: 0 }, el('code', { text: codigo })));
+}
+// Uma linha de atividade: icone da ferramenta, nome e o que ela fez.
+const linhaAtividade = (m) => el('li', null, icone(ICONE_FERRAMENTA(m.tool), 15), el('b', { text: nomeFerramenta(m.tool) }), el('span', { text: m.text || '' }));
+// Ferramentas seguidas viram um bloco so de "atividade", que abre com um clique.
+function grupoAtividade(primeira) {
+  const resumo = el('span', { class: 'resumo' });
+  const qtd = el('b');
+  const ic = el('span', { class: 'ic' });
+  const cab = el('button', { class: 'atividade-cab', type: 'button', 'aria-expanded': 'false' }, ic, qtd, resumo, icone('caret-down', 14));
+  const lista = el('ol', { class: 'atividade-lista' });
+  const g = el('div', { class: 'm atividade', 'data-aberto': 'nao' }, cab, el('div', { class: 'atividade-corpo' }, lista));
+  cab.addEventListener('click', () => {
+    const abrir = g.dataset.aberto !== 'sim';
+    g.dataset.aberto = abrir ? 'sim' : 'nao';
+    cab.setAttribute('aria-expanded', String(abrir));
+  });
+  g.somar = (m) => {
+    lista.append(linhaAtividade(m));
+    const n = lista.childElementCount;
+    ic.replaceChildren(icone(ICONE_FERRAMENTA(m.tool), 15));
+    qtd.textContent = n > 1 ? `${n} ações` : nomeFerramenta(m.tool);
+    resumo.textContent = n > 1 ? `${nomeFerramenta(m.tool)} ${m.text || ''}`.trim() : m.text || '';
+    g.dataset.ultima = m.tool || '';
+  };
+  g.somar(primeira);
+  return g;
+}
+// Separador de horario quando a conversa ficou parada um tempo (ou mudou de dia).
+function marcaDeTempo(ts) {
+  const d = new Date(ts);
+  const hoje = new Date(agora());
+  const ontem = new Date(hoje);
+  ontem.setDate(hoje.getDate() - 1);
+  const dia = d.toDateString() === hoje.toDateString() ? 'Hoje' : d.toDateString() === ontem.toDateString() ? 'Ontem' : fData.format(d);
+  return el('div', { class: 'quando', role: 'separator' }, el('span', { text: `${dia}, ${fHora.format(d)}` }));
+}
 function criarMensagem(m) {
-  if (m.role === 'tool') return el('div', { class: 'm tool' }, icone('caret-right', 14), el('span', null, el('b', { text: m.tool }), m.text || ''));
+  if (m.role === 'tool') return grupoAtividade(m);
   if (m.role === 'sys') return el('div', { class: 'm sys', text: m.text });
   if (m.role === 'image' && /^[0-9a-f]{24}$/.test(m.img || '')) {
     const src = `/api/img/${m.img}`;
@@ -491,7 +604,9 @@ function criarMensagem(m) {
       m.via === 'celular' ? el('span', { class: 'via', text: 'Enviada pelo duckV' }) : null,
     );
   }
-  return el('div', { class: 'm assistant' }, markdown(m.text));
+  const copiar = el('button', { class: 'so-icone copiar-msg', type: 'button', 'aria-label': 'Copiar resposta', title: 'Copiar resposta' }, icone('copy', 16));
+  copiar.addEventListener('click', () => navigator.clipboard.writeText(m.text || '').then(() => avisar('Resposta copiada')));
+  return el('div', { class: 'm assistant' }, markdown(m.text), copiar);
 }
 const visiveis = (itens) => (LOCAL.ferramentas ? itens : itens.filter((m) => m.role !== 'tool'));
 
@@ -1029,6 +1144,17 @@ function cartaoPergunta(sessao, id, comOrigem) {
 }
 function cartaoLocal(sessao, comOrigem) {
   const conta = contaDe(sessao);
+  // Na nuvem ou no Cowork, a resposta e la: o cartao diz o que ela pede e leva ate onde responder.
+  if (sessao.origem === 'nuvem' || sessao.origem === 'cowork') {
+    return el(
+      'section',
+      { class: 'pedido local', 'data-id': `local-${sessao.id}` },
+      comOrigem ? origem(conta, sessao) : null,
+      el('h3', null, icone(sessao.origem === 'nuvem' ? 'cloud' : 'briefcase', 18), sessao.origem === 'nuvem' ? 'Esperando você na nuvem' : 'Esperando você no Cowork'),
+      el('p', { class: 'oque', text: sessao.activity || 'A sessão parou e espera uma resposta sua.' }),
+      sessao.link ? el('div', { class: 'botoes' }, el('a', { class: 'botao principal', href: sessao.link, target: '_blank', rel: 'noopener noreferrer' }, icone('arrow-up-right', 18), 'Responder no claude.ai')) : el('p', { class: 'oque', text: 'Responda pelo app Claude do computador.' }),
+    );
+  }
   return el(
     'section',
     { class: 'pedido local', 'data-id': `local-${sessao.id}` },
@@ -1107,17 +1233,16 @@ window.duckvApp?.aoAbrirSessao?.((id) => S.pronto && area.abrir(id));
 // Um painel mostra uma sessao: a conversa (com os pedidos e a caixa de mensagem) ou o terminal de verdade.
 function criarPainel(id, opts = {}) {
   let modo = opts.modo === 'terminal' ? 'terminal' : 'conversa';
-  const pista = miniPato('dorme');
+  const corConta = el('span', { class: 'p-cor', 'aria-hidden': 'true' });
   const titulo = el('h2');
   const linha = el('p');
   const segConversa = el('button', { type: 'button', role: 'tab', onclick: () => trocarModo('conversa') }, icone('chat-text', 16), 'Conversa');
   const segTerminal = el('button', { type: 'button', role: 'tab', onclick: () => trocarModo('terminal') }, icone('terminal-window', 16), 'Terminal');
   const mais = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Mais ações desta sessão', title: 'Mais ações', onclick: () => abrirMenu(mais, menuDaSessao()) }, icone('dots-three', 20));
   const fechar = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Fechar painel', title: `Fechar painel (${CTRL}+W)`, onclick: () => area.fechar(raiz) }, icone('x', 18));
-  const topo = el('header', { class: 'p-topo' }, pista, el('div', { class: 'p-titulo' }, titulo, linha), el('div', { class: 'segmentos', role: 'tablist', 'aria-label': 'Ver' }, segConversa, segTerminal), mais, fechar);
+  const topo = el('header', { class: 'p-topo' }, corConta, el('div', { class: 'p-titulo' }, titulo, linha), el('div', { class: 'segmentos', role: 'tablist', 'aria-label': 'Ver' }, segConversa, segTerminal), mais, fechar);
 
   // --- conversa
-  const fazendo = el('span', { class: 'fazendo' });
   const ctxTexto = el('span');
   const ctxCaixa = el('span', { class: 'ctx', title: 'Quanto da memória da conversa já foi usado' }, ctxTexto);
   const gasto = el('span');
@@ -1130,7 +1255,7 @@ function criarPainel(id, opts = {}) {
     tarefasTexto.setAttribute('aria-expanded', String(abrir));
     if (abrir) animarEntrada(tarefasLista);
   });
-  const info = el('div', { class: 'p-info' }, fazendo, ctxCaixa, gasto, tarefas);
+  const info = el('div', { class: 'p-info' }, ctxCaixa, gasto, tarefas);
   const conversa = el('div', { class: 'conversa', role: 'log', 'aria-label': 'Conversa', tabIndex: 0 });
   const pedidos = el('div', { class: 'pedidos' });
   const rapidas = el('div', { class: 'rapidas', role: 'group', 'aria-label': 'Mensagens rápidas' });
@@ -1140,9 +1265,17 @@ function criarPainel(id, opts = {}) {
   const escolherArquivo = el('input', { type: 'file', hidden: true, multiple: true });
   const listaComandos = el('ul', { class: 'comandos-lista', role: 'listbox', hidden: true });
   const prontos = el('div', { class: 'anexos-prontos', role: 'list', 'aria-label': 'Anexos desta mensagem', hidden: true });
-  const form = el('form', { class: 'escrever' }, listaComandos, prontos, anexar, campo, enviar, escolherArquivo);
+  // O pato da sessao mora em cima da caixa de mensagem: anda de ponta a ponta enquanto o agente
+  // trabalha, pula com a exclamacao quando precisa de voce e cochila quando a sessao acaba.
+  const pato = bicho(true);
+  const estadoTxt = el('span', { class: 'doca-estado', role: 'status', 'aria-live': 'polite' });
+  const anel = anelContexto();
+  const barraEscrever = el('div', { class: 'escrever-barra' }, anexar, estadoTxt, anel.raiz, enviar);
+  const form = el('form', { class: 'escrever' }, listaComandos, prontos, campo, barraEscrever, escolherArquivo);
+  const leitura = el('div', { class: 'leitura', hidden: true });
+  const doca = el('div', { class: 'doca' }, el('div', { class: 'doca-pato' }, pato), form, leitura);
   const nota = el('p', { class: 'p-nota' });
-  const baixo = el('div', { class: 'p-baixo' }, pedidos, rapidas, nota, form);
+  const baixo = el('div', { class: 'p-baixo' }, pedidos, rapidas, nota, doca);
   const vistaConversa = el('div', { class: 'p-corpo' }, info, conversa, baixo);
 
   // --- terminal de verdade (xterm.js com a saida crua do terminal virtual)
@@ -1405,20 +1538,47 @@ function criarPainel(id, opts = {}) {
 
   // --- conversa
   const textoVazio = (s) =>
-    s?.hosted ? 'A conversa aparece aqui depois da sua primeira mensagem. Se o agente perguntar algo ao abrir, a pergunta surge logo abaixo, com botões.' : 'A conversa aparece aqui assim que a sessão trocar mensagens.';
+    s?.hosted
+      ? 'A conversa aparece aqui depois da sua primeira mensagem. Se o agente perguntar algo ao abrir, a pergunta surge logo abaixo, com botões.'
+      : s?.origem === 'nuvem' || s?.origem === 'cowork'
+        ? 'Buscando as mensagens na Anthropic.'
+        : 'A conversa aparece aqui assim que a sessão trocar mensagens.';
+  const vazioDaConversa = (s) => el('div', { class: 'vazio' }, icone(s?.origem === 'nuvem' ? 'cloud' : s?.origem === 'cowork' ? 'briefcase' : 'chat-text', 28), el('p', { text: textoVazio(s) }));
+  let ultimoTs = 0;
+  // Poe um item no fim da conversa. Ferramenta logo depois de ferramenta entra no mesmo bloco de atividade.
+  function anexarItem(m, animar) {
+    if (m.ts && (!ultimoTs || m.ts - ultimoTs > 30 * 60_000 || new Date(m.ts).toDateString() !== new Date(ultimoTs).toDateString())) {
+      const q = marcaDeTempo(m.ts);
+      conversa.append(q);
+      if (animar) animarEntrada(q, 'entra-msg');
+    }
+    if (m.ts) ultimoTs = m.ts;
+    const ultimo = conversa.lastElementChild;
+    if (m.role === 'tool' && ultimo?.classList.contains('atividade')) {
+      ultimo.somar(m);
+      if (animar) animarEntrada(ultimo.querySelector('.atividade-cab'), 'pulso');
+      return;
+    }
+    const no = criarMensagem(m);
+    conversa.append(no);
+    if (animar) animarEntrada(no, 'entra-msg');
+  }
   function desenharConversa(tudo, novas) {
     const noFim = conversa.scrollHeight - conversa.scrollTop - conversa.clientHeight < 160;
     if (tudo) {
       const itens = visiveis(conversas.get(id) || []);
-      conversa.replaceChildren(...(itens.length ? itens.slice(-600).map(criarMensagem) : [el('p', { class: 'vazio', text: textoVazio(sessao()) })]));
+      conversa.replaceChildren();
+      ultimoTs = 0;
+      if (itens.length) for (const m of itens.slice(-600)) anexarItem(m, false);
+      else conversa.append(vazioDaConversa(sessao()));
       conversa.scrollTop = conversa.scrollHeight;
       return;
     }
     const itens = visiveis(novas);
     if (!itens.length) return;
     conversa.querySelector(':scope > .vazio')?.remove();
-    conversa.append(...itens.map(criarMensagem));
-    if (noFim) conversa.scrollTop = conversa.scrollHeight;
+    for (const m of itens) anexarItem(m, true);
+    if (noFim) conversa.scrollTo({ top: conversa.scrollHeight, behavior: semMovimento.matches ? 'auto' : 'smooth' });
   }
   const largarConversa = ouvir('conversa', id, desenharConversa);
 
@@ -1544,6 +1704,32 @@ function criarPainel(id, opts = {}) {
     }
   }
 
+  // --- sessao so de leitura
+  let marcaLeitura = '';
+  function desenharLeitura(s, conta) {
+    const m = JSON.stringify([s.origem, s.status, s.link, s.arquivada, S.host.available, s.hosted, s.desktop]);
+    if (m === marcaLeitura) return;
+    marcaLeitura = m;
+    let texto;
+    const acoes = [];
+    if (s.origem === 'nuvem') {
+      texto = s.arquivada ? 'Esta sessão rodou na nuvem e foi arquivada. Dá para ler tudo por aqui.' : 'Esta sessão roda na nuvem da Anthropic. Por aqui você acompanha; para responder, abra no claude.ai.';
+      if (s.link) acoes.push(el('a', { class: 'botao principal', href: s.link, target: '_blank', rel: 'noopener noreferrer' }, icone('arrow-up-right', 18), 'Abrir no claude.ai'));
+    } else if (s.origem === 'cowork') {
+      texto = 'Tarefa do Cowork. Por aqui você acompanha; para responder, use o app Claude do computador.';
+    } else if (s.status === 'ended') {
+      texto = 'Sessão encerrada.';
+      if ((s.desktop || s.historico) && S.host.available) acoes.push(el('button', { class: 'botao principal', type: 'button', onclick: () => continuar(s) }, icone('arrows-clockwise', 18), 'Continuar aqui no duckV'));
+    } else if (s.desktop) {
+      texto = s.status === 'working' ? 'Esta conversa está trabalhando no app Claude. Espere ela terminar para continuar por aqui.' : 'Conversa do app Claude ou guardada. Para mandar mensagens, continue a mesma conversa aqui. Feche-a no app antes, para as duas não escreverem juntas.';
+      if (S.host.available) acoes.push(el('button', { class: 'botao principal', type: 'button', disabled: s.status === 'working', onclick: () => continuar(s) }, icone('arrows-clockwise', 18), 'Continuar aqui no duckV'));
+    } else {
+      texto = `Esta sessão não recebe mensagens do duckV. Abra-a pelo atalho de ${conta.nome}, com o duckV ligado, ou continue a conversa aqui.`;
+      if (s.sessionId && S.host.available) acoes.push(el('button', { class: 'botao quieto', type: 'button', onclick: () => continuar(s) }, icone('arrows-clockwise', 18), 'Continuar aqui'));
+    }
+    leitura.replaceChildren(el('p', { text: texto }), ...(acoes.length ? [el('div', { class: 'leitura-acoes' }, acoes)] : []));
+  }
+
   // --- rapidas
   let ultimasRapidas = '';
   function desenharRapidas(s) {
@@ -1573,33 +1759,33 @@ function criarPainel(id, opts = {}) {
     if (!s) {
       titulo.textContent = S.pronto ? 'Sessão encerrada' : 'Carregando';
       linha.replaceChildren(S.pronto ? 'Ela não está mais aberta no computador.' : 'Buscando a sessão.');
-      pista.definir('dorme');
+      pato.definir('dorme');
       baixo.hidden = true;
       info.hidden = true;
       return;
     }
     const conta = contaDe(s);
     raiz.style.setProperty('--cor', conta.cor);
-    pista.style.setProperty('--cor', conta.cor);
     titulo.textContent = nomeDaSessao(s);
     dicaEm(titulo, s.cwd || '');
     const ondeTxt = [conta.nome, s.model, s.cwd].filter(Boolean).join(' · ');
-    linha.replaceChildren(chipAgente(conta), el('span', { class: 'onde', text: ondeTxt, title: ondeTxt }));
-    pista.definir(estadoDoPato(s));
+    linha.replaceChildren(chipAgente(conta), ...(origemDe(s).selo ? [seloOrigem(s.origem)] : []), el('span', { class: 'onde', text: ondeTxt, title: ondeTxt }));
+    pato.definir(estadoDoPato(s));
+    doca.dataset.estado = estadoDoPato(s);
     segTerminal.disabled = !S.desktop;
     dicaEm(segTerminal, S.desktop ? (s.hosted ? 'Terminal de verdade desta sessão' : 'Esta sessão roda num terminal do computador') : 'Só no app do duckV para o computador');
     if (area.visivel(id)) novasMsgs.delete(id);
 
-    info.hidden = false;
-    fazendo.textContent = s.status === 'idle' ? 'Esperando sua mensagem' : oQueFaz(s);
-    fazendo.classList.toggle('pede', precisa(s));
-    ctxCaixa.hidden = !s.ctx?.size;
-    if (s.ctx?.size) {
-      const p = s.ctx.pct ?? 0;
-      const b = barra(p, conta.cor);
-      ctxCaixa.replaceChildren('Contexto ', el('b', { text: `${Math.round(p)}%` }), b);
-      dicaEm(ctxCaixa, `${compacto.format(s.ctx.in)} de ${compacto.format(s.ctx.size)} tokens da memória da conversa`);
-    }
+    // O que a sessao faz agora, ao lado do pato, como a linha de estado do Claude Code.
+    const nuvemOuCowork = s.origem === 'nuvem' || s.origem === 'cowork';
+    estadoTxt.textContent =
+      s.status === 'ended' ? 'Sessão encerrada'
+        : s.arquivada ? 'Arquivada na nuvem'
+          : s.status === 'idle' ? (nuvemOuCowork ? (s.origem === 'cowork' ? 'Parada no Cowork' : 'Parada na nuvem') : 'Esperando sua mensagem')
+            : oQueFaz(s);
+    estadoTxt.dataset.s = precisa(s) ? 'pede' : s.status;
+    anel.definir(s.ctx?.size ? s.ctx.pct ?? 0 : null, conta.cor, s.ctx?.size ? `Contexto: ${Math.round(s.ctx.pct ?? 0)}% usado · ${compacto.format(s.ctx.in)} de ${compacto.format(s.ctx.size)} tokens` : '');
+    ctxCaixa.hidden = true;
     const gastos = s.tokens.in + s.tokens.cw + s.tokens.out;
     gasto.hidden = !gastos;
     if (gastos) gasto.replaceChildren('Gasto ', el('b', { text: compacto.format(gastos) }), ' tokens', ...(s.lines && (s.lines.add || s.lines.rem) ? ['  ·  Linhas ', el('b', { text: `+${s.lines.add} −${s.lines.rem}` })] : []));
@@ -1609,25 +1795,24 @@ function criarPainel(id, opts = {}) {
       tarefasTexto.replaceChildren(icone('list-checks', 16), `Tarefas: ${feitas} de ${s.tasks.length}`);
       tarefasLista.replaceChildren(...s.tasks.map((t) => el('li', { 'data-s': t.status }, icone(t.status === 'completed' ? 'check' : 'caret-right', 14), el('span', { text: t.subject }))));
     }
-    const vazio = conversa.querySelector(':scope > .vazio');
+    const vazio = conversa.querySelector(':scope > .vazio p');
     if (vazio) vazio.textContent = textoVazio(s);
 
     sincronizarPedidos(pedidos, pedidosDe([s], false));
     desenharRapidas(s);
     const viva = s.status !== 'ended';
     baixo.hidden = false;
-    form.hidden = !viva;
+    // Sessao que o duckV so le: no lugar da caixa, o que da para fazer com ela (o pato continua em cima).
+    const soLeitura = !s.canSend && !s.login;
+    form.hidden = soLeitura;
+    leitura.hidden = !soLeitura;
+    if (soLeitura) desenharLeitura(s, conta);
     campo.disabled = enviar.disabled = !s.canSend;
     anexar.disabled = !s.canSend;
     campo.placeholder = s.canSend ? (s.hosted ? `Mensagem para ${conta.nome} ou /comando  ·  Enter envia, Shift+Enter quebra linha` : `Mensagem para ${conta.nome}`) : '';
-    nota.textContent = !viva
-      ? 'Sessão encerrada.'
-      : s.canSend
-        ? ''
-        : s.login
-          ? 'Siga a entrada na conta pelo Terminal.'
-          : 'Esta sessão não recebe mensagens do duckV. Abra-a pelo atalho da conta, com o duckV ligado, ou continue a conversa aqui pelo menu ⋯.';
+    nota.textContent = s.login && viva ? 'Siga a entrada na conta pelo Terminal.' : '';
     nota.hidden = !nota.textContent;
+    info.hidden = !s.tasks.length && !gastos;
     if (modo === 'terminal' && !ligadoCru && avisoTerminal.hidden && term == null) ligarCru();
   }
 
@@ -1732,7 +1917,26 @@ const area = (() => {
   function aplicar() {
     const layout = LOCAL.layout;
     grade.dataset.layout = vagas(layout) >= lista.length ? layout : lista.length >= 4 ? '4' : lista.length === 3 ? '3' : '2c';
-    grade.replaceChildren(...lista.map((p) => p.raiz));
+    // Vaga sem sessao: um convite para arrastar uma sessao para la, em vez de um buraco.
+    const sobra = lista.length ? Math.max(0, vagas(grade.dataset.layout) - lista.length) : 0;
+    const vaga = () => {
+      const v = el('div', { class: 'painel-vago' }, el('div', null, icone('square-split-horizontal', 28), el('p', { text: 'Arraste uma sessão da barra lateral para cá.' }), el('p', { class: 'apoio', text: `${CTRL}+clique numa sessão também abre ao lado.` })));
+      v.addEventListener('dragover', (ev) => {
+        if (!ev.dataTransfer.types.includes('text/duckv-sessao')) return;
+        ev.preventDefault();
+        v.classList.add('alvo');
+      });
+      v.addEventListener('dragleave', () => v.classList.remove('alvo'));
+      v.addEventListener('drop', (ev) => {
+        const sid = ev.dataTransfer.getData('text/duckv-sessao');
+        if (sid) {
+          ev.preventDefault();
+          abrir(sid, { aoLado: true });
+        }
+      });
+      return v;
+    };
+    grade.replaceChildren(...lista.map((p) => p.raiz), ...Array.from({ length: sobra }, vaga));
     for (const p of lista) p.raiz.dataset.foco = p === foco && lista.length > 1 ? 'sim' : 'nao';
   }
   function focar(p) {
@@ -1975,7 +2179,7 @@ const lateral = (() => {
             },
             el('span', { class: 'ponto', 'data-s': precisa(s) ? 'waiting' : s.status, 'aria-hidden': 'true' }),
             el('span', { class: 't' }, el('b', { text: nomeDaSessao(s) }), el('span', { text: oQueFaz(s) })),
-            el('span', { class: 'lado', text: s.ctx?.pct != null ? `${Math.round(s.ctx.pct)}%` : '' }),
+            origemDe(s).selo ? el('span', { class: 'lado', title: origemDe(s).longo }, icone(origemDe(s).icone, 16)) : el('span', { class: 'lado', text: s.ctx?.pct != null ? `${Math.round(s.ctx.pct)}%` : '' }),
           );
           b.addEventListener('dragstart', (ev) => {
             ev.dataTransfer.setData('text/duckv-sessao', s.id);
@@ -2408,44 +2612,88 @@ function abrirNova(opts = {}) {
 function abrirHistorico(contaId) {
   const conta = S.contas.find((c) => c.id === contaId);
   if (!conta) return;
-  const { d, corpo, pe } = dialogo(`Conversas de ${conta.nome}`, 'Inclusive as feitas no computador e no app Claude desktop. Abra para ler ou continuar.');
-  const filtro = el('input', { type: 'search', placeholder: 'Filtrar por título ou pasta', 'aria-label': 'Filtrar conversas' });
-  const lista = el('div', { class: 'escolhas' }, el('p', { class: 'p-nota', text: 'Carregando…' }));
-  corpo.append(filtro, lista);
-  pe.append(el('button', { class: 'botao texto', type: 'button', text: 'Fechar', onclick: () => d.close() }));
+  const claude = (conta.agente || 'claude') === 'claude';
+  const { d, corpo, pe } = dialogo(`Conversas de ${conta.nome}`, claude ? 'Deste computador, do app Claude, da nuvem e do Cowork. Abra para ler ou continuar.' : 'Inclusive as feitas no computador. Abra para ler ou continuar.');
+  d.classList.add('historico');
+  const filtro = el('input', { type: 'search', placeholder: 'Filtrar por título, pasta ou repositório', 'aria-label': 'Filtrar conversas' });
+  // Filtro por origem: so aparecem as origens que tem alguma conversa.
+  const GRUPOS = [
+    ['todas', 'Todas', null, null],
+    ['computador', 'Computador', 'conta', (x) => x.origem !== 'desktop' && x.origem !== 'nuvem' && x.origem !== 'cowork'],
+    ['app', 'App Claude', 'app', (x) => x.origem === 'desktop'],
+    ['nuvem', 'Nuvem', 'nuvem', (x) => x.origem === 'nuvem'],
+    ['cowork', 'Cowork', 'cowork', (x) => x.origem === 'cowork'],
+  ];
+  let grupo = 'todas';
+  const chips = el('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'Origem' });
+  const esqueleto = () => el('div', { class: 'escolha esqueleto', 'aria-hidden': 'true' }, el('i'), el('span', { class: 't' }, el('b'), el('span')));
+  const lista = el('div', { class: 'escolhas historico-lista', 'aria-busy': 'true' }, ...Array.from({ length: 5 }, esqueleto));
+  const aviso = el('p', { class: 'historico-aviso', hidden: true });
+  corpo.append(filtro, chips, aviso, lista);
+  const atualizar = el('button', { class: 'botao texto', type: 'button', onclick: () => buscar(true) }, icone('arrows-clockwise', 18), 'Atualizar');
+  pe.append(atualizar, el('span', { class: 'espaco' }), el('button', { class: 'botao texto', type: 'button', text: 'Fechar', onclick: () => d.close() }));
   let itens = [];
+  const desenharChips = () => {
+    chips.replaceChildren(
+      ...GRUPOS.filter(([, , , teste]) => !teste || itens.some(teste)).map(([id, rotulo, origem, teste]) =>
+        el(
+          'button',
+          { class: 'chip', type: 'button', role: 'radio', 'aria-checked': String(grupo === id), onclick: () => ((grupo = id), desenharChips(), desenharLista()) },
+          origem ? icone(ORIGENS[origem].icone, 16) : null,
+          rotulo,
+          el('span', { class: 'n', text: String(teste ? itens.filter(teste).length : itens.length) }),
+        ),
+      ),
+    );
+    chips.hidden = chips.childElementCount < 3;
+  };
   const desenharLista = () => {
-    const q = filtro.value.trim().toLowerCase();
-    const achados = itens.filter((x) => !q || `${x.titulo} ${x.cwd}`.toLowerCase().includes(q)).slice(0, 200);
+    const q = semAcento(filtro.value.trim());
+    const teste = GRUPOS.find(([id]) => id === grupo)?.[3];
+    const achados = itens.filter((x) => (!teste || teste(x)) && (!q || semAcento(`${x.titulo} ${x.cwd || ''} ${x.repo || ''}`).includes(q))).slice(0, 200);
+    lista.removeAttribute('aria-busy');
     lista.replaceChildren(
       ...(achados.length
-        ? achados.map((x) =>
-            el(
+        ? achados.map((x) => {
+            const o = ORIGENS[x.origem] || ORIGENS.conta;
+            const onde = [x.resumo, x.repo || pasta(x.cwd), x.mtime ? `${fData.format(x.mtime)} ${fHora.format(x.mtime)}` : ''].filter(Boolean).join(' · ');
+            const estado = x.estado === 'working' ? 'Trabalhando' : x.estado === 'waiting' ? 'Esperando você' : x.estado === 'ended' ? 'Arquivada' : null;
+            return el(
               'button',
               {
                 class: 'escolha',
                 type: 'button',
-                onclick: () =>
+                'data-o': x.origem,
+                onclick: (ev) =>
                   mandar({ t: 'abrirHistorico', account: contaId, sid: x.sid }, (erro, r) => {
                     if (erro) return avisar(erro);
                     d.close();
-                    area.abrir(r.instance);
+                    area.abrir(r.instance, { aoLado: ev.ctrlKey || ev.metaKey });
                   }),
               },
-              icone('chat-text', 18),
-              el('span', { class: 't' }, el('b', { text: x.titulo || 'Sem título' }), el('span', { text: [pasta(x.cwd), x.mtime ? `${fData.format(x.mtime)} ${fHora.format(x.mtime)}` : ''].filter(Boolean).join(' · ') })),
-              el('span'),
-            ),
-          )
-        : [el('p', { class: 'p-nota', text: q ? 'Nada com esse filtro.' : 'Nenhuma conversa ainda.' })]),
+              el('span', { class: 'hist-ic', title: o.longo }, icone(o.icone, 18)),
+              el('span', { class: 't' }, el('b', { text: x.titulo || 'Sem título' }), el('span', { text: onde })),
+              estado ? el('span', { class: 'hist-estado', 'data-e': x.estado, text: estado }) : el('span'),
+            );
+          })
+        : [el('p', { class: 'p-nota historico-nada', text: q ? 'Nada com esse filtro.' : 'Nenhuma conversa ainda.' })]),
     );
   };
   filtro.addEventListener('input', desenharLista);
-  mandar({ t: 'historico', account: contaId }, (erro, r) => {
-    if (erro) return lista.replaceChildren(el('p', { class: 'erro', text: erro }));
-    itens = r.itens || [];
-    desenharLista();
-  });
+  function buscar(denovo = false) {
+    atualizar.disabled = true;
+    mandar({ t: 'historico', account: contaId, atualizar: denovo }, (erro, r) => {
+      atualizar.disabled = false;
+      if (erro) return lista.replaceChildren(el('p', { class: 'erro', text: erro }));
+      itens = r.itens || [];
+      aviso.hidden = !r.nuvem?.erro;
+      aviso.replaceChildren(icone('cloud', 16), el('span', { text: r.nuvem?.erro || '' }));
+      if (!GRUPOS.some(([id, , , t]) => id === grupo && (!t || itens.some(t)))) grupo = 'todas';
+      desenharChips();
+      desenharLista();
+    });
+  }
+  buscar();
   d.showModal();
   filtro.focus();
 }

@@ -105,7 +105,8 @@ function cliente(chave) {
 ok((await pedido('/api/state', { cookie: `painel=${CHAVE}` })).status === 200, 'chave do app entra pela conexao do proprio computador');
 ok((await pedido('/api/state', { cookie: `painel=${OUTRA}` })).status === 401, 'segunda chave mandada pelo IPC e ignorada');
 ok((await pedido('/api/state', { cookie: `painel=${CHAVE}`, 'x-forwarded-for': '100.64.0.9' })).status === 401, 'chave do app nao vale quando chega pela rede (Tailscale)');
-ok((await pedido('/api/state', { cookie: `painel=${CHAVE.slice(0, -1)}A` })).status === 401, 'chave parecida nao entra');
+// troca o ultimo caractere por outro (se a chave ja terminasse em A, a "parecida" seria a propria chave)
+ok((await pedido('/api/state', { cookie: `painel=${CHAVE.slice(0, -1)}${CHAVE.endsWith('A') ? 'B' : 'A'}` })).status === 401, 'chave parecida nao entra');
 ok(!fs.readdirSync(tmp).some((f) => fs.readFileSync(path.join(tmp, f), 'utf8').includes(CHAVE)), 'a chave do app nao e gravada na pasta de dados');
 ok(!(fs.existsSync(path.join(tmp, 'aparelhos.json')) && fs.readFileSync(path.join(tmp, 'aparelhos.json'), 'utf8').includes('desktop')), 'o app nao vira um aparelho salvo');
 

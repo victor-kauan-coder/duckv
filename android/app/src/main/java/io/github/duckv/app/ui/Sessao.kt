@@ -3,6 +3,8 @@ package io.github.duckv.app.ui
 import kotlinx.coroutines.launch
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -91,6 +93,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.ui.graphics.asImageBitmap
@@ -145,6 +148,10 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                         // o agente desta sessao, sempre a vista
                         if (ag != null) AgenteIcone(ag, 14.dp) else Marca(cor, tamanho = 8.dp)
                         EspacoLargo(6.dp)
+                        if (temSelo(s.origem)) {
+                            SeloOrigem(s.origem)
+                            EspacoLargo(6.dp)
+                        }
                         Text(listOfNotNull(conta.nome, ag?.curto, s.model, pasta(s.cwd).takeIf { it.isNotEmpty() && it != s.titulo }).joinToString(" · "), style = Texto.pequeno, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
@@ -158,7 +165,6 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                 }
             }
             if (verPrevias && s != null) ListaPrevias(s) { verPrevias = false }
-            Pato(s?.let { bichoDaSessao(it) } ?: "dorme", pato, cor, Modifier.width(64.dp).height(50.dp), andar = false, tipo = conta?.pato)
         }
         if (s == null) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -181,7 +187,7 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                     Pedidos(e, listOf(s)) { aba = "terminal" }
                 }
             }
-            if (aba == "conversa") Escrever(e, s, cor, aoIrPara)
+            if (aba == "conversa") Escrever(e, s, cor, pato, conta?.pato, aoIrPara)
             else Box(Modifier.navigationBarsPadding())
         }
     }
@@ -256,6 +262,10 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
     }
     // Rolou para cima e chegou resposta nova: o botao "ir para o fim" aparece com um ponto na cor da conta.
     var vistas by remember { mutableStateOf(msgs.size) }
+    // O que ja estava na conversa ao abrir entra parado; o que chega depois sobe de leve e aparece.
+    val base = remember(s.id) { mutableStateOf<Set<String>?>(null) }
+    val animadas = remember(s.id) { HashSet<String>() }
+    LaunchedEffect(msgs.isNotEmpty()) { if (msgs.isNotEmpty() && base.value == null) base.value = msgs.map { it.first().id }.toSet() }
     LaunchedEffect(noFim, msgs.size) { if (noFim) vistas = msgs.size }
     val escopo = androidx.compose.runtime.rememberCoroutineScope()
     Box(Modifier.fillMaxSize()) {
@@ -275,16 +285,24 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
             )
         }
         itemsIndexed(msgs, key = { _, g -> g.first().id }) { i, g ->
-            if (g.size > 1) GrupoFerramentas(g, cor)
-            else {
-                // a resposta ganha "Copiar" no fim de cada vez que o agente fala
-                // o ultimo texto antes da proxima mensagem sua (as ferramentas no meio nao contam)
-                val fimDaFala = msgs.drop(i + 1).firstOrNull { it.first().papel != "tool" }?.first()?.papel.let { it == null || it == "user" }
-                Mensagem(g.first(), cor, aoCopiar = copiar, aoReenviar = if (podeReenviar) reenviar else null, aoEditar = if (podeReenviar) editar else null, fimDaFala = fimDaFala)
+            val id = g.first().id
+            val novo = base.value?.let { id !in it && id !in animadas } ?: false
+            Chegando(novo, { animadas += id }, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
+                // horario quando a conversa ficou parada um tempo ou mudou de dia
+                val ts = g.first().ts
+                val antes = msgs.getOrNull(i - 1)?.last()?.ts ?: 0L
+                if (ts > 0 && (antes == 0L || ts - antes > 30 * 60_000 || !mesmoDia(ts, antes))) MarcaDeTempo(ts)
+                if (g.first().papel == "tool") GrupoFerramentas(g, cor, ativo = s.status == "working" && i == msgs.lastIndex)
+                else {
+                    // a resposta ganha "Copiar" no fim de cada vez que o agente fala
+                    // o ultimo texto antes da proxima mensagem sua (as ferramentas no meio nao contam)
+                    val fimDaFala = msgs.drop(i + 1).firstOrNull { it.first().papel != "tool" }?.first()?.papel.let { it == null || it == "user" }
+                    Mensagem(g.first(), cor, aoCopiar = copiar, aoReenviar = if (podeReenviar) reenviar else null, aoEditar = if (podeReenviar) editar else null, fimDaFala = fimDaFala)
+                }
             }
         }
         // Mensagens aceitas pelo computador que o Claude Code ainda nao registrou: aparecem na hora, esmaecidas.
-        items(acaminho, key = { "pend:" + it }) { t -> MensagemACaminho(t, cor, aoCopiar = copiar, aoTirar = if (s.hospedada) tirarDaFila else null) }
+        items(acaminho, key = { "pend:" + it }) { t -> Chegando(true, {}, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) { MensagemACaminho(t, cor, aoCopiar = copiar, aoTirar = if (s.hospedada) tirarDaFila else null) } }
     }
     AnimatedVisibility(
         !noFim && msgs.isNotEmpty(),
@@ -675,29 +693,189 @@ private fun agrupar(msgs: List<Msg>): List<List<Msg>> {
     return out
 }
 
+/**
+ * Atividade: as ferramentas seguidas do agente num bloco so. Fechado, mostra a ultima (e quantas foram);
+ * um toque abre a lista com o icone de cada uma. A que esta rodando agora ganha o icone na cor da conta.
+ */
 @Composable
-private fun GrupoFerramentas(grupo: List<Msg>, cor: Color) {
+private fun GrupoFerramentas(grupo: List<Msg>, cor: Color, ativo: Boolean = false) {
     val c = cores
     var aberto by rememberSaveable(grupo.first().id) { mutableStateOf(false) }
-    val forma = RoundedCornerShape(12.dp)
-    Column(Modifier.fillMaxWidth().clip(forma).background(c.cartao)) {
+    val forma = RoundedCornerShape(14.dp)
+    val ultima = grupo.last()
+    val giro by androidx.compose.animation.core.animateFloatAsState(if (aberto) 180f else 0f, androidx.compose.animation.core.tween(260, easing = Suave), label = "seta")
+    Column(Modifier.fillMaxWidth().clip(forma).border(1.dp, c.linha, forma)) {
         Row(
-            Modifier.fillMaxWidth().clickable { aberto = !aberto }.padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().clickable(onClickLabel = if (aberto) "Esconder ações" else "Mostrar ações") { aberto = !aberto }
+                .heightIn(min = 48.dp).padding(start = 8.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("${grupo.size} ações", style = Texto.rotulo.copy(fontWeight = FontWeight.SemiBold), color = c.texto)
+            Box(
+                Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(if (ativo) cor.copy(alpha = if (c.escuro) 0.28f else 0.2f) else c.elevada),
+                contentAlignment = Alignment.Center,
+            ) { Icon(iconeFerramenta(ultima.tool), null, Modifier.size(16.dp), tint = if (ativo) c.texto else c.apoio) }
+            EspacoLargo(10.dp)
+            Text(
+                if (grupo.size > 1) "${grupo.size} ações" else nomeFerramenta(ultima.tool),
+                style = Texto.rotulo, color = c.texto, maxLines = 1,
+            )
             EspacoLargo(8.dp)
-            val ultima = grupo.last()
-            Text("· ${ultima.tool} ${ultima.texto}".trim(), style = Texto.apoio, color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Icon(if (aberto) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown, if (aberto) "Esconder ações" else "Mostrar ações", tint = c.apoio)
+            Text(
+                (if (grupo.size > 1) "${nomeFerramenta(ultima.tool)} ${ultima.texto}" else ultima.texto).trim(),
+                style = Texto.codigo.copy(fontSize = 12.5.sp), color = c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(20.dp).graphicsLayer { rotationZ = giro }, tint = c.apoio)
         }
-        AnimatedVisibility(aberto) {
-            Column(Modifier.padding(start = 8.dp, end = 12.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (m in grupo) Mensagem(m, cor)
+        AnimatedVisibility(
+            aberto,
+            enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(280, easing = Suave)) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 60)),
+            exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(200)) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)),
+        ) {
+            Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp)) {
+                for (m in grupo) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
+                        Icon(iconeFerramenta(m.tool), null, Modifier.padding(top = 2.dp).size(16.dp), tint = c.apoio)
+                        EspacoLargo(10.dp)
+                        Text(
+                            buildAnnotatedString {
+                                withStyle(SpanStyle(fontWeight = FontWeight.Medium, color = c.texto)) { append(nomeFerramenta(m.tool)) }
+                                if (m.texto.isNotBlank()) {
+                                    append("  ")
+                                    withStyle(SpanStyle(fontFamily = Mono, fontSize = 12.5.sp)) { append(m.texto) }
+                                }
+                            },
+                            style = Texto.apoio, color = c.apoio, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+/** Curva das chegadas: rapida no comeco e assentando devagar (ease-out exponencial). */
+private val Suave = androidx.compose.animation.core.CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+
+/** O que chega na conversa sobe 12 dp e aparece em 360 ms; o que ja estava fica parado. */
+@Composable
+private fun Chegando(novo: Boolean, aoTerminar: () -> Unit, modifier: Modifier = Modifier, conteudo: @Composable () -> Unit) {
+    val ctx = LocalContext.current
+    val semMovimento = remember { android.provider.Settings.Global.getFloat(ctx.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
+    val a = remember { androidx.compose.animation.core.Animatable(if (novo && !semMovimento) 0f else 1f) }
+    LaunchedEffect(Unit) {
+        if (a.value < 1f) a.animateTo(1f, androidx.compose.animation.core.tween(360, easing = Suave))
+        aoTerminar()
+    }
+    val sobe = with(LocalDensity.current) { 12.dp.toPx() }
+    Column(modifier.fillMaxWidth().graphicsLayer { alpha = a.value; translationY = (1f - a.value) * sobe }, verticalArrangement = Arrangement.spacedBy(12.dp)) { conteudo() }
+}
+
+private fun mesmoDia(a: Long, b: Long): Boolean {
+    val x = java.util.Calendar.getInstance().apply { timeInMillis = a }
+    val y = java.util.Calendar.getInstance().apply { timeInMillis = b }
+    return x.get(java.util.Calendar.YEAR) == y.get(java.util.Calendar.YEAR) && x.get(java.util.Calendar.DAY_OF_YEAR) == y.get(java.util.Calendar.DAY_OF_YEAR)
+}
+
+/** Separador com o horario: "Hoje, 14:02", "Ontem, 09:15" ou "3 de out., 18:40". */
+@Composable
+private fun MarcaDeTempo(ts: Long) {
+    val c = cores
+    val agora = System.currentTimeMillis()
+    val dia = when {
+        mesmoDia(ts, agora) -> "Hoje"
+        mesmoDia(ts, agora - 86_400_000) -> "Ontem"
+        else -> java.text.SimpleDateFormat("d 'de' MMM", java.util.Locale("pt", "BR")).format(java.util.Date(ts))
+    }
+    val hora = java.text.SimpleDateFormat("HH:mm", java.util.Locale("pt", "BR")).format(java.util.Date(ts))
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).height(1.dp).background(c.linha))
+        Text("$dia, $hora", style = Texto.pequeno.copy(fontWeight = FontWeight.Medium), color = c.apoio, modifier = Modifier.padding(horizontal = 12.dp))
+        Box(Modifier.weight(1f).height(1.dp).background(c.linha))
+    }
+}
+
+/**
+ * A caixa de mensagem com o pato da sessao pousado na borda de cima, como o bichinho do Claude Code:
+ * ele anda de ponta a ponta enquanto o agente trabalha, pula com a exclamacao quando precisa de voce,
+ * respira parado no canto esperando e cochila quando a sessao acaba. Um toque nele faz ele reagir.
+ */
+@Composable
+private fun Doca(s: Sessao, cor: Color, pato: String, tipo: String?, conteudo: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    val c = cores
+    val estado = bichoDaSessao(s)
+    val forma = RoundedCornerShape(26.dp)
+    val borda by androidx.compose.animation.animateColorAsState(if (estado == "pede") c.realce else Color.Transparent, androidx.compose.animation.core.tween(240), label = "bordaDoca")
+    Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 30.dp, bottom = 8.dp)) {
+        Column(
+            Modifier.fillMaxWidth().clip(forma).background(c.elevada).border(1.5.dp, borda, forma)
+                .animateContentSize(androidx.compose.animation.core.tween(220, easing = Suave)),
+            content = conteudo,
+        )
+        Pato(
+            estado, pato, cor,
+            Modifier.align(Alignment.TopStart).offset(y = (-33).dp).padding(horizontal = 16.dp).fillMaxWidth().height(36.dp),
+            andar = true, tipo = tipo, repouso = 0f,
+        )
+    }
+}
+
+/** O que a sessao faz agora, escrito ao lado do pato. Pedido em laranja de texto. */
+@Composable
+private fun EstadoDaDoca(s: Sessao, modifier: Modifier = Modifier) {
+    val c = cores
+    val texto = when {
+        !s.viva -> "Sessão encerrada"
+        s.arquivada -> "Arquivada na nuvem"
+        s.precisa -> oQueFaz(s)
+        s.status == "working" -> s.atividade.ifBlank { "Trabalhando" }
+        s.remota -> if (s.origem == "cowork") "Parada no Cowork" else "Parada na nuvem"
+        else -> "Esperando sua mensagem"
+    }
+    androidx.compose.animation.AnimatedContent(
+        texto, modifier,
+        transitionSpec = {
+            (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(260, easing = Suave)) { it / 3 }) togetherWith
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120))
+        },
+        label = "estadoDoca",
+    ) { t ->
+        Text(
+            t, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = Texto.pequeno.copy(fontWeight = if (s.precisa) FontWeight.Medium else FontWeight.Normal),
+            color = if (s.precisa) c.realce else if (s.status == "working") c.texto else c.apoio,
+        )
+    }
+}
+
+/** No lugar da caixa, para sessoes que o celular so acompanha: o que da para fazer com cada uma. */
+@Composable
+private fun LeituraDaSessao(s: Sessao, aoIrPara: (String) -> Unit) {
+    val c = cores
+    val ctx = LocalContext.current
+    when {
+        s.remota -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                EstadoDaDoca(s, Modifier.weight(1f))
+            }
+            Text(
+                when {
+                    s.origem == "cowork" -> "Tarefa do Cowork. Por aqui você acompanha; para responder, use o app Claude do computador."
+                    s.arquivada -> "Esta sessão rodou na nuvem e foi arquivada. Dá para ler tudo por aqui."
+                    else -> "Esta sessão roda na nuvem da Anthropic. Por aqui você acompanha; para responder, abra no claude.ai."
+                },
+                style = Texto.apoio, color = c.apoio,
+            )
+            val link = s.link
+            if (link != null && !s.arquivada) Botao("Abrir no claude.ai", { abrirLink(ctx, link) }, Modifier.fillMaxWidth(), Icons.AutoMirrored.Rounded.OpenInNew, Peso.Principal)
+        }
+        s.desktop -> ContinuarDoDesktop(s, aoIrPara)
+        else -> Text(
+            if (!s.viva) "Sessão encerrada." else "Esta sessão não recebe mensagens do celular. Abra-a pelo atalho da conta, com o duckV ligado.",
+            style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(16.dp),
+        )
+    }
+}
+
 
 // A bolha do usuario encolhe para o tamanho do texto.
 private fun Modifier.wrapIfShort() = this.then(Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max))
@@ -706,7 +884,7 @@ private fun Modifier.wrapIfShort() = this.then(Modifier.width(androidx.compose.f
 
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Unit) {
+private fun Escrever(e: Estado, s: Sessao, cor: Color, pato: String, tipo: String?, aoIrPara: (String) -> Unit) {
     val c = cores
     val aviso = LocalAviso.current
     // TextFieldValue para escolher um comando da lista e deixar o cursor no fim
@@ -879,16 +1057,9 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         }
     }
     Column(Modifier.fillMaxWidth().background(c.fundo).navigationBarsPadding()) {
-        Divisoria()
-        if (s.desktop) {
-            ContinuarDoDesktop(s, aoIrPara)
-            return@Column
-        }
-        if (!s.viva || !s.podeEnviar) {
-            Text(
-                if (!s.viva) "Sessão encerrada." else "Esta sessão não recebe mensagens do celular. Abra-a pelo atalho da conta, com o duckV ligado.",
-                style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(16.dp),
-            )
+        // Sessao que o celular so acompanha: no lugar da caixa, o que da para fazer com ela. O pato continua em cima.
+        if (s.desktop || s.remota || !s.viva || !s.podeEnviar) {
+            Doca(s, cor, pato, tipo) { LeituraDaSessao(s, aoIrPara) }
             return@Column
         }
         val trabalhando = s.hospedada && s.status == "working"
@@ -954,34 +1125,41 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
             )
             return@Column
         }
-        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-            if (gravandoSegurando) FaixaSegurando(ditado, Modifier.weight(1f).padding(start = 4.dp, end = 8.dp))
-            else {
-                IconButton({ verAnexar = true }, Modifier.padding(bottom = 4.dp)) { Icon(Icons.Rounded.AttachFile, "Anexar: câmera, galeria ou arquivo", tint = c.apoio) }
-                OutlinedTextField(
-                    campo, { campo = it }, Modifier.weight(1f).focusRequester(foco),
+        Doca(s, cor, pato, tipo) {
+            // o campo (ou, segurando o microfone, a faixa da gravacao) no mesmo lugar, para nada pular
+            Box(Modifier.fillMaxWidth().heightIn(min = 56.dp), contentAlignment = Alignment.CenterStart) {
+                if (gravandoSegurando) FaixaSegurando(ditado, Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp))
+                else OutlinedTextField(
+                    campo, { campo = it }, Modifier.fillMaxWidth().focusRequester(foco),
                     placeholder = { Text(if (trabalhando) "Ele lê no meio da tarefa" else if (s.hospedada) "Mensagem ou /comando" else "Escreva para o ${e.agenteDa(s.conta).curto}", color = c.apoio) },
                     textStyle = Texto.corpo.copy(color = c.texto), maxLines = 6,
-                    shape = RoundedCornerShape(28.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, cursorColor = c.primario,
-                        focusedContainerColor = c.elevada, unfocusedContainerColor = c.elevada,
+                        focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                     ),
                 )
             }
-            // A bolinha do contexto, como no Claude: enche conforme a conversa ocupa a memoria.
-            val pctCtx = s.ctx?.pct ?: s.ultima?.let { u -> s.ctx?.tamanho?.takeIf { it > 0 }?.let { (u.entrada + u.cw + u.cr + u.saida) * 100.0 / it } }
-            if (pctCtx != null) AnelContexto(pctCtx, cor, { verContexto = true }, Modifier.padding(start = 4.dp, bottom = 8.dp))
-            EspacoLargo(4.dp)
-            val pode = (texto.isNotBlank() || anexos.isNotEmpty()) && !enviando && subindo == 0
-            // campo vazio: o botao redondo grava uma mensagem de voz; com anexos, ele fica ao lado do enviar
-            val gravarVoz = texto.isBlank() && subindo == 0 && !enviando
-            if (gravarVoz) BotaoMicrofone(apertarMic, soltarMic, Modifier.padding(bottom = 4.dp, end = if (anexos.isNotEmpty()) 6.dp else 0.dp))
-            if (!gravandoSegurando && (!gravarVoz || anexos.isNotEmpty())) Box(
-                Modifier.padding(bottom = 4.dp).size(48.dp).clip(CircleShape).background(if (pode) c.primario else c.elevada)
-                    .clickable(enabled = pode, role = Role.Button, onClick = enviarTudo),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.AutoMirrored.Rounded.Send, "Enviar", tint = if (pode) c.noPrimario else c.apoio, modifier = Modifier.size(22.dp)) }
+            Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton({ verAnexar = true }) { Icon(Icons.Rounded.AttachFile, "Anexar: câmera, galeria ou arquivo", tint = c.apoio) }
+                // o que a sessao faz agora, ao lado do pato que anda em cima da caixa
+                EstadoDaDoca(s, Modifier.weight(1f).padding(end = 4.dp))
+                // A bolinha do contexto, como no Claude: enche conforme a conversa ocupa a memoria.
+                val pctCtx = s.ctx?.pct ?: s.ultima?.let { u -> s.ctx?.tamanho?.takeIf { it > 0 }?.let { (u.entrada + u.cw + u.cr + u.saida) * 100.0 / it } }
+                if (pctCtx != null) AnelContexto(pctCtx, cor, { verContexto = true })
+                val pode = (texto.isNotBlank() || anexos.isNotEmpty()) && !enviando && subindo == 0
+                // campo vazio: o botao redondo grava uma mensagem de voz; com anexos, ele fica ao lado do enviar
+                val gravarVoz = texto.isBlank() && subindo == 0 && !enviando
+                if (gravarVoz) BotaoMicrofone(apertarMic, soltarMic, Modifier.padding(end = if (anexos.isNotEmpty()) 6.dp else 0.dp))
+                if (!gravandoSegurando && (!gravarVoz || anexos.isNotEmpty())) {
+                    val escala by androidx.compose.animation.core.animateFloatAsState(if (pode) 1f else 0.9f, androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 600f), label = "enviar")
+                    val fundo by androidx.compose.animation.animateColorAsState(if (pode) c.primario else c.cartaoAlto, androidx.compose.animation.core.tween(180), label = "fundoEnviar")
+                    Box(
+                        Modifier.size(44.dp).graphicsLayer { scaleX = escala; scaleY = escala }.clip(CircleShape).background(fundo)
+                            .clickable(enabled = pode, role = Role.Button, onClick = enviarTudo),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.AutoMirrored.Rounded.Send, "Enviar", tint = if (pode) c.noPrimario else c.apoio, modifier = Modifier.size(20.dp)) }
+                }
+            }
         }
     }
 }
