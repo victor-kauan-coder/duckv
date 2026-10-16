@@ -130,6 +130,9 @@ const claude = {
     return a;
   },
   caixa: /^\s*[❯>][\s ](?!\d[.)]\s)/,
+  // Sair da conta: o proprio Claude Code apaga o login (no macOS ele fica no Chaveiro). Se o comando
+  // falhar, o duckV apaga o arquivo de credenciais e o e-mail guardado na pasta da conta.
+  sair: { cmd: ['auth', 'logout'], arquivos: (dir) => [path.join(dir, '.credentials.json')], json: (dir) => [path.join(dir, '.claude.json'), 'oauthAccount'] },
   conta(dir, padrao) {
     const o = lerJson(padrao ? path.join(os.homedir(), '.claude.json') : path.join(dir, '.claude.json'))?.oauthAccount;
     return o?.emailAddress ? { email: o.emailAddress, uuid: o.accountUuid || null } : null;
@@ -190,6 +193,7 @@ const codex = {
     return a;
   },
   login: ['login', '--device-auth'],
+  sair: { cmd: ['logout'], arquivos: (dir) => [path.join(dir, 'auth.json')] },
   caixa: /^\s*›\s/,
   conta(dir, padrao) {
     const a = lerJson(path.join(codexHome(dir, padrao), 'auth.json'));
@@ -319,6 +323,8 @@ const gemini = {
   // Cada sessao nova ganha um id escolhido aqui, para achar o arquivo dela sem adivinhar.
   novaSessao: () => crypto.randomUUID(),
   login: [],
+  // O Gemini CLI nao tem comando de sair: o login sao estes dois arquivos da pasta da conta.
+  sair: { arquivos: (dir) => [path.join(geminiHome(dir), 'oauth_creds.json'), path.join(geminiHome(dir), 'google_accounts.json')] },
   caixa: /^\s*>\s/,
   conta(dir, padrao) {
     const h = geminiHome(dir, padrao);
@@ -453,6 +459,8 @@ const opencode = {
     return a;
   },
   login: ['auth', 'login'],
+  // As chaves de todos os provedores ficam neste arquivo; sem ele, sobram os modelos gratuitos.
+  sair: { arquivos: (dir) => [path.join(ocBase(dir).data, 'opencode', 'auth.json')] },
   caixa: /^\s*┃\s/,
   conta(dir, padrao) {
     const a = lerJson(path.join(ocBase(dir, padrao).data, 'opencode', 'auth.json'));
@@ -555,6 +563,7 @@ const cline = {
     return a;
   },
   login: ['auth'],
+  sair: { arquivos: (dir) => [path.join(clineData(dir), 'secrets.json')] },
   caixa: /^\s*[❯>]\s/,
   conta(dir, padrao) {
     // Logado = existe o arquivo de credenciais (so o tamanho e conferido; ele nao e aberto).
@@ -651,7 +660,28 @@ export function catalogo() {
     esforcos: a.esforcos.map(([id, rotulo]) => ({ id, rotulo })),
     modos: a.modos.map(([id, rotulo]) => ({ id, rotulo })),
     loginNoTerminal: !!a.login,
+    podeSair: !!a.sair,
   }));
+}
+
+// Sair de uma conta: roda o comando de sair do proprio agente (se ele tiver um) e, depois, apaga
+// o que sobrou do login. So mexe dentro da pasta da conta; a conta padrao do computador nao passa por aqui.
+export async function sairDaConta(agente, dir, rodar) {
+  const s = agente.sair;
+  if (!s) throw new Error(`O ${agente.nome} não tem como sair por aqui.`);
+  if (s.cmd && instalado(agente)) await rodar(agente.bin, s.cmd, agente.env(dir, false)).catch(() => null);
+  const base = path.resolve(dir);
+  const dentro = (f) => path.resolve(f).startsWith(base + path.sep);
+  for (const f of s.arquivos(dir)) if (dentro(f)) fs.rmSync(f, { force: true });
+  if (s.json) {
+    const [f, chave] = s.json(dir);
+    const j = dentro(f) ? lerJson(f) : null;
+    if (j && chave in j) {
+      delete j[chave];
+      fs.writeFileSync(f, JSON.stringify(j, null, 2));
+    }
+  }
+  if (s.arquivos(dir).some((f) => fs.existsSync(f))) throw new Error('Não consegui apagar o login desta conta. Feche as janelas dela e tente de novo.');
 }
 
 // O programa do agente esta instalado neste computador? (cache de 1 minuto)

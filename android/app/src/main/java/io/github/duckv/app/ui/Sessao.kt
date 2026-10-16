@@ -1,5 +1,6 @@
 package io.github.duckv.app.ui
 
+import kotlinx.coroutines.launch
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.CloseFullscreen
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -252,6 +254,11 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
             primeira = false
         } else if (noFim) lista.animateScrollToItem(msgs.size)
     }
+    // Rolou para cima e chegou resposta nova: o botao "ir para o fim" aparece com um ponto na cor da conta.
+    var vistas by remember { mutableStateOf(msgs.size) }
+    LaunchedEffect(noFim, msgs.size) { if (noFim) vistas = msgs.size }
+    val escopo = androidx.compose.runtime.rememberCoroutineScope()
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(
         Modifier.fillMaxSize(),
         state = lista,
@@ -278,6 +285,24 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
         }
         // Mensagens aceitas pelo computador que o Claude Code ainda nao registrou: aparecem na hora, esmaecidas.
         items(acaminho, key = { "pend:" + it }) { t -> MensagemACaminho(t, cor, aoCopiar = copiar, aoTirar = if (s.hospedada) tirarDaFila else null) }
+    }
+    AnimatedVisibility(
+        !noFim && msgs.isNotEmpty(),
+        Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.8f),
+        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.8f),
+    ) {
+        val novas = (msgs.size - vistas).coerceAtLeast(0)
+        androidx.compose.material3.SmallFloatingActionButton(
+            { escopo.launch { lista.animateScrollToItem(msgs.size + acaminho.size) } },
+            containerColor = c.elevada, contentColor = c.texto,
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            androidx.compose.material3.BadgedBox(badge = {
+                if (novas > 0) androidx.compose.material3.Badge(containerColor = cor, contentColor = c.noPrimario) { Text("$novas") }
+            }) { Icon(Icons.Rounded.KeyboardArrowDown, if (novas > 0) "Ir para o fim, $novas novas" else "Ir para o fim") }
+        }
+    }
     }
 }
 
@@ -434,19 +459,57 @@ private fun textoRico(t: String, c: Cores): AnnotatedString = buildAnnotatedStri
     }
 }
 
+// Texto e blocos de codigo de uma mensagem: (linguagem, conteudo); linguagem null e texto corrido.
+private fun dividirCodigo(texto: String): List<Pair<String?, String>> {
+    val partes = mutableListOf<Pair<String?, String>>()
+    var fim = 0
+    val cerca = Regex("```([^\\n`]*)\\n?")
+    var dentro: String? = null
+    for (m in cerca.findAll(texto)) {
+        partes += dentro to texto.substring(fim, m.range.first)
+        dentro = if (dentro == null) m.groupValues[1].trim() else null
+        fim = m.range.last + 1
+    }
+    partes += dentro to texto.substring(fim)
+    return partes
+}
+
+// Bloco de codigo como nos apps de agentes: a linguagem no cabecalho e o botao Copiar ao lado.
+@Composable
+private fun BlocoCodigo(linguagem: String, codigo: String) {
+    val c = cores
+    val area = androidx.compose.ui.platform.LocalClipboardManager.current
+    val aviso = LocalAviso.current
+    val forma = RoundedCornerShape(14.dp)
+    Column(Modifier.fillMaxWidth().clip(forma).background(c.cartaoAlto).border(1.dp, c.linha, forma)) {
+        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(linguagem.ifBlank { "código" }, style = Texto.pequeno, color = c.apoio, modifier = Modifier.weight(1f))
+            androidx.compose.material3.TextButton(
+                { area.setText(androidx.compose.ui.text.AnnotatedString(codigo)); aviso("Código copiado") },
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = c.apoio),
+            ) {
+                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp))
+                Text("Copiar", style = Texto.pequeno, modifier = Modifier.padding(start = 6.dp))
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(c.linha))
+        Text(
+            codigo, style = Texto.codigo, color = c.texto, softWrap = false,
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(14.dp),
+        )
+    }
+}
+
 @Composable
 private fun Blocos(texto: String, cor: Color) {
     val c = cores
-    val partes = remember(texto) { texto.split(Regex("```[^\\n]*\\n?")) }
+    val partes = remember(texto) { dividirCodigo(texto) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        partes.forEachIndexed { i, parte ->
-            if (parte.isBlank()) return@forEachIndexed
-            if (i % 2 == 1) {
-                Text(
-                    parte.trimEnd('\n'), style = Texto.codigo, color = c.texto, softWrap = false,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.cartaoAlto)
-                        .horizontalScroll(rememberScrollState()).padding(12.dp),
-                )
+        partes.forEach { (linguagem, parte) ->
+            if (parte.isBlank()) return@forEach
+            if (linguagem != null) {
+                BlocoCodigo(linguagem, parte.trimEnd('\n'))
             } else {
                 // Tabelas em markdown viram grade; o resto e texto corrido.
                 for (t in remember(parte) { trechos(parte.trim()) }) when (t) {
@@ -489,7 +552,9 @@ private fun Mensagem(m: Msg, cor: Color, aoCopiar: (String) -> Unit = {}, aoReen
                 horizontalAlignment = Alignment.End,
             ) {
                 if (ehVoz(m.texto)) SeloVoz(c.invApoio)
-                SelectionContainer { Blocos(semMarcaVoz(m.texto), cor) }
+                val (semAnexos, anexosMsg) = remember(m.texto) { anexosDoTexto(semMarcaVoz(m.texto)) }
+                if (anexosMsg.isNotEmpty()) AnexosDaMensagem(anexosMsg, cor)
+                if (semAnexos.isNotBlank()) SelectionContainer { Blocos(semAnexos, cor) }
                 if (m.doCelular) Text("Enviada do celular", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
             }
             AcoesMensagem(Alignment.End) {
@@ -569,7 +634,9 @@ private fun MensagemACaminho(t: String, cor: Color, aoCopiar: (String) -> Unit =
             horizontalAlignment = Alignment.End,
         ) {
             if (ehVoz(t)) SeloVoz(c.apoio)
-            Text(semMarcaVoz(t), style = Texto.corpo, color = c.texto.copy(alpha = 0.75f))
+            val (semAnexos, anexosMsg) = remember(t) { anexosDoTexto(semMarcaVoz(t)) }
+            if (anexosMsg.isNotEmpty()) AnexosDaMensagem(anexosMsg, cor)
+            if (semAnexos.isNotBlank()) Text(semAnexos, style = Texto.corpo, color = c.texto.copy(alpha = 0.75f))
             Text("Enviando", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
         }
         AcoesMensagem(Alignment.End) {
@@ -647,19 +714,38 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
     val texto = campo.text
     val mudarTexto = { t: String -> campo = androidx.compose.ui.text.input.TextFieldValue(t, androidx.compose.ui.text.TextRange(t.length)) }
     var enviando by remember { mutableStateOf(false) }
-    val anexos = remember(s.id) { androidx.compose.runtime.mutableStateListOf<Pair<String, String>>() }
+    val anexos = remember(s.id) { androidx.compose.runtime.mutableStateListOf<AnexoPronto>() }
     var subindo by remember { mutableStateOf(0) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val subir = { uris: List<android.net.Uri> ->
-        for (u in uris.take(10)) {
+        for (u in uris.take((10 - anexos.size).coerceAtLeast(0))) {
             subindo++
             kotlin.concurrent.thread {
                 val r = Hub.anexar(ctx, u)
+                val tipo = runCatching { ctx.contentResolver.getType(u) }.getOrNull().orEmpty()
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     subindo--
-                    r.onSuccess { anexos.add(it) }.onFailure { aviso(it.message ?: "Não consegui anexar o arquivo.") }
+                    r.onSuccess { (nome, caminho) -> anexos.add(AnexoPronto(nome, caminho, u, tipo.startsWith("image/") || ehImagem(nome))) }
+                        .onFailure { aviso(it.message ?: "Não consegui anexar o arquivo.") }
                 }
             }
+        }
+        if (uris.size > 10 - anexos.size) aviso("Até 10 anexos por mensagem.")
+    }
+    // Print copiado (Ctrl+C no computador com a area de transferencia compartilhada, ou "Copiar" numa imagem):
+    // aparece o botao "Colar imagem copiada" acima do campo. So o tipo e consultado ate voce tocar.
+    var temPrint by remember { mutableStateOf(temImagemCopiada(ctx)) }
+    DisposableEffect(Unit) {
+        val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+        val ouvinte = android.content.ClipboardManager.OnPrimaryClipChangedListener { temPrint = temImagemCopiada(ctx) }
+        cm?.addPrimaryClipChangedListener(ouvinte)
+        onDispose { cm?.removePrimaryClipChangedListener(ouvinte) }
+    }
+    val colarPrint = {
+        val u = imagemCopiada(ctx)
+        if (u == null) aviso("Não há imagem copiada.") else {
+            subir(listOf(u))
+            temPrint = false
         }
     }
     // anexar, como no WhatsApp: camera, galeria ou qualquer arquivo
@@ -688,6 +774,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
                     galeria.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                 }
                 OpcaoAnexo(Icons.Rounded.Description, "Arquivo", cor) { verAnexar = false; escolher.launch("*/*") }
+                if (temImagemCopiada(ctx)) OpcaoAnexo(Icons.Rounded.ContentPaste, "Colar", cor) { verAnexar = false; colarPrint() }
             }
         }
     }
@@ -736,14 +823,10 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         val agora = campo.text
         if ((agora.isBlank() && anexos.isEmpty()) || enviando || subindo > 0) return@enviarTudo
         enviando = true
-        // O caminho vai na mesma linha: o Claude le o arquivo direto do computador.
-        val caminhos = anexos.joinToString(", ") { it.second }
-        val base = when {
-            anexos.isEmpty() -> agora.trim()
-            agora.isBlank() -> "Veja os arquivos que anexei: $caminhos"
-            else -> "${agora.trim()} (arquivos anexados: $caminhos)"
-        }
-        val t = if (ditou && agora.isNotBlank()) base + MARCA_VOZ else base
+        // Os caminhos vao no fim, um por linha (como no computador): o agente le os arquivos direto do
+        // computador e a conversa mostra a miniatura no lugar do caminho.
+        val textoFinal = if (ditou && agora.isNotBlank()) agora.trim() + MARCA_VOZ else agora.trim()
+        val t = mensagemComAnexos(textoFinal, anexos.toList())
         Hub.enviar(s.id, t) { erro, _ ->
             enviando = false
             if (erro != null) aviso(erro) else {
@@ -839,18 +922,15 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, aoIrPara: (String) -> Uni
         if (s.pergunta != null) {
             Text("Responda a pergunta acima. O que você escrever aqui espera ela fechar.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
         }
-        if (anexos.isNotEmpty() || subindo > 0) {
-            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(anexos.toList(), key = { it.second }) { a ->
-                    androidx.compose.material3.InputChip(
-                        selected = false, onClick = { anexos.remove(a) },
-                        label = { Text(a.first, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp)) },
-                        leadingIcon = { Icon(Icons.Rounded.AttachFile, null, Modifier.size(18.dp)) },
-                        trailingIcon = { Icon(Icons.Rounded.Close, "Tirar ${a.first}", Modifier.size(18.dp)) },
-                    )
-                }
-                if (subindo > 0) item { Text("Enviando $subindo ${if (subindo == 1) "arquivo" else "arquivos"}…", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 10.dp)) }
-            }
+        if (anexos.isNotEmpty() || subindo > 0) AnexosAntesDeEnviar(anexos.toList(), subindo, cor) { anexos.remove(it) }
+        if (temPrint && anexos.size < 10) {
+            androidx.compose.material3.AssistChip(
+                onClick = colarPrint,
+                label = { Text("Colar imagem copiada") },
+                leadingIcon = { Icon(Icons.Rounded.ContentPaste, null, Modifier.size(18.dp)) },
+                modifier = Modifier.padding(start = 12.dp, top = 4.dp),
+                shape = RoundedCornerShape(12.dp),
+            )
         }
         // Digitou "/": abre a lista de comandos e skills, filtrando conforme digita (some no primeiro espaco).
         val buscando = texto.startsWith("/") && texto.none { it.isWhitespace() }

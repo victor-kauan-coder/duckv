@@ -25,6 +25,95 @@ function el(tag, props, ...kids) {
   return node;
 }
 
+// ------------------------------------------------------------ controles proprios
+// Nada de controle do navegador: no iPhone e no Android, o menu suspenso abre como uma folha que sobe
+// do pe da tela (com alvos grandes para o dedo), e a caixa de marcar e desenhada no estilo do app.
+let seqControle = 0;
+// Uso: const s = folhaSeletor({ id, rotulo, opcoes: [{ v, t, apoio }] | [[v, t]], valor, aoMudar });
+//      s.value, s.disabled e s.definirOpcoes(lista) funcionam como num <select>; s dispara 'change'.
+function folhaSeletor({ id, rotulo, opcoes = [], valor, aoMudar } = {}) {
+  let lista = [];
+  let atual = valor == null ? '' : String(valor);
+  let desligado = false;
+  const texto = el('span', { class: 'seletor-texto' });
+  const campo = el('button', { class: 'seletor-campo', type: 'button', id, 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': rotulo || null }, texto, icone('caret-down', 20));
+  const raiz = el('div', { class: 'seletor' }, campo);
+  const indice = (v) => lista.findIndex((o) => o.v === v);
+  const pintar = () => (texto.textContent = lista[indice(atual)]?.t || '');
+  function abrir() {
+    if (desligado || !lista.length) return;
+    const titulo = rotulo || document.querySelector(`label[for='${id}']`)?.textContent || 'Escolha';
+    const opcoesEl = lista.map((o) =>
+      el(
+        'button',
+        { class: 'folha-opcao', type: 'button', role: 'radio', 'aria-checked': String(o.v === atual), onclick: () => escolher(o.v) },
+        el('span', { class: 'folha-marca', 'aria-hidden': 'true' }, o.v === atual ? icone('check', 20) : null),
+        el('span', { class: 't' }, el('b', { text: o.t }), o.apoio ? el('span', { text: o.apoio }) : null),
+      ),
+    );
+    const d = el('dialog', { class: 'folha', 'aria-label': titulo }, el('div', { class: 'folha-alca', 'aria-hidden': 'true' }), el('h2', { text: titulo }), el('div', { class: 'folha-lista', role: 'radiogroup', 'aria-label': titulo }, opcoesEl));
+    d.addEventListener('click', (ev) => ev.target === d && d.close());
+    d.addEventListener('close', () => {
+      campo.setAttribute('aria-expanded', 'false');
+      campo.focus({ preventScroll: true });
+      setTimeout(() => d.remove(), 260);
+    });
+    d.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
+      const i = opcoesEl.indexOf(document.activeElement);
+      opcoesEl[(i + (ev.key === 'ArrowDown' ? 1 : -1) + opcoesEl.length) % opcoesEl.length]?.focus();
+      ev.preventDefault();
+    });
+    function escolher(v) {
+      d.close();
+      if (v === atual) return;
+      atual = v;
+      pintar();
+      aoMudar?.(v);
+      raiz.dispatchEvent(new Event('change'));
+    }
+    document.body.append(d);
+    campo.setAttribute('aria-expanded', 'true');
+    d.showModal();
+    (opcoesEl[indice(atual)] || opcoesEl[0]).focus();
+  }
+  campo.addEventListener('click', abrir);
+  raiz.definirOpcoes = (novas) => {
+    lista = novas.map((o) => (Array.isArray(o) ? { v: String(o[0]), t: o[1] } : { ...o, v: String(o.v) }));
+    if (indice(atual) < 0) atual = lista[0]?.v ?? '';
+    pintar();
+  };
+  Object.defineProperties(raiz, {
+    value: { get: () => atual, set: (v) => ((atual = indice(String(v ?? '')) >= 0 ? String(v ?? '') : atual), pintar()) },
+    disabled: { get: () => desligado, set: (v) => ((desligado = !!v), (campo.disabled = desligado)) },
+  });
+  raiz.definirOpcoes(opcoes);
+  return raiz;
+}
+// Caixa de marcar desenhada (quadrada, borda grossa, como os botoes do app).
+function caixaMarcar(marcado, aoMudar, rotulo) {
+  const b = el('button', { class: 'caixa-marcar', type: 'button', role: 'checkbox', 'aria-checked': String(!!marcado), 'aria-label': rotulo || null }, icone('check', 18));
+  b.addEventListener('click', () => {
+    const v = b.getAttribute('aria-checked') !== 'true';
+    b.setAttribute('aria-checked', String(v));
+    aoMudar(v);
+  });
+  return b;
+}
+// Confirmacao propria, no lugar do confirm() do navegador.
+function confirmarNoCelular({ titulo, texto, sim = 'Confirmar', perigo = false }) {
+  return new Promise((resolver) => {
+    let r = false;
+    const ok = el('button', { class: `botao ${perigo ? 'perigo' : 'principal'}`, type: 'button', text: sim, onclick: () => ((r = true), d.close()) });
+    const d = el('dialog', { class: 'folha', 'aria-label': titulo }, el('div', { class: 'folha-alca', 'aria-hidden': 'true' }), el('h2', { text: titulo }), texto ? el('p', { class: 'folha-texto', text: texto }) : null, el('div', { class: 'acoes' }, el('button', { class: 'botao', type: 'button', text: 'Cancelar', onclick: () => d.close() }), ok));
+    d.addEventListener('click', (ev) => ev.target === d && d.close());
+    d.addEventListener('close', () => (resolver(r), setTimeout(() => d.remove(), 260)));
+    document.body.append(d);
+    d.showModal();
+    ok.focus();
+  });
+}
+
 const compacto = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
 const fHora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const fDia = new Intl.DateTimeFormat('pt-BR', { weekday: 'long' });
@@ -593,7 +682,12 @@ function criarInicio() {
 
   function avisos() {
     const pode = 'serviceWorker' in navigator && 'PushManager' in window && window.isSecureContext;
-    if (!pode) {
+    // No iPhone, o Safari so manda avisos para o duckV adicionado a Tela de Inicio (iOS 16.4 ou mais novo).
+    const iphoneNoSafari = /iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone;
+    if (iphoneNoSafari && window.isSecureContext) {
+      botaoAvisos.hidden = true;
+      notaAvisos.textContent = 'Para receber avisos no iPhone: toque em Compartilhar, depois em "Adicionar à Tela de Início", e abra o duckV pelo ícone novo.';
+    } else if (!pode) {
       botaoAvisos.hidden = true;
       notaAvisos.textContent = 'Avisos com o app fechado só funcionam pelo endereço https do Tailscale.';
     } else if (Notification.permission === 'granted' && localStorage.getItem('avisos') === 'sim') {
@@ -659,11 +753,59 @@ function criarMensagem(m) {
     return el('a', { class: `m imagem ${m.via === 'user' ? 'eu' : ''}`, href: src, target: '_blank', rel: 'noopener' }, el('img', { src, alt: 'Imagem da conversa', loading: 'lazy' }));
   }
   if (m.role === 'user') {
-    return el('div', { class: 'm user' }, ...blocosDeTexto(m.text), m.via === 'celular' ? el('span', { class: 'via', text: 'Enviada do celular' }) : null);
+    const { texto, itens } = anexosDoTexto(m.text);
+    return el(
+      'div',
+      { class: 'm user' },
+      itens.length ? el('div', { class: 'anexos-msg' }, itens.map(anexoNaConversa)) : null,
+      ...(texto ? blocosDeTexto(texto) : []),
+      m.via === 'celular' ? el('span', { class: 'via', text: 'Enviada do celular' }) : null,
+    );
   }
   return el('div', { class: 'm assistant' }, ...blocosDeTexto(m.text));
 }
 const visiveis = (itens) => (LOCAL.ferramentas ? itens : itens.filter((m) => m.role !== 'tool'));
+
+// ------------------------------------------------------------ anexos (o mesmo formato do app do computador)
+// Caminhos da pasta data/anexos dentro de uma mensagem saem do texto e viram miniatura ou cartao.
+const RE_ANEXO_LINHA = /^[ \t]*"?((?:[A-Za-z]:)?[^\n"]*?[\\/]anexos[\\/](\d{4}-\d{2}-\d{2}-[0-9a-f]{8})[\\/]([\p{L}\p{N}._-]{1,80}))"?[ \t]*$/gmu;
+const RE_ANEXO_SOLTO = /(?:[A-Za-z]:)?[^\s"'`]*[\\/]anexos[\\/](\d{4}-\d{2}-\d{2}-[0-9a-f]{8})[\\/]([\p{L}\p{N}._-]{1,80})/gu;
+function anexosDoTexto(texto) {
+  const itens = [];
+  const add = (pasta, nome) => itens.push({ url: `/api/anexo/${pasta}/${encodeURIComponent(nome)}`, nome, imagem: /\.(png|jpe?g|gif|webp|bmp)$/i.test(nome) });
+  let t = String(texto || '').replace(RE_ANEXO_LINHA, (_, _c, pasta, nome) => (add(pasta, nome), ''));
+  t = t.replace(RE_ANEXO_SOLTO, (_, pasta, nome) => (add(pasta, nome), ''));
+  return { texto: t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim(), itens };
+}
+function anexoNaConversa(a) {
+  if (a.imagem) {
+    const img = el('img', { src: a.url, alt: a.nome, loading: 'lazy' });
+    img.addEventListener('error', () => img.replaceWith(el('span', { class: 'anexo-sumiu', text: `${a.nome} (não está mais no computador)` })), { once: true });
+    return el('a', { class: 'anexo-miniatura', href: a.url, target: '_blank', rel: 'noopener', 'aria-label': `Abrir ${a.nome}` }, img);
+  }
+  return el('a', { class: 'anexo-cartao', href: a.url, download: a.nome }, icone('paperclip', 16), el('span', { text: a.nome }));
+}
+const tamanhoLegivel = (n) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`);
+const nomeDePrint = (tipo, n) => {
+  const h = new Date();
+  const p2 = (x) => String(x).padStart(2, '0');
+  return `print-${p2(h.getHours())}${p2(h.getMinutes())}${p2(h.getSeconds())}${n ? `-${n}` : ''}.${tipo.split('/')[1].replace('jpeg', 'jpg')}`;
+};
+// Miniatura pequena feita no proprio aparelho (data: URL), antes mesmo de o arquivo subir.
+async function miniatura(arquivo) {
+  try {
+    const bmp = await createImageBitmap(arquivo);
+    const k = Math.min(1, 200 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close?.();
+    return c.toDataURL('image/jpeg', 0.85);
+  } catch {
+    return null;
+  }
+}
 
 const TECLAS = [
   ['esc', 'Esc'],
@@ -748,7 +890,11 @@ function criarSessao(id, abaInicial) {
   const campo = el('textarea', { rows: 1, 'aria-label': 'Mensagem para o Claude' });
   const enviar = el('button', { class: 'botao principal', type: 'submit', 'aria-label': 'Enviar' }, icone('paper-plane-right', 22));
   const nota = el('p', { class: 'nota' });
-  const form = el('form', { class: 'escrever' }, campo, enviar);
+  // Anexos: o clipe abre Fotos, Camera ou Arquivos (no iPhone e no Android); colar uma imagem tambem anexa.
+  const anexar = el('button', { class: 'botao anexar', type: 'button', 'aria-label': 'Anexar foto ou arquivo' }, icone('paperclip', 22));
+  const escolherArquivo = el('input', { type: 'file', hidden: true, multiple: true });
+  const prontos = el('div', { class: 'anexos-prontos', role: 'list', 'aria-label': 'Anexos desta mensagem', hidden: true });
+  const form = el('form', { class: 'escrever' }, prontos, anexar, campo, enviar, escolherArquivo);
   const baixo = el('div', { class: 's-baixo' }, pedidos, rapidas, nota, form);
   const raiz = el(
     'div',
@@ -776,7 +922,10 @@ function criarSessao(id, abaInicial) {
   });
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
-    const texto = campo.value.trim();
+    if (anexos.some((a) => a.estado === 'enviando')) return avisar('Espere os anexos terminarem de subir.');
+    const vao = anexos.filter((a) => a.caminho);
+    // Os caminhos vao no fim, um por linha: o agente le os arquivos e a conversa mostra a miniatura.
+    const texto = [campo.value.trim(), vao.map((a) => a.caminho).join('\n')].filter(Boolean).join('\n\n');
     if (!texto) return;
     enviar.disabled = true;
     mandar({ t: 'send', instance: id, text: texto }, (erro) => {
@@ -784,7 +933,66 @@ function criarSessao(id, abaInicial) {
       if (erro) return avisar(erro);
       campo.value = '';
       campo.style.height = 'auto';
+      anexos = anexos.filter((a) => !vao.includes(a));
+      desenharAnexos();
     });
+  });
+
+  // --- anexos: sobem na hora e aparecem como miniatura acima da caixa; o caminho so vai ao enviar
+  let anexos = [];
+  function desenharAnexos() {
+    prontos.hidden = !anexos.length;
+    prontos.replaceChildren(
+      ...anexos.map((a) => {
+        const tirar = el('button', { class: 'anexo-tirar', type: 'button', 'aria-label': `Tirar ${a.nome}`, onclick: () => ((anexos = anexos.filter((x) => x !== a)), desenharAnexos()) }, icone('x', 16));
+        const situacao = a.estado === 'enviando' ? 'Enviando…' : a.estado === 'erro' ? a.erro : tamanhoLegivel(a.tamanho);
+        return a.previa
+          ? el('div', { class: 'anexo-item imagem', role: 'listitem', 'data-estado': a.estado, 'aria-label': `${a.nome}, ${situacao}` }, el('img', { src: a.previa, alt: '' }), tirar)
+          : el('div', { class: 'anexo-item arquivo', role: 'listitem', 'data-estado': a.estado }, icone('paperclip', 18), el('span', { class: 't' }, el('b', { text: a.nome }), el('span', { text: situacao })), tirar);
+      }),
+    );
+  }
+  async function anexarArquivos(arquivos, colado = false) {
+    if (anexos.length + arquivos.length > 10) {
+      avisar('Até 10 anexos por mensagem.');
+      arquivos = arquivos.slice(0, Math.max(0, 10 - anexos.length));
+    }
+    await Promise.all(
+      arquivos.map(async (f, i) => {
+        if (f.size > 25 * 1024 * 1024) return avisar(`${f.name}: grande demais (máximo de 25 MB).`);
+        const imagem = /^image\/(png|jpe?g|gif|webp|bmp)$/.test(f.type);
+        const nome = colado && imagem ? nomeDePrint(f.type, arquivos.length > 1 ? i + 1 : 0) : f.name;
+        const a = { nome, tamanho: f.size, previa: null, estado: 'enviando', caminho: null };
+        anexos.push(a);
+        desenharAnexos();
+        if (imagem) {
+          a.previa = await miniatura(f);
+          desenharAnexos();
+        }
+        try {
+          const r = await fetch(`/api/anexo?nome=${encodeURIComponent(nome)}`, { method: 'POST', credentials: 'same-origin', body: f });
+          const j = await r.json();
+          if (!r.ok) throw new Error(j.erro || 'falhou');
+          Object.assign(a, { estado: 'pronto', caminho: j.caminho });
+        } catch (e) {
+          Object.assign(a, { estado: 'erro', erro: e.message === 'Failed to fetch' || e.message === 'Load failed' ? 'Sem conexão' : e.message });
+          avisar(`Não consegui anexar ${nome}: ${a.erro}`);
+        }
+        if (anexos.includes(a)) desenharAnexos();
+      }),
+    );
+  }
+  anexar.addEventListener('click', () => escolherArquivo.click());
+  escolherArquivo.addEventListener('change', () => {
+    anexarArquivos([...escolherArquivo.files]);
+    escolherArquivo.value = '';
+  });
+  campo.addEventListener('paste', (ev) => {
+    const fs = [...(ev.clipboardData?.files || [])];
+    if (fs.length) {
+      ev.preventDefault();
+      anexarArquivos(fs, true);
+    }
   });
 
   // --- terminal: mede quantas colunas e linhas cabem e pede a tela nesse tamanho
@@ -1058,9 +1266,9 @@ function criarNova(contaInicial) {
   const recentes = el('div', { class: 'recentes' });
   const navegador = el('div', { class: 'navegador', hidden: true });
   const nome = el('input', { id: 'nova-nome', type: 'text', autocomplete: 'off', maxLength: 50 });
-  const modelo = el('select', { id: 'nova-modelo' });
-  const esforco = el('select', { id: 'nova-esforco' }, el('option', { value: '', text: 'Padrão do modelo' }));
-  const modo = el('select', { id: 'nova-modo' });
+  const modelo = folhaSeletor({ id: 'nova-modelo', rotulo: 'Modelo' });
+  const esforco = folhaSeletor({ id: 'nova-esforco', rotulo: 'Esforço', opcoes: [{ v: '', t: 'Padrão do modelo' }] });
+  const modo = folhaSeletor({ id: 'nova-modo', rotulo: 'Permissões' });
   const ajudaModo = el('p', { class: 'ajuda' });
   const erroGeral = el('p', { class: 'erro', role: 'alert', hidden: true });
   const abrir = el('button', { class: 'botao principal cheio', type: 'submit', text: 'Abrir sessão' });
@@ -1178,9 +1386,9 @@ function criarNova(contaInicial) {
     );
     if (!preenchido) {
       preenchido = true;
-      modelo.replaceChildren(...S.host.models.map((m) => el('option', { value: m, text: MODELOS[m] || m })));
-      esforco.append(...S.host.efforts.map((e) => el('option', { value: e, text: ESFORCOS[e] || e })));
-      modo.replaceChildren(...S.host.modes.map((m) => el('option', { value: m, text: MODOS[m]?.[0] || m })));
+      modelo.definirOpcoes(S.host.models.map((m) => ({ v: m, t: MODELOS[m] || m })));
+      esforco.definirOpcoes([{ v: '', t: 'Padrão do modelo' }, ...S.host.efforts.map((e) => ({ v: e, t: ESFORCOS[e] || e }))]);
+      modo.definirOpcoes(S.host.modes.map((m) => ({ v: m, t: MODOS[m]?.[0] || m, apoio: MODOS[m]?.[1] || '' })));
       aplicarPadroes();
       recentes.replaceChildren(
         ...(S.host.folders.length ? [el('p', { class: 'ajuda', text: 'Pastas usadas há pouco' })] : []),
@@ -1260,11 +1468,10 @@ function criarOpcoes() {
     return el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: rotulo }), caixa);
   }
   function caixinha(texto, marcado, aoMudar) {
-    const c = el('input', { type: 'checkbox', checked: !!marcado, onchange: () => aoMudar(c.checked) });
-    return el('label', { class: 'marcar' }, c, el('span', { text: texto }));
+    return el('label', { class: 'marcar' }, caixaMarcar(marcado, aoMudar, texto), el('span', { text: texto }));
   }
   function seletor(idCampo, rotulo, opcoes, atual, aoMudar) {
-    const sel = el('select', { id: idCampo, onchange: () => aoMudar(sel.value) }, opcoes.map(([v, t]) => el('option', { value: v, text: t, selected: String(v) === String(atual ?? '') })));
+    const sel = folhaSeletor({ id: idCampo, rotulo, opcoes, valor: atual ?? '', aoMudar });
     return el('div', { class: 'campo' }, el('label', { for: idCampo, text: rotulo }), sel);
   }
 
@@ -1306,8 +1513,28 @@ function criarOpcoes() {
         seletor(`op-esforco-${c.id}`, 'Esforço de raciocínio', [['', 'Padrão do modelo'], ...S.host.efforts.map((e) => [e, ESFORCOS[e] || e])], p.effort || '', (v) => salvar({ op: 'conta', id: c.id, padroes: { effort: v || null } })),
         seletor(`op-modo-${c.id}`, 'Modo de permissão', S.host.modes.map((m) => [m, MODOS[m]?.[0] || m]), p.mode || 'manual', (v) => salvar({ op: 'conta', id: c.id, padroes: { mode: v } })),
         el('div', { class: 'campo' }, el('label', { for: pastaPadrao.id, text: 'Pasta do projeto' }), pastaPadrao),
+        c.email && !c.padrao
+          ? el('div', { class: 'campo' }, el('p', { class: 'ajuda', text: `Conectada como ${c.email}.` }), el('button', { class: 'botao perigo', type: 'button', onclick: () => sairDaContaCelular(c) }, icone('sign-out', 18), 'Sair desta conta'))
+          : null,
       ),
     );
+  }
+  // Sair do login: a conta e as conversas ficam; as sessoes abertas pelo duckV nesta conta fecham antes.
+  async function sairDaContaCelular(c) {
+    const abertas = S.sessoes.filter((s) => s.account === c.id && s.status !== 'ended' && !s.login);
+    if (abertas.some((s) => !s.hosted)) {
+      return confirmarNoCelular({ titulo: 'Feche as janelas desta conta antes', texto: 'Uma sessão desta conta roda numa janela de terminal do computador. Feche essa janela e tente de novo.', sim: 'Entendi' });
+    }
+    const ok = await confirmarNoCelular({
+      titulo: `Sair de ${c.nome}?`,
+      texto: `O login de ${c.email} sai do computador${abertas.length ? ' e as sessões abertas nela fecham' : ''}. A conta e as conversas continuam: para usar de novo, é só entrar.`,
+      sim: 'Sair da conta',
+      perigo: true,
+    });
+    if (!ok) return;
+    for (const s of abertas) mandar({ t: 'stop', instance: s.id });
+    for (let i = 0; i < 40 && S.sessoes.some((s) => s.account === c.id && s.hosted && s.status !== 'ended' && !s.login); i++) await new Promise((r) => setTimeout(r, 250));
+    mandar({ t: 'conta', op: 'sair', id: c.id }, (erro) => avisar(erro || `Você saiu de ${c.nome}`));
   }
 
   let lista = [];
@@ -1384,6 +1611,13 @@ function criarOpcoes() {
       ),
       grupo('Mensagens rápidas', el('p', { class: 'ajuda', text: 'Aparecem como botões acima da caixa de mensagem de cada sessão.' }), caixaRapidas, formRapida),
       grupo('Este celular', el('p', { class: 'ajuda', text: 'Desparear apaga o acesso deste celular. Para voltar, aponte a câmera para o código na janela do duckV.' }), desparear),
+      window.duckvTrocarTela
+        ? grupo(
+            'Versão da tela',
+            el('p', { class: 'ajuda', text: 'Num tablet ou computador, a versão para computador mostra as contas na lateral e várias sessões lado a lado.' }),
+            el('button', { class: 'botao', type: 'button', onclick: () => window.duckvTrocarTela('computador') }, icone('desktop', 18), 'Usar a versão para computador'),
+          )
+        : null,
     );
   }
   return { raiz, atualizar, id: 'opcoes' };
@@ -1441,8 +1675,9 @@ function desenhar() {
       el(
         'div',
         { class: 'inteira' },
-        el('h1', { text: 'Este celular ainda não foi pareado' }),
-        el('p', { text: 'No computador, abra a janela do duckV e aponte a câmera do celular para o código que aparece nela.' }),
+        el('h1', { text: 'Este aparelho ainda não foi conectado' }),
+        el('p', { text: 'No computador, abra o duckV na tela Celulares e aponte a câmera para o código. No iPhone, use o app Câmera: o código abre aqui no Safari.' }),
+        el('p', { text: 'Depois, o computador pede os 4 números que aparecem nesta tela.' }),
       ),
     );
     return;

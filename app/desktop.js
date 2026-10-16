@@ -15,7 +15,9 @@ function el(tag, props, ...kids) {
       if (k === 'class') node.className = v;
       else if (k === 'text') node.textContent = v;
       else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
-      else if (k.startsWith('data-') || k.startsWith('aria-') || k === 'role' || k === 'for' || k === 'title') node.setAttribute(k, v);
+      // "title" vira a dica propria do duckV (a do navegador e um balao cinza que nao segue o tema).
+      else if (k === 'title') dicaEm(node, v);
+      else if (k.startsWith('data-') || k.startsWith('aria-') || k === 'role' || k === 'for') node.setAttribute(k, v);
       else node[k] = v;
     }
   }
@@ -473,25 +475,77 @@ function criarMensagem(m) {
   if (m.role === 'sys') return el('div', { class: 'm sys', text: m.text });
   if (m.role === 'image' && /^[0-9a-f]{24}$/.test(m.img || '')) {
     const src = `/api/img/${m.img}`;
-    return el('div', { class: `m imagem ${m.via === 'user' ? 'user' : ''}` }, el('img', { src, alt: 'Imagem da conversa', loading: 'lazy' }));
+    return el('div', { class: `m imagem ${m.via === 'user' ? 'user' : ''}` }, el('button', { class: 'anexo-miniatura grande', type: 'button', title: 'Clique para ampliar', onclick: () => ampliarImagem(src, 'Imagem da conversa') }, el('img', { src, alt: 'Imagem da conversa', loading: 'lazy' })));
   }
   if (m.role === 'file') {
     const a = S.arquivos.find((x) => x.id === m.arq);
     return el('div', { class: 'm arquivo' }, icone('paperclip', 18), el('span', null, el('b', { text: a?.nome || 'Arquivo enviado ao celular' }), m.text ? ` · ${m.text}` : ''));
   }
-  if (m.role === 'user') return el('div', { class: 'm user' }, markdown(m.text), m.via === 'celular' ? el('span', { class: 'via', text: 'Enviada pelo duckV' }) : null);
+  if (m.role === 'user') {
+    const { texto, itens } = anexosDoTexto(m.text);
+    return el(
+      'div',
+      { class: 'm user' },
+      itens.length ? el('div', { class: 'anexos-msg' }, itens.map(anexoNaConversa)) : null,
+      texto ? markdown(texto) : null,
+      m.via === 'celular' ? el('span', { class: 'via', text: 'Enviada pelo duckV' }) : null,
+    );
+  }
   return el('div', { class: 'm assistant' }, markdown(m.text));
 }
 const visiveis = (itens) => (LOCAL.ferramentas ? itens : itens.filter((m) => m.role !== 'tool'));
 
+// Caminhos de anexos (pasta data/anexos do duckV) dentro de uma mensagem: saem do texto e viram
+// miniatura (imagem) ou cartao (outro arquivo). Vale para o formato novo (um caminho por linha, no fim)
+// e para o antigo (caminho no meio do texto, sem espacos).
+const RE_ANEXO_LINHA = /^[ \t]*"?((?:[A-Za-z]:)?[^\n"]*?[\\/]anexos[\\/](\d{4}-\d{2}-\d{2}-[0-9a-f]{8})[\\/]([\p{L}\p{N}._-]{1,80}))"?[ \t]*$/gmu;
+const RE_ANEXO_SOLTO = /(?:[A-Za-z]:)?[^\s"'`]*[\\/]anexos[\\/](\d{4}-\d{2}-\d{2}-[0-9a-f]{8})[\\/]([\p{L}\p{N}._-]{1,80})/gu;
+function anexosDoTexto(texto) {
+  const itens = [];
+  const add = (pasta, nome) => itens.push({ url: `/api/anexo/${pasta}/${encodeURIComponent(nome)}`, nome, imagem: /\.(png|jpe?g|gif|webp|bmp)$/i.test(nome) });
+  let t = String(texto || '').replace(RE_ANEXO_LINHA, (_, _c, pasta, nome) => (add(pasta, nome), ''));
+  t = t.replace(RE_ANEXO_SOLTO, (_, pasta, nome) => (add(pasta, nome), ''));
+  return { texto: t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim(), itens };
+}
+function anexoNaConversa(a) {
+  if (a.imagem) {
+    const img = el('img', { src: a.url, alt: a.nome, loading: 'lazy' });
+    img.addEventListener('error', () => img.replaceWith(el('span', { class: 'anexo-sumiu', text: `${a.nome} (o arquivo não está mais no computador)` })), { once: true });
+    return el('button', { class: 'anexo-miniatura', type: 'button', title: `${a.nome}\nClique para ampliar`, onclick: () => ampliarImagem(a.url, a.nome) }, img);
+  }
+  return el('a', { class: 'anexo-cartao', href: a.url, download: a.nome, title: 'Baixar' }, icone('paperclip', 16), el('span', { text: a.nome }));
+}
+// Imagem em tela cheia, num dialogo proprio (Esc ou clique fora fecha).
+function ampliarImagem(src, nome) {
+  const d = el('dialog', { class: 'ampliada', 'aria-label': nome || 'Imagem' }, el('img', { src, alt: nome || '' }), el('button', { class: 'so-icone fechar-ampliada', type: 'button', 'aria-label': 'Fechar', onclick: () => d.close() }, icone('x', 20)));
+  d.addEventListener('click', (ev) => ev.target === d && d.close());
+  d.addEventListener('close', () => setTimeout(() => d.remove(), 200));
+  document.body.append(d);
+  d.showModal();
+}
+
 // ------------------------------------------------------------ menus e confirmacoes
 let menuAberto = null;
+let menuAncora = null;
 function fecharMenu() {
   menuAberto?.remove();
   menuAberto = null;
+  if (menuAncora?.dataset.menu) {
+    menuAncora.removeAttribute('aria-expanded');
+    delete menuAncora.dataset.menu;
+  }
+  menuAncora = null;
 }
 function abrirMenu(ancora, itens) {
+  const mesmo = menuAncora === ancora;
   fecharMenu();
+  if (mesmo) return; // clicar de novo no mesmo botao fecha o menu
+  menuAncora = ancora;
+  // Botoes que so abrem este menu dizem que ele esta aberto (a linha da conta usa aria-expanded para outra coisa).
+  if (ancora.tagName === 'BUTTON' && !ancora.hasAttribute('aria-expanded')) {
+    ancora.dataset.menu = 'sim';
+    ancora.setAttribute('aria-expanded', 'true');
+  }
   const menu = el('div', { class: 'menu', role: 'menu' });
   for (const it of itens) {
     if (it === '-') menu.append(el('hr'));
@@ -537,8 +591,9 @@ function abrirMenu(ancora, itens) {
     ev.preventDefault();
   });
 }
+window.addEventListener('resize', () => fecharMenu());
 document.addEventListener('pointerdown', (ev) => {
-  if (menuAberto && !menuAberto.contains(ev.target)) fecharMenu();
+  if (menuAberto && !menuAberto.contains(ev.target) && !menuAncora?.contains(ev.target)) fecharMenu();
   if (usoAberto && !usoAberto.contains(ev.target) && !ev.target.closest('.uso-chip')) fecharUso();
 });
 // Acoes que apagam ou encerram pedem um segundo clique no proprio botao.
@@ -562,6 +617,332 @@ function duasVezes(botao, texto, acao) {
     }, 3500);
   });
   return botao;
+}
+
+// ------------------------------------------------------------ controles proprios
+// Nada de controle do navegador na tela: menus suspensos, interruptores, confirmacoes e dicas sao
+// desenhados aqui, no tema do duckV, com o mesmo teclado dos controles nativos.
+const temPopover = typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
+const semAcento = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+let seqControle = 0;
+
+// Menu suspenso (o "exposed dropdown" do Material 3). A lista abre na camada de cima da pagina
+// (popover), entao funciona tambem dentro de dialogos e nunca e cortada pela rolagem.
+// Uso: const s = seletor({ opcoes: [{ v, t, apoio }], valor, aoMudar, rotulo });
+//      s.value, s.disabled e s.definirOpcoes(lista) funcionam como num <select>; s dispara 'change'.
+function seletor({ opcoes = [], valor, aoMudar, rotulo, id } = {}) {
+  const idLista = `seletor-${++seqControle}`;
+  let lista = [];
+  let atual = valor == null ? '' : String(valor);
+  let ativo = -1;
+  let desligado = false;
+  const texto = el('span', { class: 'seletor-texto' });
+  const campo = el(
+    'button',
+    { class: 'seletor-campo', type: 'button', id, role: 'combobox', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-controls': idLista, 'aria-label': rotulo || null },
+    texto,
+    el('span', { class: 'seletor-seta', 'aria-hidden': 'true' }, icone('caret-down', 18)),
+  );
+  const caixa = el('div', { class: 'seletor-lista', role: 'listbox', id: idLista, tabIndex: -1, 'aria-label': rotulo || null });
+  if (temPopover) caixa.popover = 'auto';
+  else caixa.hidden = true;
+  const raiz = el('div', { class: 'seletor' }, campo, caixa);
+  const aberto = () => campo.getAttribute('aria-expanded') === 'true';
+  const indice = (v) => lista.findIndex((o) => o.v === v);
+
+  function pintarCampo() {
+    const o = lista[indice(atual)];
+    texto.textContent = o ? o.t : '';
+    texto.classList.toggle('vazio', !o);
+  }
+  function desenharOpcoes() {
+    caixa.replaceChildren(
+      ...lista.map((o, i) =>
+        el(
+          'div',
+          {
+            class: 'seletor-opcao',
+            role: 'option',
+            id: `${idLista}-${i}`,
+            'aria-selected': String(o.v === atual),
+            'aria-disabled': o.desligado ? 'true' : null,
+            onpointermove: () => i !== ativo && marcar(i),
+            onclick: () => !o.desligado && escolher(i),
+          },
+          el('span', { class: 'marca', 'aria-hidden': 'true' }, o.v === atual ? icone('check', 18) : null),
+          el('span', { class: 't' }, el('b', { text: o.t }), o.apoio ? el('span', { text: o.apoio }) : null),
+        ),
+      ),
+    );
+  }
+  function marcar(i) {
+    ativo = i;
+    [...caixa.children].forEach((n, k) => n.classList.toggle('ativa', k === i));
+    if (i >= 0) {
+      caixa.setAttribute('aria-activedescendant', `${idLista}-${i}`);
+      caixa.children[i]?.scrollIntoView({ block: 'nearest' });
+    } else caixa.removeAttribute('aria-activedescendant');
+  }
+  // A lista abre colada no campo, para baixo; sem espaco embaixo, abre para cima.
+  function posicionar() {
+    const r = campo.getBoundingClientRect();
+    const alturaMax = 320;
+    const embaixo = innerHeight - r.bottom - 12;
+    const emCima = r.top - 12;
+    const paraCima = embaixo < Math.min(alturaMax, caixa.scrollHeight) && emCima > embaixo;
+    caixa.style.minWidth = `${Math.round(r.width)}px`;
+    caixa.style.maxHeight = `${Math.max(120, Math.min(alturaMax, paraCima ? emCima : embaixo))}px`;
+    const w = caixa.offsetWidth;
+    caixa.style.left = `${Math.round(Math.max(8, Math.min(r.left, innerWidth - w - 8)))}px`;
+    if (paraCima) {
+      caixa.style.top = 'auto';
+      caixa.style.bottom = `${Math.round(innerHeight - r.top + 4)}px`;
+    } else {
+      caixa.style.bottom = 'auto';
+      caixa.style.top = `${Math.round(r.bottom + 4)}px`;
+    }
+    caixa.dataset.lado = paraCima ? 'cima' : 'baixo';
+  }
+  const aoRolar = (ev) => !caixa.contains(ev.target) && fechar(false);
+  function abrir() {
+    if (desligado || aberto() || !lista.length) return;
+    desenharOpcoes();
+    if (temPopover) caixa.showPopover();
+    else caixa.hidden = false;
+    campo.setAttribute('aria-expanded', 'true');
+    posicionar();
+    marcar(Math.max(0, indice(atual)));
+    caixa.focus({ preventScroll: true });
+    addEventListener('scroll', aoRolar, true);
+    addEventListener('resize', aoRolar);
+  }
+  function fechar(focarCampo = true) {
+    if (!aberto()) return;
+    campo.setAttribute('aria-expanded', 'false');
+    removeEventListener('scroll', aoRolar, true);
+    removeEventListener('resize', aoRolar);
+    if (temPopover) {
+      try {
+        caixa.hidePopover();
+      } catch {
+        /* ja fechado */
+      }
+    } else caixa.hidden = true;
+    if (focarCampo) campo.focus({ preventScroll: true });
+  }
+  // Clicar fora ou apertar Esc fecha o popover sozinho: o campo so acompanha.
+  caixa.addEventListener('toggle', (ev) => ev.newState === 'closed' && aberto() && fechar(caixa.contains(document.activeElement) || document.activeElement === document.body));
+  function escolher(i) {
+    const o = lista[i];
+    fechar();
+    if (!o || o.v === atual) return;
+    atual = o.v;
+    pintarCampo();
+    aoMudar?.(o.v);
+    raiz.dispatchEvent(new Event('change'));
+  }
+  // Digitar o comeco de uma opcao pula para ela, como num menu do sistema.
+  let busca = '';
+  let buscaTimer = null;
+  function procurar(letra) {
+    busca += semAcento(letra);
+    clearTimeout(buscaTimer);
+    buscaTimer = setTimeout(() => (busca = ''), 600);
+    const de = aberto() ? ativo : indice(atual);
+    const ordem = [...lista.keys()].map((k) => (k + de + (busca.length === 1 ? 1 : 0)) % lista.length);
+    return ordem.find((k) => !lista[k].desligado && semAcento(lista[k].t).startsWith(busca)) ?? -1;
+  }
+  const proxima = (de, passo) => {
+    for (let k = 1; k <= lista.length; k++) {
+      const i = (de + passo * k + lista.length * k) % lista.length;
+      if (!lista[i].desligado) return i;
+    }
+    return de;
+  };
+  campo.addEventListener('click', () => (aberto() ? fechar() : abrir()));
+  campo.addEventListener('keydown', (ev) => {
+    if (['ArrowDown', 'ArrowUp', 'F4'].includes(ev.key) || (ev.altKey && ev.key === 'ArrowDown')) {
+      ev.preventDefault();
+      abrir();
+    } else if (ev.key.length === 1 && ev.key !== ' ' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      const i = procurar(ev.key);
+      if (i >= 0) escolher(i);
+    }
+  });
+  caixa.addEventListener('keydown', (ev) => {
+    const k = ev.key;
+    if (k === 'ArrowDown') marcar(proxima(ativo, 1));
+    else if (k === 'ArrowUp') marcar(proxima(ativo, -1));
+    else if (k === 'Home') marcar(proxima(-1, 1));
+    else if (k === 'End') marcar(proxima(lista.length, -1));
+    else if (k === 'Enter' || k === ' ') escolher(ativo);
+    else if (k === 'Escape') fechar();
+    else if (k === 'Tab') return fechar();
+    else if (k.length === 1 && !ev.ctrlKey && !ev.metaKey) {
+      const i = procurar(k);
+      if (i >= 0) marcar(i);
+    } else return;
+    ev.preventDefault();
+    ev.stopPropagation();
+  });
+
+  raiz.definirOpcoes = (novas) => {
+    lista = novas.map((o) => (Array.isArray(o) ? { v: String(o[0]), t: o[1] } : { ...o, v: String(o.v) }));
+    if (indice(atual) < 0) atual = lista[0]?.v ?? '';
+    pintarCampo();
+    if (aberto()) desenharOpcoes();
+  };
+  Object.defineProperties(raiz, {
+    value: {
+      get: () => atual,
+      set: (v) => {
+        const s = v == null ? '' : String(v);
+        if (indice(s) >= 0) atual = s;
+        pintarCampo();
+      },
+    },
+    disabled: {
+      get: () => desligado,
+      set: (v) => {
+        desligado = !!v;
+        campo.disabled = desligado;
+        if (desligado) fechar(false);
+      },
+    },
+  });
+  raiz.focus = () => campo.focus();
+  raiz.definirOpcoes(opcoes);
+  return raiz;
+}
+
+// Interruptor do Material 3: trilho, botao que cresce ao ligar e a marca de feito dentro dele.
+function interruptor(marcado, aoMudar, rotulo) {
+  const b = el('button', { class: 'interruptor', type: 'button', role: 'switch', 'aria-checked': String(!!marcado), 'aria-label': rotulo }, el('span', { class: 'polegar', 'aria-hidden': 'true' }, icone('check', 14)));
+  b.addEventListener('click', async () => {
+    const novo = b.getAttribute('aria-checked') !== 'true';
+    b.setAttribute('aria-checked', String(novo));
+    const r = await aoMudar(novo);
+    if (r === false) b.setAttribute('aria-checked', String(!novo));
+  });
+  return b;
+}
+
+// Confirmacao propria (no lugar do confirm() do navegador). Resolve true ou false.
+function confirmar({ titulo, texto, sim = 'Confirmar', perigo = false }) {
+  return new Promise((resolver) => {
+    const { d, corpo, pe, form } = dialogo(titulo, texto);
+    d.classList.add('curto');
+    corpo.remove();
+    let resposta = false;
+    const ok = el('button', { class: `botao ${perigo ? 'perigo' : 'principal'}`, type: 'submit', text: sim });
+    pe.append(el('button', { class: 'botao texto', type: 'button', text: 'Cancelar', onclick: () => d.close() }), ok);
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      resposta = true;
+      d.close();
+    });
+    d.addEventListener('close', () => resolver(resposta));
+    d.showModal();
+    ok.focus();
+  });
+}
+
+// Pergunta com campo de texto (no lugar do prompt() do navegador). Resolve o texto ou null.
+function perguntar({ titulo, texto, rotulo, dica = '', sim = 'Enviar' }) {
+  return new Promise((resolver) => {
+    const { d, corpo, pe, form } = dialogo(titulo, texto);
+    d.classList.add('curto');
+    let resposta = null;
+    const campo = el('textarea', { class: 'campo-texto', rows: 3, maxLength: 2000, placeholder: dica, 'aria-label': rotulo || titulo });
+    campo.addEventListener('keydown', (ev) => ev.key === 'Enter' && !ev.shiftKey && (ev.preventDefault(), form.requestSubmit()));
+    corpo.append(campo);
+    pe.append(el('button', { class: 'botao texto', type: 'button', text: 'Cancelar', onclick: () => d.close() }), el('button', { class: 'botao principal', type: 'submit', text: sim }));
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      if (!campo.value.trim()) return campo.focus();
+      resposta = campo.value.trim();
+      d.close();
+    });
+    d.addEventListener('close', () => resolver(resposta));
+    d.showModal();
+    campo.focus();
+  });
+}
+
+// Dicas ao parar o mouse (ou ao chegar pelo Tab): um balao do tema no lugar do "title" do navegador.
+// Elas ficam na camada de cima, entao aparecem tambem sobre dialogos.
+function dicaEm(no, texto) {
+  if (texto) {
+    no.dataset.dica = texto;
+    if (!no.hasAttribute('aria-label') && !no.textContent.trim()) no.setAttribute('aria-label', String(texto).split('\n')[0]);
+  } else delete no.dataset.dica;
+}
+const balao = el('div', { class: 'dica', role: 'tooltip', 'aria-hidden': 'true' });
+if (temPopover) balao.popover = 'manual';
+let dicaAlvo = null;
+let dicaTimer = null;
+function esconderDica() {
+  clearTimeout(dicaTimer);
+  dicaAlvo = null;
+  if (balao.isConnected) balao.classList.remove('mostra');
+}
+function mostrarDica(alvo, demora) {
+  clearTimeout(dicaTimer);
+  dicaAlvo = alvo;
+  dicaTimer = setTimeout(() => {
+    if (dicaAlvo !== alvo || !alvo.isConnected || !alvo.dataset.dica) return;
+    balao.textContent = alvo.dataset.dica;
+    if (!balao.isConnected) document.body.append(balao);
+    if (temPopover) {
+      try {
+        balao.hidePopover();
+        balao.showPopover(); // reabrir poe o balao acima de um dialogo aberto depois dele
+      } catch {
+        /* sem camada de cima */
+      }
+    }
+    const r = alvo.getBoundingClientRect();
+    const w = balao.offsetWidth;
+    const h = balao.offsetHeight;
+    const embaixo = r.bottom + 8 + h < innerHeight - 8;
+    balao.style.left = `${Math.round(Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8)))}px`;
+    balao.style.top = `${Math.round(embaixo ? r.bottom + 8 : r.top - h - 8)}px`;
+    balao.dataset.lado = embaixo ? 'baixo' : 'cima';
+    balao.classList.add('mostra');
+  }, demora);
+}
+document.addEventListener('pointerover', (ev) => {
+  const alvo = ev.target.closest?.('[data-dica]');
+  if (alvo === dicaAlvo) return;
+  if (!alvo) return esconderDica();
+  mostrarDica(alvo, 450);
+});
+document.addEventListener('focusin', (ev) => {
+  const alvo = ev.target.closest?.('[data-dica]');
+  if (alvo && ev.target.matches?.(':focus-visible')) mostrarDica(alvo, 250);
+  else esconderDica();
+});
+for (const tipo of ['pointerdown', 'keydown', 'scroll', 'focusout']) document.addEventListener(tipo, esconderDica, true);
+window.addEventListener('blur', esconderDica);
+
+// Troca de tela com movimento: o conteudo novo chega com um leve fade e subida (padrao "fade through"
+// do Material). Quem pediu menos movimento no sistema ve a troca direta.
+function animarEntrada(no, classe = 'entra') {
+  if (!no || semMovimento.matches) return;
+  no.classList.remove(classe);
+  void no.offsetWidth; // reinicia a animacao
+  no.classList.add(classe);
+  no.addEventListener('animationend', () => no.classList.remove(classe), { once: true });
+}
+// Saida curta antes de tirar um elemento da tela.
+function animarSaida(no, classe = 'sai') {
+  if (!no?.isConnected || semMovimento.matches) return Promise.resolve();
+  return new Promise((ok) => {
+    no.classList.add(classe);
+    const fim = () => ok();
+    no.addEventListener('animationend', fim, { once: true });
+    setTimeout(fim, 260);
+  });
 }
 
 // ------------------------------------------------------------ pedidos (permissao, pergunta, aviso)
@@ -635,8 +1016,7 @@ function cartaoPergunta(sessao, id, comOrigem) {
         const b = el('button', { class: 'botao', type: 'button', onclick: o.confirmar || o.livre ? null : () => tecla(o.tecla) }, el('span', { class: 'numero', text: o.tecla }), el('span', { text: o.rotulo }));
         if (o.livre) {
           b.addEventListener('click', () => {
-            const resposta = prompt(o.rotulo);
-            if (resposta?.trim()) mandar({ t: 'responder', instance: sessao.id, tecla: o.tecla, texto: resposta.trim() }, (erro) => erro && avisar(erro));
+            perguntar({ titulo: o.rotulo, texto: 'O agente espera uma resposta escrita.', rotulo: o.rotulo }).then((resposta) => resposta && mandar({ t: 'responder', instance: sessao.id, tecla: o.tecla, texto: resposta }, (erro) => erro && avisar(erro)));
           });
           return b;
         }
@@ -741,9 +1121,15 @@ function criarPainel(id, opts = {}) {
   const ctxTexto = el('span');
   const ctxCaixa = el('span', { class: 'ctx', title: 'Quanto da memória da conversa já foi usado' }, ctxTexto);
   const gasto = el('span');
-  const tarefasTexto = el('summary');
-  const tarefasLista = el('ol');
-  const tarefas = el('details', { class: 'tarefas' }, tarefasTexto, tarefasLista);
+  const tarefasTexto = el('button', { class: 'tarefas-botao', type: 'button', 'aria-expanded': 'false' });
+  const tarefasLista = el('ol', { hidden: true });
+  const tarefas = el('div', { class: 'tarefas' }, tarefasTexto, tarefasLista);
+  tarefasTexto.addEventListener('click', () => {
+    const abrir = tarefasLista.hidden;
+    tarefasLista.hidden = !abrir;
+    tarefasTexto.setAttribute('aria-expanded', String(abrir));
+    if (abrir) animarEntrada(tarefasLista);
+  });
   const info = el('div', { class: 'p-info' }, fazendo, ctxCaixa, gasto, tarefas);
   const conversa = el('div', { class: 'conversa', role: 'log', 'aria-label': 'Conversa', tabIndex: 0 });
   const pedidos = el('div', { class: 'pedidos' });
@@ -753,7 +1139,8 @@ function criarPainel(id, opts = {}) {
   const anexar = el('button', { class: 'so-icone anexar', type: 'button', 'aria-label': 'Anexar arquivo', title: 'Anexar arquivo (ou arraste para cá)' }, icone('paperclip', 18));
   const escolherArquivo = el('input', { type: 'file', hidden: true, multiple: true });
   const listaComandos = el('ul', { class: 'comandos-lista', role: 'listbox', hidden: true });
-  const form = el('form', { class: 'escrever' }, listaComandos, anexar, campo, enviar, escolherArquivo);
+  const prontos = el('div', { class: 'anexos-prontos', role: 'list', 'aria-label': 'Anexos desta mensagem', hidden: true });
+  const form = el('form', { class: 'escrever' }, listaComandos, prontos, anexar, campo, enviar, escolherArquivo);
   const nota = el('p', { class: 'p-nota' });
   const baixo = el('div', { class: 'p-baixo' }, pedidos, rapidas, nota, form);
   const vistaConversa = el('div', { class: 'p-corpo' }, info, conversa, baixo);
@@ -782,7 +1169,7 @@ function criarPainel(id, opts = {}) {
       itens.push({ texto: 'Interromper', icone: 'hand-palm', acao: () => tecla('esc', 'Interrompido') });
       if (ag.id === 'claude') {
         itens.push({ texto: 'Compactar conversa', icone: 'stack', acao: () => enviarTexto('/compact', 'Compactação pedida') });
-        itens.push({ texto: 'Limpar conversa', icone: 'broom', acao: () => confirm('Limpar a conversa desta sessão?') && enviarTexto('/clear', 'Conversa limpa') });
+        itens.push({ texto: 'Limpar conversa', icone: 'broom', acao: async () => (await confirmar({ titulo: 'Limpar a conversa?', texto: 'O agente começa do zero nesta sessão. A conversa antiga continua em "Todas as conversas".', sim: 'Limpar', perigo: true })) && enviarTexto('/clear', 'Conversa limpa') });
       }
       if (ag.modelos?.length > 1) {
         itens.push('-', { rotulo: 'Modelo' });
@@ -806,7 +1193,7 @@ function criarPainel(id, opts = {}) {
     if (s.cwd && S.desktop && vivo === false) itens.push({ texto: 'Continuar no terminal do sistema', icone: 'arrow-square-out', acao: () => abrirNoTerminalDoSistema(conta.id, s.cwd) });
     if (S.desktop && s.cwd) itens.push({ texto: 'Nova sessão nesta pasta, no terminal do sistema', icone: 'arrow-square-out', acao: () => abrirNoTerminalDoSistema(conta.id, s.cwd) });
     if (s.cwd) itens.push({ texto: 'Copiar caminho da pasta', icone: 'copy', acao: () => navigator.clipboard.writeText(s.cwd).then(() => avisar('Caminho copiado')) });
-    if (s.hosted && vivo) itens.push('-', { texto: 'Encerrar sessão', icone: 'power', perigo: true, acao: () => confirm(`Encerrar ${nomeDaSessao(s)}? O agente fecha no computador.`) && mandar({ t: 'stop', instance: id }, (erro) => avisar(erro || 'Sessão encerrada')) });
+    if (s.hosted && vivo) itens.push('-', { texto: 'Encerrar sessão', icone: 'power', perigo: true, acao: async () => (await confirmar({ titulo: `Encerrar ${nomeDaSessao(s)}?`, texto: 'O agente fecha no computador. Dá para continuar a conversa depois, em "Todas as conversas".', sim: 'Encerrar', perigo: true })) && mandar({ t: 'stop', instance: id }, (erro) => avisar(erro || 'Sessão encerrada')) });
     if ((s.desktop || s.historico) && S.host.available && !s.hosted) itens.push('-', { texto: 'Continuar aqui no duckV', icone: 'arrows-clockwise', acao: () => continuar(s) });
     return itens;
   }
@@ -823,7 +1210,7 @@ function criarPainel(id, opts = {}) {
   const ajustarAltura = () => {
     campo.style.height = 'auto';
     campo.style.height = `${Math.min(campo.scrollHeight, 240)}px`;
-    enviar.dataset.pronto = campo.value.trim() ? 'sim' : 'nao';
+    enviar.dataset.pronto = campo.value.trim() || anexos.some((a) => a.caminho) ? 'sim' : 'nao';
   };
   function filtrarComandos() {
     const v = campo.value;
@@ -902,35 +1289,93 @@ function criarPainel(id, opts = {}) {
   campo.addEventListener('blur', () => setTimeout(() => (listaComandos.hidden = true), 120));
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
-    const texto = campo.value.trim();
+    if (anexos.some((a) => a.estado === 'enviando')) return avisar('Espere os anexos terminarem de subir.');
+    const prontosAgora = anexos.filter((a) => a.caminho);
+    // Os caminhos vao no fim da mensagem, um por linha: o agente le os arquivos, e a conversa mostra
+    // a miniatura no lugar do caminho (veja anexosDoTexto).
+    const texto = [campo.value.trim(), prontosAgora.map((a) => a.caminho).join('\n')].filter(Boolean).join('\n\n');
     if (!texto) return;
     enviar.disabled = true;
     mandar({ t: 'send', instance: id, text: texto }, (erro) => {
       enviar.disabled = false;
       if (erro) return avisar(erro);
       campo.value = '';
+      anexos = anexos.filter((a) => !prontosAgora.includes(a));
+      desenharAnexos();
       ajustarAltura();
     });
   });
 
-  // --- anexos: o arquivo vai para a pasta do duckV e o caminho entra na mensagem
-  async function anexarArquivos(arquivos) {
-    for (const f of arquivos) {
-      if (f.size > 25 * 1024 * 1024) {
-        avisar(`${f.name}: grande demais (máximo de 25 MB).`);
-        continue;
-      }
-      try {
-        const r = await fetch(`/api/anexo?nome=${encodeURIComponent(f.name)}`, { method: 'POST', credentials: 'same-origin', body: f });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.erro || 'falhou');
-        campo.value = `${campo.value}${campo.value && !/\s$/.test(campo.value) ? ' ' : ''}${j.caminho} `;
-        ajustarAltura();
-        avisar(`Anexado: ${f.name}`);
-      } catch (e) {
-        avisar(`Não consegui anexar ${f.name}: ${e.message}`);
-      }
+  // --- anexos: o arquivo sobe para a pasta do duckV na hora e aparece como miniatura acima da caixa
+  // de mensagem; o caminho so entra na mensagem quando ela e enviada.
+  let anexos = []; // { id, nome, tamanho, imagem, previa, estado: 'enviando' | 'pronto' | 'erro', caminho, erro }
+  let seqAnexo = 0;
+  const tamanhoLegivel = (n) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`);
+  // Miniatura pequena feita aqui mesmo (data: URL), sem esperar o envio e sem abrir a politica de seguranca.
+  async function miniatura(arquivo) {
+    try {
+      const bmp = await createImageBitmap(arquivo);
+      const lado = 160;
+      const k = Math.min(1, lado / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bmp.width * k));
+      c.height = Math.max(1, Math.round(bmp.height * k));
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close?.();
+      return c.toDataURL('image/png');
+    } catch {
+      return null;
     }
+  }
+  function desenharAnexos() {
+    prontos.hidden = !anexos.length;
+    prontos.replaceChildren(
+      ...anexos.map((a) => {
+        const tirar = el('button', { class: 'anexo-tirar', type: 'button', 'aria-label': `Tirar ${a.nome}`, title: 'Tirar da mensagem', onclick: () => ((anexos = anexos.filter((x) => x !== a)), desenharAnexos(), ajustarAltura(), campo.focus()) }, icone('x', 14));
+        const situacao = a.estado === 'enviando' ? 'Enviando…' : a.estado === 'erro' ? a.erro || 'Não foi' : tamanhoLegivel(a.tamanho);
+        const item = a.previa
+          ? el('div', { class: 'anexo-item imagem', role: 'listitem', 'data-estado': a.estado, title: `${a.nome}\n${situacao}` }, el('img', { src: a.previa, alt: a.nome }), a.estado === 'enviando' ? el('span', { class: 'anexo-girando', 'aria-hidden': 'true' }) : null, tirar)
+          : el('div', { class: 'anexo-item arquivo', role: 'listitem', 'data-estado': a.estado }, icone(a.estado === 'erro' ? 'warning-circle' : 'paperclip', 18), el('span', { class: 't' }, el('b', { text: a.nome }), el('span', { text: situacao })), tirar);
+        if (a.novo) {
+          animarEntrada(item, 'entra-anexo');
+          a.novo = false;
+        }
+        return item;
+      }),
+    );
+  }
+  async function anexarArquivos(arquivos, colado = false) {
+    if (anexos.length + arquivos.length > 10) {
+      avisar('Até 10 anexos por mensagem.');
+      arquivos = arquivos.slice(0, Math.max(0, 10 - anexos.length));
+    }
+    await Promise.all(
+      arquivos.map(async (f, i) => {
+        if (f.size > 25 * 1024 * 1024) return avisar(`${f.name}: grande demais (máximo de 25 MB).`);
+        const imagem = /^image\/(png|jpe?g|gif|webp|bmp)$/.test(f.type);
+        // Print colado chega como "image.png": ganha um nome com a hora, para dar para diferenciar.
+        const agora = new Date();
+        const nome = colado && imagem ? `print-${String(agora.getHours()).padStart(2, '0')}${String(agora.getMinutes()).padStart(2, '0')}${String(agora.getSeconds()).padStart(2, '0')}${arquivos.length > 1 ? `-${i + 1}` : ''}.${f.type.split('/')[1].replace('jpeg', 'jpg')}` : f.name;
+        const a = { id: ++seqAnexo, nome, tamanho: f.size, imagem, previa: null, estado: 'enviando', caminho: null, novo: true };
+        anexos.push(a);
+        desenharAnexos();
+        if (imagem) {
+          a.previa = await miniatura(f);
+          desenharAnexos();
+        }
+        try {
+          const r = await fetch(`/api/anexo?nome=${encodeURIComponent(nome)}`, { method: 'POST', credentials: 'same-origin', body: f });
+          const j = await r.json();
+          if (!r.ok) throw new Error(j.erro || 'falhou');
+          Object.assign(a, { estado: 'pronto', caminho: j.caminho, url: j.url });
+        } catch (e) {
+          Object.assign(a, { estado: 'erro', erro: e.message === 'Failed to fetch' ? 'Sem conexão' : e.message });
+          avisar(`Não consegui anexar ${nome}: ${a.erro}`);
+        }
+        if (anexos.includes(a)) desenharAnexos();
+        ajustarAltura();
+      }),
+    );
     campo.focus();
   }
   anexar.addEventListener('click', () => escolherArquivo.click());
@@ -954,7 +1399,7 @@ function criarPainel(id, opts = {}) {
     const fs = [...(ev.clipboardData?.files || [])];
     if (fs.length) {
       ev.preventDefault();
-      anexarArquivos(fs);
+      anexarArquivos(fs, true);
     }
   });
 
@@ -1118,7 +1563,11 @@ function criarPainel(id, opts = {}) {
   function atualizar() {
     const s = sessao();
     const vista = modo === 'terminal' ? vistaTerminal : vistaConversa;
-    if (corpo.firstChild !== vista) corpo.replaceChildren(vista);
+    if (corpo.firstChild !== vista) {
+      const tinha = !!corpo.firstChild;
+      corpo.replaceChildren(vista);
+      if (tinha) animarEntrada(vista, 'entra-modo');
+    }
     segConversa.setAttribute('aria-selected', String(modo === 'conversa'));
     segTerminal.setAttribute('aria-selected', String(modo === 'terminal'));
     if (!s) {
@@ -1133,12 +1582,12 @@ function criarPainel(id, opts = {}) {
     raiz.style.setProperty('--cor', conta.cor);
     pista.style.setProperty('--cor', conta.cor);
     titulo.textContent = nomeDaSessao(s);
-    titulo.title = s.cwd || '';
+    dicaEm(titulo, s.cwd || '');
     const ondeTxt = [conta.nome, s.model, s.cwd].filter(Boolean).join(' · ');
     linha.replaceChildren(chipAgente(conta), el('span', { class: 'onde', text: ondeTxt, title: ondeTxt }));
     pista.definir(estadoDoPato(s));
     segTerminal.disabled = !S.desktop;
-    segTerminal.title = S.desktop ? (s.hosted ? 'Terminal de verdade desta sessão' : 'Esta sessão roda num terminal do computador') : 'Só no app do duckV para o computador';
+    dicaEm(segTerminal, S.desktop ? (s.hosted ? 'Terminal de verdade desta sessão' : 'Esta sessão roda num terminal do computador') : 'Só no app do duckV para o computador');
     if (area.visivel(id)) novasMsgs.delete(id);
 
     info.hidden = false;
@@ -1149,7 +1598,7 @@ function criarPainel(id, opts = {}) {
       const p = s.ctx.pct ?? 0;
       const b = barra(p, conta.cor);
       ctxCaixa.replaceChildren('Contexto ', el('b', { text: `${Math.round(p)}%` }), b);
-      ctxCaixa.title = `${compacto.format(s.ctx.in)} de ${compacto.format(s.ctx.size)} tokens da memória da conversa`;
+      dicaEm(ctxCaixa, `${compacto.format(s.ctx.in)} de ${compacto.format(s.ctx.size)} tokens da memória da conversa`);
     }
     const gastos = s.tokens.in + s.tokens.cw + s.tokens.out;
     gasto.hidden = !gastos;
@@ -1211,6 +1660,52 @@ function criarPainel(id, opts = {}) {
       mandar({ t: 'close', instance: id });
     },
   };
+}
+
+// ------------------------------------------------------------ acoes de uma conta
+// O mesmo menu aparece no clique direito da conta na lateral, no botao ⋯ ao lado dela e no cartao da visao geral.
+function menuDaConta(c) {
+  const ag = agenteDaConta(c);
+  const abertas = vivas(c.id).filter((s) => !s.login);
+  const itens = [
+    { texto: 'Nova sessão nesta conta', icone: 'plus', desligado: !S.host.available || c.instalado === false, acao: () => abrirNova({ conta: c.id }) },
+    ...(S.desktop ? [{ texto: 'Abrir no terminal do sistema', icone: 'arrow-square-out', acao: () => abrirNova({ conta: c.id, onde: 'sistema' }) }] : []),
+    { texto: 'Todas as conversas', icone: 'chats', acao: () => abrirHistorico(c.id) },
+    '-',
+    { texto: c.email ? 'Entrar com outro login' : 'Entrar nesta conta', icone: 'sign-in', desligado: c.padrao && ag.id === 'claude', acao: () => entrarNaConta(c) },
+  ];
+  if (c.email && !c.padrao && ag.podeSair) itens.push({ texto: 'Sair desta conta', icone: 'sign-out', perigo: true, acao: () => sairDaConta(c) });
+  if (abertas.some((s) => s.hosted)) itens.push({ texto: `Encerrar ${plural(abertas.filter((s) => s.hosted).length, 'sessão aberta', 'sessões abertas')}`, icone: 'power', perigo: true, acao: () => encerrarSessoesDa(c) });
+  itens.push('-', { texto: 'Ajustes da conta', icone: 'gear-six', acao: () => vista.mostrar('opcoes', 'contas') });
+  return itens;
+}
+
+// Fecha as sessoes que o duckV abriu nesta conta e espera o estado confirmar (ate 10 s).
+async function encerrarSessoesDa(c, perguntarAntes = true) {
+  const minhas = vivas(c.id).filter((s) => s.hosted && !s.login);
+  if (!minhas.length) return true;
+  if (perguntarAntes && !(await confirmar({ titulo: `Encerrar as sessões de ${c.nome}?`, texto: `${plural(minhas.length, 'sessão aberta pelo duckV fecha', 'sessões abertas pelo duckV fecham')} no computador. As conversas continuam em "Todas as conversas".`, sim: 'Encerrar', perigo: true }))) return false;
+  for (const s of minhas) mandar({ t: 'stop', instance: s.id });
+  for (let i = 0; i < 40 && vivas(c.id).some((s) => s.hosted && !s.login); i++) await new Promise((ok) => setTimeout(ok, 250));
+  return !vivas(c.id).some((s) => s.hosted && !s.login);
+}
+
+// Sair do login de uma conta: a conta, as conversas e as opcoes ficam; para usar de novo, e so entrar.
+async function sairDaConta(c) {
+  const abertas = vivas(c.id).filter((s) => !s.login);
+  const deFora = abertas.filter((s) => !s.hosted);
+  if (deFora.length) {
+    return confirmar({ titulo: `Feche as janelas de ${c.nome} antes`, texto: `${plural(deFora.length, 'sessão desta conta roda', 'sessões desta conta rodam')} numa janela de terminal do computador. Feche ${deFora.length === 1 ? 'essa janela' : 'essas janelas'} e tente de novo.`, sim: 'Entendi' });
+  }
+  const ok = await confirmar({
+    titulo: `Sair de ${c.nome}?`,
+    texto: `O login${c.email ? ` de ${c.email}` : ''} sai deste computador${abertas.length ? ` e ${plural(abertas.length, 'a sessão aberta fecha', 'as sessões abertas fecham')}` : ''}. A conta, as conversas e as opções continuam aqui: para usar de novo, é só entrar.`,
+    sim: 'Sair da conta',
+    perigo: true,
+  });
+  if (!ok) return;
+  if (abertas.length && !(await encerrarSessoesDa(c, false))) return avisar('Algumas sessões não fecharam. Tente de novo em instantes.');
+  mandar({ t: 'conta', op: 'sair', id: c.id }, (e) => avisar(e || `Você saiu de ${c.nome}`));
 }
 
 function abrirNoTerminalDoSistema(contaId, cwd) {
@@ -1306,6 +1801,7 @@ const area = (() => {
     }
     vista.mostrar('paineis');
     aplicar();
+    animarEntrada(novo.raiz, 'entra-painel');
     novo.iniciar();
     focar(novo);
     setTimeout(() => novo.focar(), 50);
@@ -1325,14 +1821,17 @@ const area = (() => {
     const novo = criar(id, modo);
     lista[j] = novo;
     aplicar();
+    animarEntrada(novo.raiz, 'entra-painel');
     novo.iniciar();
     focar(novo);
     salvar();
     desenhar();
   }
-  function fechar(raiz) {
+  async function fechar(raiz) {
     const p = lista.find((x) => x.raiz === raiz);
-    if (!p) return;
+    if (!p || p.saindo) return;
+    p.saindo = true;
+    await animarSaida(p.raiz, 'sai-painel');
     p.fechar();
     lista = lista.filter((x) => x !== p);
     if (foco === p) foco = lista[0] || null;
@@ -1420,23 +1919,19 @@ const lateral = (() => {
     const uso = el('span', { class: 'uso' }, usoTxt);
     const linhaConta = el('button', { class: 'conta-linha', type: 'button', 'aria-expanded': 'true' }, pato, el('span', { class: 'quem' }, el('span', { class: 'nome' }, nome), estado), uso);
     const sessoes = el('div', { class: 'sessoes-conta', role: 'list' });
-    const raizG = el('div', { class: 'grupo-conta', 'data-aberto': 'sim' }, linhaConta, sessoes);
+    const maisConta = el('button', { class: 'so-icone conta-mais', type: 'button', 'aria-label': `Ações de ${c.nome}`, title: 'Entrar, sair, encerrar sessões e ajustes', onclick: () => abrirMenu(maisConta, menuDaConta(c)) }, icone('dots-three', 18));
+    const raizG = el('div', { class: 'grupo-conta', 'data-aberto': 'sim' }, el('div', { class: 'conta-cabeca' }, linhaConta, maisConta), sessoes);
     linhaConta.addEventListener('click', () => {
       const aberto = raizG.dataset.aberto !== 'sim';
       raizG.dataset.aberto = aberto ? 'sim' : 'nao';
       linhaConta.setAttribute('aria-expanded', String(aberto));
       sessoes.hidden = !aberto;
+      if (aberto) animarEntrada(sessoes);
       guardarLocal('fechadas', aberto ? LOCAL.fechadas.filter((x) => x !== c.id) : [...LOCAL.fechadas, c.id]);
     });
     linhaConta.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
-      abrirMenu(linhaConta, [
-        { texto: 'Nova sessão nesta conta', icone: 'plus', acao: () => abrirNova({ conta: c.id }) },
-        ...(S.desktop ? [{ texto: 'Abrir no terminal do sistema', icone: 'arrow-square-out', acao: () => abrirNova({ conta: c.id, onde: 'sistema' }) }] : []),
-        { texto: 'Todas as conversas', icone: 'chats', acao: () => abrirHistorico(c.id) },
-        '-',
-        { texto: 'Ajustes da conta', icone: 'gear-six', acao: () => vista.mostrar('opcoes', 'contas') },
-      ]);
+      abrirMenu(linhaConta, menuDaConta(c));
     });
     if (LOCAL.fechadas.includes(c.id)) {
       raizG.dataset.aberto = 'nao';
@@ -1459,7 +1954,7 @@ const lateral = (() => {
       usoTxt.textContent = typeof u5?.pct === 'number' ? `${Math.round(u5.pct)}%` : '';
       uso.querySelector('.barra')?.remove();
       if (typeof u5?.pct === 'number') uso.append(barra(u5.pct, conta.cor));
-      uso.title = typeof u5?.pct === 'number' ? `Limite de 5 horas: ${Math.round(u5.pct)}% usado. ${textoDoReinicio(conta, 'five_hour', u5)}.` : 'Sem leitura do limite ainda';
+      dicaEm(uso, typeof u5?.pct === 'number' ? `Limite de 5 horas: ${Math.round(u5.pct)}% usado. ${textoDoReinicio(conta, 'five_hour', u5)}.` : 'Sem leitura do limite ainda');
       const ss = S.sessoes.filter((s) => s.account === conta.id && (s.status !== 'ended' || area.paineis().some((p) => p.id === s.id))).sort((a, b) => a.startedAt - b.startedAt);
       const focada = area.focado()?.id;
       const nova = JSON.stringify([ss.map((s) => [s.id, s.status, nomeDaSessao(s), oQueFaz(s), Math.round(s.ctx?.pct ?? -1), novasMsgs.has(s.id), area.visivel(s.id), s.id === focada]), S.host.available]);
@@ -1548,6 +2043,7 @@ const lateral = (() => {
 })();
 
 function alternarLateral() {
+  fecharMenu();
   const app = document.getElementById('app');
   const estreita = matchMedia('(max-width: 860px)').matches;
   const atual = app.dataset.lateral || (estreita ? 'fechada' : 'aberta');
@@ -1723,6 +2219,9 @@ function criarVisao() {
           el('button', { class: 'botao quieto pequeno', type: 'button', disabled: !S.host.available || conta.instalado === false, onclick: () => abrirNova({ conta: conta.id }) }, icone('plus', 16), 'Abrir sessão'),
           el('button', { class: 'botao texto pequeno', type: 'button', onclick: () => abrirHistorico(conta.id) }, 'Todas as conversas'),
           conta.instalado === false ? el('span', { class: 'p-nota', text: `${agenteDaConta(conta).nome} não está instalado` }) : null,
+          !conta.email && conta.instalado !== false ? el('button', { class: 'botao texto pequeno', type: 'button', onclick: () => entrarNaConta(conta) }, icone('sign-in', 16), 'Entrar nesta conta') : null,
+          el('span', { class: 'espaco' }),
+          el('button', { class: 'so-icone', type: 'button', 'aria-label': `Ações de ${conta.nome}`, title: 'Entrar, sair, encerrar sessões e ajustes', onclick: (ev) => abrirMenu(ev.currentTarget, menuDaConta(conta)) }, icone('dots-three', 20)),
         ].filter(Boolean),
       );
     }
@@ -1773,9 +2272,9 @@ function abrirNova(opts = {}) {
   const recentes = el('div', { class: 'chips' });
   const erroPasta = el('p', { class: 'erro', role: 'alert', hidden: true });
   const nome = el('input', { id: 'nova-nome', type: 'text', autocomplete: 'off', maxLength: 50, placeholder: 'Opcional' });
-  const modelo = el('select', { id: 'nova-modelo' });
-  const esforco = el('select', { id: 'nova-esforco' });
-  const modo = el('select', { id: 'nova-modo' });
+  const modelo = seletor({ id: 'nova-modelo' });
+  const esforco = seletor({ id: 'nova-esforco' });
+  const modo = seletor({ id: 'nova-modo' });
   const ajudaModo = el('p', { class: 'ajuda' });
   const ondeChips = el('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'Onde abrir' });
   const erroGeral = el('p', { class: 'erro', role: 'alert', hidden: true });
@@ -1830,9 +2329,9 @@ function abrirNova(opts = {}) {
     const p = c?.padroes || {};
     if (agenteAtual !== ag.id) {
       agenteAtual = ag.id;
-      modelo.replaceChildren(...ag.modelos.map((m) => el('option', { value: m.id, text: m.rotulo })));
-      esforco.replaceChildren(el('option', { value: '', text: 'Padrão' }), ...ag.esforcos.map((e) => el('option', { value: e.id, text: e.rotulo })));
-      modo.replaceChildren(...ag.modos.map((m) => el('option', { value: m.id, text: m.rotulo })));
+      modelo.definirOpcoes(ag.modelos.map((m) => ({ v: m.id, t: m.rotulo })));
+      esforco.definirOpcoes([{ v: '', t: 'Padrão' }, ...ag.esforcos.map((e) => ({ v: e.id, t: e.rotulo }))]);
+      modo.definirOpcoes(ag.modos.map((m) => ({ v: m.id, t: m.rotulo, apoio: MODOS_AJUDA[m.id] || '' })));
     }
     if (trocouConta) {
       if (p.model) modelo.value = p.model;
@@ -2105,6 +2604,14 @@ function verificarPareamento() {
   notificar('Um aparelho quer se conectar', `${p.nome}: digite os 4 números na janela do duckV.`);
 }
 
+function procurarTailscale(botao) {
+  botao.disabled = true;
+  mandar({ t: 'tailscaleConferir' }, (e, r) => {
+    botao.disabled = false;
+    avisar(e || (r.tailnet ? `Tailscale conectado: ${r.tailnet}. O código já foi atualizado.` : 'O Tailscale ainda não está conectado neste computador.'));
+  });
+}
+
 function criarCelulares() {
   const raiz = el('div', { class: 'pagina' });
   let marca = '';
@@ -2130,13 +2637,13 @@ function criarCelulares() {
               duasVezes(el('button', { class: 'botao perigo pequeno', type: 'button' }, el('span', { text: 'Desconectar' })), 'Desconectar', () => mandar({ t: 'aparelhoTirar', id: a.id }, (e) => avisar(e || `${a.nome} desconectado`))),
             ),
           )
-        : el('li', { class: 'p-nota', text: 'Nenhum celular conectado ainda.' }),
+        : el('li', { class: 'p-nota', text: 'Nenhum aparelho conectado ainda.' }),
     );
     raiz.replaceChildren(
       el(
         'div',
         { class: 'pagina-largura' },
-        el('div', null, el('h2', { class: 'titulo-pagina', text: 'Celulares' }), el('p', { class: 'sub', text: 'Acompanhe e comande as mesmas sessões pelo app duckV no Android.' })),
+        el('div', null, el('h2', { class: 'titulo-pagina', text: 'Celulares' }), el('p', { class: 'sub', text: 'Acompanhe e comande as mesmas sessões pelo app duckV no Android, ou pelo navegador no iPhone, no Mac e em outros computadores.' })),
         el(
           'section',
           { class: 'bloco' },
@@ -2155,13 +2662,45 @@ function criarCelulares() {
                 el('li', null, 'Aponte a câmera para o código ao lado.'),
                 el('li', null, 'O celular mostra ', el('b', { text: '4 números' }), ': esta janela vai pedir que você os digite.'),
               ),
-              dk.tailnet ? el('p', { class: 'ajuda', text: `Pelo Tailscale (${dk.tailnet}), o celular conecta de qualquer lugar.` }) : el('p', { class: 'ajuda', text: 'Sem o Tailscale, o celular só conecta pela rede deste computador. Instale o Tailscale no computador e no celular para usar de qualquer lugar.' }),
+              dk.tailnet
+                ? el('p', { class: 'ajuda', text: `Pelo Tailscale (${dk.tailnet}), o celular conecta de qualquer lugar.` })
+                : el(
+                    'div',
+                    { class: 'aviso-faixa neutra' },
+                    icone('warning-circle', 20),
+                    el(
+                      'div',
+                      null,
+                      el('b', { text: 'O Tailscale não está conectado neste computador' }),
+                      el('p', { text: 'Sem ele, este código só funciona aqui mesmo. Ligue o Tailscale (no computador e no celular, com a mesma conta): o duckV percebe sozinho em até 20 segundos e troca o código.' }),
+                      el('button', { class: 'botao texto pequeno', type: 'button', onclick: (ev) => procurarTailscale(ev.currentTarget) }, icone('arrows-clockwise', 16), 'Procurar o Tailscale agora'),
+                    ),
+                  ),
               el('p', { class: 'ajuda', text: 'O código muda depois de cada celular conectado. Não compartilhe a imagem.' }),
               el('div', { class: 'chips' }, el('button', { class: 'botao quieto pequeno', type: 'button', onclick: () => mandar({ t: 'parearNovoCodigo' }, (e) => avisar(e || 'Código novo gerado')) }, icone('arrows-clockwise', 16), 'Gerar outro código')),
             ),
           ),
         ),
-        el('section', { class: 'bloco' }, el('h3', { text: 'Celulares conectados' }), el('p', { class: 'ajuda', text: 'Cada celular tem a própria chave. Desconectar apaga a chave daquele aparelho na hora.' }), lista),
+        el(
+          'section',
+          { class: 'bloco' },
+          el('h3', { text: 'No navegador: Mac, iPhone ou outro computador' }),
+          el('p', { class: 'ajuda', text: 'O duckV também abre no navegador, sem instalar nada. No Mac e em outros computadores aparece esta mesma tela; no iPhone, a versão para celular.' }),
+          el(
+            'ol',
+            { class: 'passos' },
+            el('li', null, el('b', { text: 'iPhone: ' }), 'abra o app Câmera e aponte para o código acima. O link abre no Safari, que mostra 4 números para você digitar aqui. Depois, toque em Compartilhar e em ', el('b', { text: 'Adicionar à Tela de Início' }), ' para ter o ícone do duckV.'),
+            el('li', null, el('b', { text: 'Mac ou outro computador: ' }), 'copie o link abaixo e abra no navegador de lá (mande para você mesmo, por exemplo). Ele mostra 4 números para você digitar aqui.'),
+          ),
+          dk.tailnet ? null : el('p', { class: 'ajuda', text: 'Sem o Tailscale, o link só abre neste computador.' }),
+          el(
+            'div',
+            { class: 'chips' },
+            el('button', { class: 'botao quieto pequeno', type: 'button', onclick: () => navigator.clipboard.writeText(dk.link).then(() => avisar('Link copiado. Ele vale para um aparelho e muda depois de usado.'), () => avisar('Não consegui copiar o link.')) }, icone('copy', 16), 'Copiar link para um navegador'),
+          ),
+          el('p', { class: 'ajuda', text: 'O link sozinho não dá acesso: o aparelho só entra depois que você digita aqui os 4 números que aparecem nele.' }),
+        ),
+        el('section', { class: 'bloco' }, el('h3', { text: 'Aparelhos conectados' }), el('p', { class: 'ajuda', text: 'Cada aparelho tem a própria chave. Desconectar apaga a chave daquele aparelho na hora.' }), lista),
       ),
     );
   }
@@ -2180,7 +2719,7 @@ function criarOpcoes() {
   const caixaContas = el('section', { class: 'bloco', id: 'opcoes-contas' });
   const salvar = (msg, ok = 'Salvo') => mandar({ t: 'prefs', ...msg }, (erro) => avisar(erro || ok));
   const linhaSwitch = (titulo, apoio, marcado, aoMudar) => {
-    const c = el('input', { type: 'checkbox', class: 'interruptor', checked: !!marcado, onchange: () => aoMudar(c.checked), 'aria-label': titulo });
+    const c = interruptor(marcado, aoMudar, titulo);
     return el('label', { class: 'linha-opcao' }, el('span', { class: 't' }, el('b', { text: titulo }), apoio ? el('span', { text: apoio }) : null), c);
   };
   const chipsUnicos = (rotulo, opcoes, atual, aoEscolher) => {
@@ -2203,13 +2742,21 @@ function criarOpcoes() {
       cores.append(b);
     }
     const sel = (rotulo, opcoes, atual, chave) => {
-      const s = el('select', { 'aria-label': rotulo, onchange: () => salvar({ op: 'conta', id: c.id, padroes: { [chave]: s.value || null } }) }, opcoes.map(([v, t]) => el('option', { value: v, text: t, selected: String(v) === String(atual ?? '') })));
+      const s = seletor({ rotulo, opcoes, valor: atual ?? '', aoMudar: (v) => salvar({ op: 'conta', id: c.id, padroes: { [chave]: v || null } }) });
       return el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: rotulo }), s);
     };
     const pastaPadrao = el('input', { type: 'text', value: p.cwd || '', spellcheck: false, placeholder: S.host.home || '', 'aria-label': 'Pasta padrão' });
     pastaPadrao.addEventListener('change', () => salvar({ op: 'conta', id: c.id, padroes: { cwd: pastaPadrao.value } }));
     const entrar = el('button', { class: 'botao quieto pequeno', type: 'button', onclick: () => entrarNaConta(c) }, icone('sign-in', 16), c.email ? 'Entrar de novo' : 'Entrar nesta conta');
-    const remover = duasVezes(el('button', { class: 'botao perigo pequeno', type: 'button' }, icone('trash', 16), el('span', { text: 'Remover conta' })), 'Remover conta', () => mandar({ t: 'conta', op: 'remover', id: c.id }, (e) => avisar(e || 'Conta removida')));
+    const remover = el('button', {
+      class: 'botao perigo pequeno',
+      type: 'button',
+      onclick: async () =>
+        (await confirmar({ titulo: `Remover ${c.nome} do duckV?`, texto: 'A conta sai da lista e o atalho dela é apagado. O login e as conversas continuam na pasta da conta, no computador.', sim: 'Remover', perigo: true })) &&
+        mandar({ t: 'conta', op: 'remover', id: c.id }, (e) => avisar(e || 'Conta removida')),
+    }, icone('trash', 16), 'Remover conta');
+    const podeSair = c.email && !c.padrao && ag.podeSair;
+    const sair = podeSair ? el('button', { class: 'botao quieto pequeno', type: 'button', onclick: () => sairDaConta(c) }, icone('sign-out', 16), 'Sair desta conta') : null;
     const pato = miniPato('parado', c.cor);
     return el(
       'div',
@@ -2218,7 +2765,8 @@ function criarOpcoes() {
       el('div', { class: 'lado-a-lado' }, el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Nome' }), nome), el('div', { class: 'campo', style: 'grid-column: span 2' }, el('span', { class: 'rotulo', text: 'Cor' }), cores)),
       el('div', { class: 'lado-a-lado' }, sel('Modelo ao abrir', ag.modelos.map((m) => [m.id, m.rotulo]), p.model || 'default', 'model'), sel('Esforço', [['', 'Padrão'], ...ag.esforcos.map((e) => [e.id, e.rotulo])], p.effort || '', 'effort'), sel('Permissões', ag.modos.map((m) => [m.id, m.rotulo]), p.mode || ag.modos[0]?.id, 'mode')),
       el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Pasta padrão' }), pastaPadrao),
-      el('div', { class: 'chips' }, remover),
+      el('div', { class: 'chips' }, sair, remover),
+      c.padrao && c.email ? el('p', { class: 'ajuda', text: 'Esta conta usa o login de sempre deste computador. Para sair dela, use /logout no próprio agente.' }) : null,
     );
   }
   function desenharContas() {
@@ -2227,7 +2775,7 @@ function criarOpcoes() {
     if (caixaContas.contains(document.activeElement) && marcaContas) return;
     marcaContas = nova;
     const nomeNova = el('input', { type: 'text', maxLength: 30, placeholder: 'Nome da conta nova', 'aria-label': 'Nome da conta nova' });
-    const agNova = el('select', { 'aria-label': 'Agente da conta nova' }, (S.host.agentes || []).map((a) => el('option', { value: a.id, text: a.nome })));
+    const agNova = seletor({ rotulo: 'Agente da conta nova', opcoes: (S.host.agentes || []).map((a) => ({ v: a.id, t: a.nome, apoio: a.empresa })) });
     const add = el('form', { class: 'form-linha', noValidate: true }, nomeNova, agNova, el('button', { class: 'botao', type: 'submit' }, icone('user-plus', 18), 'Adicionar'));
     add.addEventListener('submit', (ev) => {
       ev.preventDefault();
@@ -2285,6 +2833,10 @@ function criarOpcoes() {
           el('h3', { text: 'Avisos' }),
           linhaSwitch('Avisos nesta janela', permissaoAvisos === 'denied' ? 'O sistema bloqueou os avisos desta janela.' : 'Quando a janela não está em foco: pedidos, perguntas e fim de tarefa.', LOCAL.avisos && permissaoAvisos !== 'denied', async (v) => {
             if (v && 'Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
+            if (v && 'Notification' in window && Notification.permission === 'denied') {
+              avisar('O sistema bloqueou os avisos desta janela. Libere nas configurações do navegador.');
+              return false;
+            }
             guardarLocal('avisos', v);
           }),
           el('p', { class: 'ajuda', text: 'Nos celulares conectados:' }),
@@ -2293,6 +2845,15 @@ function criarOpcoes() {
           linhaSwitch('Quando um limite reiniciar', null, a.reset, (v) => salvar({ op: 'avisos', reset: v })),
         ),
         el('section', { class: 'bloco' }, el('h3', { text: 'Mensagens rápidas' }), el('p', { class: 'ajuda', text: 'Botões acima da caixa de mensagem de cada sessão, aqui e no celular.' }), caixaRapidas, formR),
+        !JANELA_APP && window.duckvTrocarTela
+          ? el(
+              'section',
+              { class: 'bloco' },
+              el('h3', { text: 'Versão da tela' }),
+              el('p', { class: 'ajuda', text: 'Este navegador abre a versão para computador. Num celular ou numa janela estreita, a versão para celular fica mais confortável.' }),
+              el('div', { class: 'chips' }, el('button', { class: 'botao quieto pequeno', type: 'button', onclick: () => window.duckvTrocarTela('celular') }, icone('device-mobile', 16), 'Usar a versão para celular')),
+            )
+          : null,
         el(
           'section',
           { class: 'bloco' },
@@ -2343,7 +2904,7 @@ function entrarNaConta(c) {
 const vista = (() => {
   const titulo = el('span');
   const apoio = el('span', { class: 'apoio' });
-  const abrirLateral = el('button', { class: 'so-icone so-estreita', type: 'button', 'aria-label': 'Mostrar contas', onclick: alternarLateral }, icone('sidebar-simple', 20));
+  const abrirLateral = el('button', { class: 'so-icone so-estreita', type: 'button', 'aria-label': 'Mostrar a barra lateral', title: `Mostrar a barra lateral (${CTRL}+B)`, onclick: alternarLateral }, icone('sidebar-simple', 20));
   const layouts = el(
     'div',
     { class: 'layouts', role: 'group', 'aria-label': 'Layout dos painéis' },
@@ -2367,9 +2928,12 @@ const vista = (() => {
     atual: LOCAL.paineis?.length ? 'paineis' : 'visao',
     raiz,
     mostrar(nome, secao) {
+      fecharMenu();
+      const trocou = obj.atual !== nome || !corpo.firstChild;
       obj.atual = nome;
       if (nome === 'paineis') corpo.replaceChildren(area.paineis().length ? area.grade : vazio);
       else corpo.replaceChildren(telas[nome].raiz);
+      if (trocou) animarEntrada(corpo.firstChild, 'entra-tela');
       telas[nome]?.irPara?.(secao);
       if (matchMedia('(max-width: 860px)').matches) document.getElementById('app').dataset.lateral = 'fechada';
       desenhar();
@@ -2421,12 +2985,27 @@ function mostrarInteira(titulo, texto, extra) {
     telaInteira = el('div', { class: 'inteira' });
     document.body.append(telaInteira);
   }
+  const nova = telaInteira.dataset.titulo !== titulo;
+  telaInteira.dataset.titulo = titulo;
   telaInteira.replaceChildren(el('div', null, miniPato('dorme'), el('h1', { text: titulo }), el('p', { text: texto }), extra));
+  if (nova) animarEntrada(telaInteira.firstChild, 'entra-tela');
 }
 let montado = false;
 function desenhar() {
   if (!S.pareado) {
-    mostrarInteira('Esta janela não está conectada', 'Abra o duckV pelo app do computador. Se ele já está aberto num terminal, feche aquela janela e abra o app, ou continue pelo terminal.');
+    if (JANELA_APP) mostrarInteira('Esta janela não está conectada', 'Abra o duckV pelo app do computador. Se ele já está aberto num terminal, feche aquela janela e abra o app, ou continue pelo terminal.');
+    else
+      mostrarInteira(
+        'Este navegador ainda não foi conectado',
+        'Para usar o duckV aqui, ele precisa ser liberado no computador onde o duckV está ligado:',
+        el(
+          'ol',
+          { class: 'passos-inteira' },
+          el('li', null, 'No computador do duckV, abra a tela ', el('b', { text: 'Celulares' }), ' e clique em ', el('b', { text: 'Copiar link para um navegador' }), '. Pelo terminal, use o link que ele mostra ao ligar.'),
+          el('li', null, 'Abra esse link aqui. No iPhone, basta apontar a Câmera para o código da tela Celulares.'),
+          el('li', null, 'Este navegador mostra ', el('b', { text: '4 números' }), ': digite-os no computador para liberar.'),
+        ),
+      );
     return;
   }
   if (telaInteira && S.pronto) {

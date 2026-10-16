@@ -1,1 +1,1 @@
-Os icones do app (icone-192, icone-512, icone-mascara-512 e selo-96) foram gerados a partir do desenho do pato em pixels que esta em app/app.js, renderizado em um navegador. Nao usam imagens de terceiros.
+Os icones do app (icone-192, icone-512, icone-mascara-512, apple-touch-icon e desktop/build/icon.png) sao gerados por tools/icones.mjs a partir do desenho do pato em pixels do app (o mesmo de app/desktop.js), num squircle laranja. Para refazer: node tools/icones.mjs. selo-96 continua o de antes. Nao usam imagens de terceiros.

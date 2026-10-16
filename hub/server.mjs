@@ -15,7 +15,7 @@ import { ROOT, DATA, CONFIG_FILE, ACCOUNTS_FILE, ensureConfig, loadAccounts, def
 import { Tail, parseEntry, TaskTracker, scanWindowTokens } from './transcript.mjs';
 import { hostedAvailable, hostedError, startHosted, loginConta, folderAllowed, listFolders, readPrompt, readFooter } from './hosted.mjs';
 import * as previas from './previas.mjs';
-import { agenteDe, ehAgente, catalogo, instalado } from './agentes.mjs';
+import { agenteDe, ehAgente, catalogo, instalado, sairDaConta } from './agentes.mjs';
 import { listarComandos } from './comandos.mjs';
 import { criarAtualizacao } from './atualizacao.mjs';
 import { hostPermitido } from './rede.mjs';
@@ -235,6 +235,42 @@ function removerConta(id) {
   return null;
 }
 
+// Sair do login de uma conta, sem apagar a conta nem as conversas dela: o cartao passa a pedir
+// "Entrar nesta conta". As sessoes abertas daquela conta precisam ser encerradas antes.
+const contasSaindo = new Set();
+async function sairConta(id) {
+  const acc = accounts.get(id);
+  if (!acc) return 'Conta não encontrada.';
+  if (acc.padrao || !acc.dir) return 'Esta conta usa o login de sempre deste computador. Saia dela no próprio agente (no Claude Code, /logout).';
+  if ([...instances.values()].some((i) => i.account === id && i.status !== 'ended' && !i.login)) return 'Encerre as sessões desta conta antes de sair dela.';
+  if (contasSaindo.has(id)) return 'Já estou saindo desta conta.';
+  contasSaindo.add(id);
+  try {
+    logins.get(id)?.fechar();
+    logins.delete(id);
+    for (const i of instances.values()) if (i.login && i.account === id && i.hosted) i.hosted.kill();
+    const win = process.platform === 'win32';
+    // Os argumentos sao fixos (vem do adaptador do agente); nada do celular entra no comando.
+    const rodar = (bin, args, env) =>
+      new Promise((ok, falha) =>
+        execFile(win ? process.env.ComSpec || 'cmd.exe' : bin, win ? ['/d', '/c', bin, ...args] : args, { cwd: acc.dir, env: { ...process.env, ...env, BROWSER: 'none' }, timeout: 30_000, windowsHide: true }, (e) => (e ? falha(e) : ok())),
+      );
+    await sairDaConta(agenteDe(acc.agente), acc.dir, rodar);
+  } catch (e) {
+    return e.message;
+  } finally {
+    contasSaindo.delete(id);
+  }
+  acc.email = null;
+  acc.uuid = null;
+  acc.plano = null;
+  acc.usage = { erro: 'login', at: acc.usage?.at };
+  acc.tokens = null;
+  persistSoon();
+  dirty();
+  return null;
+}
+
 const remembered = saved.inst || {};
 // Pastas onde ja houve sessao: viram sugestoes ao abrir uma sessao pelo celular.
 let folders = Array.isArray(saved.folders) ? saved.folders.filter((f) => typeof f === 'string').slice(0, 20) : [];
@@ -394,6 +430,7 @@ function snapshot() {
       lastReset: a.lastReset,
       agente: a.agente || 'claude',
       instalado: instalado(agenteDe(a.agente)),
+      padrao: !!a.padrao,
     })),
     instances: [...instances.values()].map(pubInst),
     host: {
@@ -932,6 +969,9 @@ async function onPhoneMessage(c, m) {
       } else if (m.op === 'remover') {
         const err = removerConta(String(m.id || ''));
         send(c, err ? { t: 'err', ref: m.ref, msg: err } : { t: 'ack', ref: m.ref });
+      } else if (m.op === 'sair') {
+        const err = await sairConta(String(m.id || ''));
+        send(c, err ? { t: 'err', ref: m.ref, msg: err } : { t: 'ack', ref: m.ref });
       }
       break;
     }
@@ -961,6 +1001,16 @@ function onDesktopMessage(c, m) {
       ok();
       return true;
     // Gera outro QR: o anterior (e os pedidos feitos com ele) deixam de valer.
+    // "Procurar o Tailscale agora", na tela Celulares do app.
+    case 'tailscaleConferir':
+      conferirTailscale()
+        .then((r) => {
+          if (r.mudou) mostrarPareamento();
+          dirty();
+          ok({ tailnet: r.esquema ? r.host : null });
+        })
+        .catch(() => erro('Não consegui consultar o Tailscale.'));
+      return true;
     case 'parearNovoCodigo':
       CODIGO = crypto.randomBytes(24).toString('base64url');
       for (const p of pedidosPar.values()) if (p.estado === 'pendente') p.estado = 'negado';
@@ -2183,6 +2233,14 @@ async function esperarPareamento(espera) {
   return p.estado === 'ok' ? { estado: 'ok', chave: p.chave } : { estado: p.estado };
 }
 
+// Nome que aparece na lista de aparelhos para um navegador pareado ("Safari no iPhone", "Chrome no Mac").
+function nomeDoNavegador(ua = '') {
+  ua = String(ua);
+  const sistema = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : null;
+  const nav = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) && !/Edg\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Navegador';
+  return sistema ? `${nav} no ${sistema}` : 'Navegador';
+}
+
 const cookiePainel = (req, chave) =>
   `painel=${chave}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`;
 
@@ -2302,13 +2360,18 @@ const server = http.createServer(async (req, res) => {
   }
   try {
     if (p === '/parear' && req.method === 'GET') {
+      // Navegador que ja foi liberado antes (cookie valido) entra direto, sem gastar o codigo.
+      if (aparelhoDe(req)) {
+        res.writeHead(302, { ...SEC_HEADERS, Location: '/', 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       const k = url.searchParams.get('k') || '';
       if (!k || !safeEq(k, CODIGO)) {
         res.writeHead(403, { ...SEC_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('Codigo de pareamento invalido. Abra o link mostrado na janela do duckV, no computador.');
         return;
       }
-      const pd = pedirPareamento('Navegador');
+      const pd = pedirPareamento(nomeDoNavegador(req.headers['user-agent']));
       if (!pd) return json(res, 429, { erro: 'Pedidos demais. Responda os que estao na janela do duckV.' });
       if (pd.estado === 'ok') {
         pedidosPar.delete(pd.espera);
@@ -2400,7 +2463,33 @@ const server = http.createServer(async (req, res) => {
         fs.mkdirSync(pasta, { recursive: true });
         const caminho = path.join(pasta, nome);
         fs.writeFileSync(caminho, Buffer.concat(partes));
-        return json(res, 200, { caminho });
+        return json(res, 200, { caminho, url: `/api/anexo/${path.basename(pasta)}/${encodeURIComponent(nome)}` });
+      }
+      // Um anexo ja enviado, para a miniatura na conversa. So a pasta data/anexos, so nomes no formato
+      // que o proprio duckV cria; imagem comum abre na pagina, o resto (inclusive SVG) so baixa.
+      if (p.startsWith('/api/anexo/') && (req.method === 'GET' || req.method === 'HEAD')) {
+        const m = /^\/api\/anexo\/(\d{4}-\d{2}-\d{2}-[0-9a-f]{8})\/([^/]+)$/.exec(p);
+        let nome = null;
+        try {
+          nome = m && decodeURIComponent(m[2]);
+        } catch {
+          nome = null;
+        }
+        if (!m || !nome || !/^[\p{L}\p{N}._-]{1,80}$/u.test(nome) || /^[._]/.test(nome)) return json(res, 404, { erro: 'anexo' });
+        const raiz = path.join(DATA, 'anexos');
+        const f = path.join(raiz, m[1], nome);
+        if (!f.startsWith(raiz + path.sep) || !fs.existsSync(f) || !fs.statSync(f).isFile()) return json(res, 404, { erro: 'anexo' });
+        const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
+        const tipo = IMG[path.extname(nome).toLowerCase()];
+        res.writeHead(200, {
+          ...SEC_HEADERS,
+          'Content-Type': tipo || 'application/octet-stream',
+          'Content-Disposition': `${tipo ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(nome)}`,
+          'Content-Length': fs.statSync(f).size,
+          'Cache-Control': 'private, max-age=86400',
+        });
+        if (req.method === 'HEAD') return res.end();
+        return fs.createReadStream(f).pipe(res);
       }
       if (p === '/api/push/key' && req.method === 'GET') return json(res, 200, { key: cfg.vapid.publicKey });
       if (p === '/api/push/subscribe' && req.method === 'POST') {
@@ -2558,7 +2647,9 @@ function detectTailnet() {
         if (err) return next();
         tailscaleBin = bin;
         try {
-          const name = JSON.parse(stdout)?.Self?.DNSName;
+          const st = JSON.parse(stdout);
+          // Tailscale instalado mas desligado (ou sem login) ainda responde: so vale conectado.
+          const name = !st?.BackendState || st.BackendState === 'Running' ? st?.Self?.DNSName : null;
           resolve(name ? String(name).replace(/\.$/, '').toLowerCase() : null);
         } catch {
           next();
@@ -2603,21 +2694,64 @@ function mostrarPareamento() {
   console.log('Depois de escanear, o celular mostra 4 numeros: digite-os aqui nesta janela para liberar.\n');
 }
 
+// O Tailscale pode ser ligado (ou cair) com o duckV ja aberto: ele e conferido de novo a cada
+// 20 segundos enquanto nao aparece, e a cada minuto depois. Quando o endereco muda, o QR e o link
+// de pareamento mudam junto, no terminal e na janela do app.
+const baseLocal = () => (HOST === '0.0.0.0' && lanAddresses().length ? `http://${lanAddresses()[0]}:${PORT}` : `http://localhost:${PORT}`);
+let esquemaTailscale = null;
+let conferindoTailscale = null;
+function conferirTailscale() {
+  if (conferindoTailscale) return conferindoTailscale;
+  conferindoTailscale = (async () => {
+    const host = await detectTailnet();
+    // Hub de teste (pasta de dados propria) nao mexe no Tailscale de verdade.
+    const pode = !TESTE_PAREAMENTO && !process.env.PAINEL_DATA;
+    const esquema = host && pode ? (host === tailnetHost && esquemaTailscale ? esquemaTailscale : await publicarNoTailscale()) : null;
+    const antes = basePareamento;
+    tailnetHost = host;
+    esquemaTailscale = esquema;
+    basePareamento = host && esquema ? `${esquema}://${host}` : baseLocal();
+    return { mudou: antes !== basePareamento, host, esquema };
+  })().finally(() => (conferindoTailscale = null));
+  return conferindoTailscale;
+}
+function vigiarTailscale() {
+  setTimeout(async () => {
+    const r = await conferirTailscale().catch(() => null);
+    if (r?.mudou) {
+      console.log(r.esquema ? `\nTailscale conectado: o duckV agora abre em ${basePareamento}.\n` : '\nO Tailscale desconectou: por enquanto o duckV so abre neste computador.\n');
+      mostrarPareamento();
+      dirty();
+    }
+    vigiarTailscale();
+  }, esquemaTailscale ? 60_000 : 20_000).unref();
+}
+
 server.listen(PORT, HOST, async () => {
-  tailnetHost = await detectTailnet();
-  // Hub de teste (pasta de dados propria) nao mexe no Tailscale de verdade.
-  const esquema = tailnetHost && !TESTE_PAREAMENTO && !process.env.PAINEL_DATA ? await publicarNoTailscale() : null;
-  if (tailnetHost && esquema) basePareamento = `${esquema}://${tailnetHost}`;
-  else if (HOST === '0.0.0.0' && lanAddresses().length) basePareamento = `http://${lanAddresses()[0]}:${PORT}`;
+  const { host: achado, esquema } = await conferirTailscale();
+  vigiarTailscale();
   console.log('\nduckV ligado.\n');
   mostrarPareamento();
   if (!esquema && HOST !== '0.0.0.0') {
-    console.log(tailnetHost ? 'O Tailscale nao aceitou publicar o duckV; confira se ele esta conectado.' : 'Tailscale nao encontrado: por enquanto o duckV so abre neste computador.');
-    console.log('Instale o Tailscale no computador e no celular, entre com a mesma conta e abra o duckV de novo.\n');
+    console.log(achado ? 'O Tailscale nao aceitou publicar o duckV; confira se ele esta conectado.' : 'Tailscale nao encontrado: por enquanto o duckV so abre neste computador.');
+    console.log('Instale o Tailscale no computador e no celular e entre com a mesma conta. Quando ele conectar, o duckV percebe sozinho em ate 20 segundos e mostra um QR novo.\n');
   }
   console.log(`Contas: ${[...accounts.values()].map((a) => nomeDe(a)).join(', ')}`);
   console.log('Deixe esta janela aberta. Ctrl+C para desligar.\n');
+  if (argv.has('--abrir')) abrirNoNavegador();
 });
+
+// --abrir: abre o duckV no navegador deste computador (no Mac, que nao tem o app com janela propria).
+// Vai pelo link de pareamento: na primeira vez, o navegador mostra 4 numeros para digitar nesta janela;
+// depois disso ele ja tem a chave e o link so leva direto para a tela do duckV.
+function abrirNoNavegador() {
+  const link = `http://localhost:${PORT}/parear?k=${CODIGO}`;
+  const [bin, args] = process.platform === 'darwin' ? ['open', [link]] : process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', link]] : ['xdg-open', [link]];
+  execFile(bin, args, { windowsHide: true }, (e) => {
+    if (e) console.log(`Nao consegui abrir o navegador. Abra este link nele:\n${link}\n`);
+    else console.log('Abri o duckV no navegador. Na primeira vez, digite aqui os 4 numeros que aparecem nele.\n');
+  });
+}
 
 // Resumo de uma resposta para a lista de sessoes e os avisos: sem asteriscos, crases e titulos do markdown.
 function semMarkdown(t) {

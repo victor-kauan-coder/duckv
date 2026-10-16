@@ -32,6 +32,7 @@ O **duckV** junta num app só os agentes de código que rodam no seu computador,
 - [Agentes](#agentes)
 - [Começar em 3 passos](#começar-em-3-passos)
 - [No computador: app ou terminal](#no-computador-app-ou-terminal)
+- [No navegador: Mac, iPhone e outros computadores](#no-navegador-mac-iphone-e-outros-computadores)
 - [O que você precisa](#o-que-você-precisa)
 - [Telas](#telas)
 - [Uso no dia a dia](#uso-no-dia-a-dia)
@@ -137,7 +138,7 @@ O instalador:
 
 ## No computador: app ou terminal
 
-O duckV também tem uma janela própria para o computador (Windows e Linux), para comandar todas as contas e sessões sem a janela preta do terminal. O terminal continua funcionando do mesmo jeito: use o que preferir.
+O duckV também tem uma janela própria para o computador (Windows e Linux), para comandar todas as contas e sessões sem a janela preta do terminal. No Mac (e em qualquer outro computador), a mesma tela abre no navegador: veja [No navegador](#no-navegador-mac-iphone-e-outros-computadores). O terminal continua funcionando do mesmo jeito: use o que preferir.
 
 <div align="center">
 <img src="docs/imagens/13-app-computador.png" alt="App do duckV no computador: contas e sessões na lateral, conversa e terminal lado a lado" width="900">
@@ -159,6 +160,9 @@ O que o app faz:
 - **Busca rápida** (Ctrl+K): sessões, terminais, contas e comandos.
 - **Barra de status** com o uso de cada conta; um clique mostra os limites e os horários de reinício.
 - Fechar a janela deixa o duckV ligado na **bandeja**, perto do relógio; para desligar, use **Sair** no menu dela.
+- **Controles próprios, no tema do duckV**: menus suspensos, interruptores, confirmações e dicas ao parar o mouse são desenhados pelo app (nada do visual cinza padrão do navegador), com o mesmo teclado dos controles do sistema: setas, Enter, Esc e digitar o começo de uma opção para pular até ela.
+- **Movimento na troca de telas**: a tela nova surge com um leve deslize, painéis entram crescendo e saem encolhendo, diálogos sobem e descem. Com "reduzir movimento" ligado no sistema, a troca é direta.
+- **Barra lateral recolhível**: o botão no topo dela (ou **Ctrl+B**) recolhe; com ela recolhida, o mesmo botão aparece no topo da área principal para trazer de volta.
 
 <div align="center">
 <img src="docs/imagens/14-aviso-computador.png" alt="Aviso no canto da tela com Aceitar, Recusar e Abrir" width="400">
@@ -166,6 +170,22 @@ O que o app faz:
 
 > [!NOTE]
 > O app precisa do Node.js 22 ou mais novo no computador (o mesmo do duckV). Na primeira vez, ele baixa o Electron (cerca de 100 MB) para a pasta `desktop`. Se o duckV já estiver ligado num terminal, o app avisa e não derruba aquela janela: feche o terminal para usar o app, ou continue pelo terminal.
+
+## No navegador: Mac, iPhone e outros computadores
+
+O duckV também abre no navegador, sem instalar nada. Ele escolhe sozinho a tela certa: num computador (tela larga, com mouse ou trackpad) aparece a **mesma tela do app do computador**, com contas na lateral e painéis; num celular aparece a **versão para celular**. Dá para trocar a qualquer momento em **Opções › Versão da tela**.
+
+| Onde | Como abrir |
+|---|---|
+| **iPhone** | No computador do duckV, abra **Celulares** e aponte o app **Câmera** do iPhone para o código. O link abre no Safari, que mostra 4 números: digite-os no computador. Depois, toque em **Compartilhar › Adicionar à Tela de Início** para ter o ícone do duckV. |
+| **Mac com o duckV instalado nele** | Dois cliques em **duckV.command** (na Mesa) ou `./abrir-web.sh`. O duckV liga no Terminal e abre a tela dele no navegador; na primeira vez, digite no Terminal os 4 números que o navegador mostrar. |
+| **Mac ou outro computador acessando o duckV de outra máquina** | No computador do duckV, abra **Celulares › Copiar link para um navegador** e abra o link no navegador do outro computador (pelo Tailscale). Ele mostra 4 números para digitar no computador do duckV. |
+| **Windows ou Linux, no navegador em vez do app** | `abrir-web.cmd` (Windows) ou `./abrir-web.sh` (Linux). |
+
+- **Como app**: no iPhone, "Adicionar à Tela de Início" abre o duckV em tela cheia, com ícone próprio; no Chrome e no Edge do computador, use **Instalar duckV** (no menu do navegador); no Safari do Mac, **Arquivo › Adicionar ao Dock**.
+- **Avisos no iPhone**: o iOS só manda notificações de sites para um app **adicionado à Tela de Início** (iOS 16.4 ou mais novo) e aberto por **HTTPS** (ligue os certificados HTTPS no painel do Tailscale). Os botões Aceitar e Recusar na própria notificação existem só no app Android; no iPhone, o toque no aviso abre o pedido.
+- **O que o navegador não faz**: o terminal de verdade das sessões, o pareamento de outros aparelhos e as janelas de terminal do sistema ficam só no app do computador (a chave dele nunca sai do computador).
+- **Depois de parear**, abrir o link de novo leva direto para a tela do duckV, sem pedir os números outra vez. O código do link continua valendo para o próximo aparelho.
 
 ## O que você precisa
 
@@ -238,17 +258,27 @@ Em **Todas as conversas** ficam todas as conversas de cada conta, com o título 
 
 ### Anexos e imagens
 
-O clipe ao lado da caixa de mensagem envia arquivos do celular (até 10 por vez, com até 25 MB cada). Eles ficam numa pasta do duckV no computador, e a mensagem leva o caminho para o agente ler. Imagens da conversa (as que você colou, as que o agente abriu ou gerou) aparecem no chat e abrem em tela cheia.
+- **Colar um print**: no app do computador e no navegador, **Ctrl+V** (ou **⌘V**) com uma imagem copiada anexa a imagem. No app Android, quando há uma imagem copiada, aparece o botão **Colar imagem copiada** acima do campo (e a opção **Colar** no clipe).
+- **Prévia antes de enviar**: cada anexo aparece como miniatura (imagem) ou etiqueta com nome e tamanho (outro arquivo) acima da caixa de mensagem, com um **X** para tirar. Prints colados ganham um nome com a hora, como `print-142305.png`.
+- **Clipe e arrastar**: o clipe abre o seletor de arquivos (no celular: Câmera, Galeria/Fotos ou Arquivos); no computador, também dá para arrastar arquivos até a caixa. Até 10 por mensagem, 25 MB cada.
+- **Na conversa**: o arquivo sobe para a pasta `data/anexos` do duckV no computador e o caminho vai no fim da mensagem, um por linha, para o agente ler. A conversa **não mostra o caminho**: mostra a miniatura (um clique amplia) ou um cartão para baixar o arquivo. Vale igual no computador, no navegador e no Android.
+- Imagens que o agente abriu ou gerou também aparecem no chat e abrem em tela cheia.
 
 ### Pedidos de permissão
 
 Aparecem no topo da conta e como notificação, com o comando inteiro e três saídas: **aceitar**, **recusar** ou **recusar dizendo ao agente o que fazer no lugar**. Nas sessões abertas no computador, o pedido aparece também na janela, e vale a primeira resposta.
+
+**Na própria notificação do Android** (app 2.13): os botões **Aceitar** e **Recusar** respondem sem abrir o app, inclusive comandos de várias linhas, desde que o comando caiba inteiro na notificação (até 15 linhas e 900 letras); comando maior só se aceita dentro do app, vendo tudo. As perguntas das sessões (menus numerados do agente) viram até 3 botões na notificação. Responder exige desbloquear o celular. A notificação de fim de tarefa tem **Responder**, para escrever ali mesmo.
 
 ## Contas
 
 - **Adicionar uma conta:** no seletor de contas, toque em **Adicionar conta** e escolha o agente. O duckV cria a pasta, o atalho (e o canal, no Claude Code) e já abre a entrada na conta pelo celular.
 - **Entrar numa conta pelo celular:** toque em **Entrar nesta conta** (veja [Agentes](#agentes)). O duckV nunca vê sua senha.
 - **Agente não instalado:** o cartão da conta avisa. Rode o instalador de novo ou instale com `npm install -g` o pacote do agente.
+- **Sair de uma conta (logout):** no app do computador, no **⋯** ao lado da conta (na barra lateral ou no cartão da Visão geral) ou em **Opções › Contas › Sair desta conta**; no Android e no navegador do celular, em **Opções › Contas**. O duckV roda o comando de sair do próprio agente (`claude auth logout`, `codex logout`) e apaga o que sobrar do login **só dentro da pasta daquela conta** (no Gemini CLI, no OpenCode e no Cline, que não têm comando de sair, apaga os arquivos de login). A conta, as conversas e as opções continuam: para usar de novo, é só **Entrar nesta conta**. As sessões abertas pelo duckV naquela conta fecham antes (o app pergunta); sessões abertas numa janela de terminal precisam ser fechadas por lá. A conta "de sempre" do computador (sem pasta própria) não sai por aqui: use `/logout` no agente.
+- **Trocar de login:** **Sair desta conta** e depois **Entrar nesta conta** com o outro login, ou direto **Entrar com outro login** no menu ⋯.
+- **Encerrar todas as sessões de uma conta:** no menu **⋯** da conta.
+- **Remover conta:** tira a conta da lista e apaga o atalho dela; o login e as conversas ficam na pasta, no computador.
 - **Nome, cor e pato:** nas Opções, em Contas. Contas sem nome próprio aparecem com o começo do e-mail.
 
 ## Como funciona
@@ -295,7 +325,8 @@ O duckV comanda o seu computador, então a segurança foi pensada em camadas:
 - O texto digitado na tela do terminal passa pelo mesmo filtro.
 - Sessões só abrem dentro da sua pasta pessoal, em pastas que já tiveram sessão no computador, ou nas listadas em `pastasPermitidas` no arquivo `data/config.json`. Exemplo: `"pastasPermitidas": ["D:\\projetos"]`.
 - Aceitar um pedido ou responder uma sessão pela notificação exige desbloquear o celular. "Não perguntar de novo" pede um segundo toque.
-- Anexos vão só para celulares pareados, com até 25 MB cada, para a pasta `data/anexos`.
+- Anexos vão só para aparelhos pareados, com até 25 MB cada, para a pasta `data/anexos`. A miniatura volta por uma rota que só aceita nomes no formato que o próprio duckV cria, dentro dessa pasta (nada de `../`), só para aparelhos pareados; imagem comum abre como imagem e qualquer outro arquivo (inclusive SVG e HTML) só baixa, nunca abre como página.
+- Sair de uma conta só mexe dentro da pasta daquela conta: os comandos de sair vêm do adaptador do agente (nada digitado no celular entra neles) e os arquivos apagados são conferidos para estarem dentro da pasta.
 - Prévias e arquivos do projeto só abrem pelo app Android, nunca como página no navegador, para que um HTML de um projeto clonado não rode com a origem do duckV.
 - Mesmo com esses filtros, um celular pareado pode aceitar os pedidos dos agentes e mandar trabalho para eles. Trate o celular pareado como uma chave do seu computador: use bloqueio de tela e desparee aparelhos que você não usa mais.
 
@@ -312,6 +343,8 @@ O duckV comanda o seu computador, então a segurança foi pensada em camadas:
    - senão em **HTTP**, que dentro do Tailscale já viaja criptografado de ponta a ponta.
 
 Sem o Tailscale, o duckV só abre no próprio computador, em `http://localhost:8765`.
+
+**Ligou o Tailscale com o duckV já aberto?** Não precisa reiniciar: o duckV confere o Tailscale a cada 20 segundos enquanto ele não aparece (e a cada minuto depois). Quando ele conecta, o duckV se publica na rede, troca o QR e o link de pareamento e avisa no terminal. Na tela **Celulares** do app há também o botão **Procurar o Tailscale agora**. Se o Tailscale cair, o QR volta a apontar para este computador até ele voltar.
 
 ## Depois de reiniciar o computador
 
@@ -374,6 +407,9 @@ Toque nele para ver uma reação. De vez em quando ele faz uma gracinha por cont
 |---|---|
 | O app diz "Sem conexão" | Confira se a janela do duckV está aberta e se o Tailscale está ligado no celular. |
 | "Esse código não vale mais" | O código muda a cada vez que o duckV liga e depois de cada pareamento. Escaneie o código que está na janela agora. |
+| O celular não conecta pelo QR (o Tailscale foi ligado depois do duckV) | Espere até 20 segundos: o duckV percebe o Tailscale sozinho e troca o QR. Ou toque em **Procurar o Tailscale agora**, na tela Celulares, e escaneie o QR novo. |
+| O navegador mostra "Este navegador ainda não foi conectado" | Abra o link de pareamento nele (veja [No navegador](#no-navegador-mac-iphone-e-outros-computadores)) e digite no computador os 4 números. |
+| Sair da conta diz "Encerre as sessões desta conta" | Uma sessão daquela conta está aberta numa janela de terminal. Feche essa janela e tente de novo. |
 | O celular mostra os 4 números e nada acontece | Digite os números na janela do duckV, no computador, e aperte Enter. |
 | "A mensagem não chegou" numa sessão aberta no computador | A conta é de uma organização que desliga os canais. Abra a sessão pelo celular. |
 | A conta mostra "sem leitura" | Normal até a primeira resposta naquela conta. Gemini CLI, OpenCode e Cline não informam limite. |
@@ -398,11 +434,12 @@ duckv/
 ├── desktop/        app do computador (Electron): liga o servidor, janela, bandeja e aviso de pedidos
 ├── lib/            configuração e contas
 ├── tests/          bateria de testes (unidade, portabilidade, servidor, pareamento, sessões, segurança)
-├── tools/          modo demonstração
+├── tools/          modo demonstração (simular.mjs) e gerador dos ícones (icones.mjs)
 ├── .github/        testes automáticos no Windows, Linux e macOS a cada envio
 ├── setup.mjs       instalação: pastas das contas, ganchos, canal, atalhos e login
 ├── instalar.cmd    instalador (Windows)        instalar.sh      instalador (Linux e macOS)
-└── iniciar-duckv.cmd                           iniciar-duckv.sh
+├── iniciar-duckv.cmd                           iniciar-duckv.sh
+└── abrir-web.cmd   duckV no navegador          abrir-web.sh     (no Mac, é o que o duckV.command abre)
 ```
 
 </details>

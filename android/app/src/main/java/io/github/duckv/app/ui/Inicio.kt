@@ -32,6 +32,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.rounded.NotificationsActive
@@ -167,6 +169,12 @@ fun Inicio(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Logo(Modifier.weight(1f))
+                // conta aberta: uma pilula compacta no canto (pato, nome e seta); o menu traz todas as contas
+                if (e != null && contas.isNotEmpty()) {
+                    SeletorConta(e, contas, pager.currentPage, agora, Modifier.padding(end = 2.dp), aoNovaConta = { criando = true }) { i ->
+                        escopo.launch { pager.animateScrollToPage(i) }
+                    }
+                }
                 // arquivos que o computador mandou; o ponto conta os que ainda nao foram baixados
                 if (e != null) {
                     androidx.compose.runtime.LaunchedEffect(Unit) { Baixados.carregar(ctx) }
@@ -175,10 +183,10 @@ fun Inicio(
                     IconButton({ verArquivos = true }) {
                         androidx.compose.material3.BadgedBox(badge = {
                             if (novos > 0) androidx.compose.material3.Badge(containerColor = c.primario, contentColor = c.noPrimario) { Text("$novos") }
-                        }) { Icon(Icons.Rounded.Download, if (novos > 0) "Arquivos do computador, $novos novos" else "Arquivos do computador", tint = c.apoio) }
+                        }) { Icon(Icons.Outlined.Download, if (novos > 0) "Arquivos do computador, $novos novos" else "Arquivos do computador", tint = c.apoio) }
                     }
                 }
-                IconButton(aoOpcoes) { Icon(Icons.Rounded.Settings, "Opções", tint = c.apoio) }
+                IconButton(aoOpcoes) { Icon(Icons.Outlined.Settings, "Opções", tint = c.apoio) }
             }
 
             if (ligado != true) Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -210,9 +218,6 @@ fun Inicio(
             Saudacao(e, agora, pato, Modifier.padding(start = 12.dp, end = 16.dp, top = 2.dp, bottom = 10.dp))
 
             // contas: uma fileira de chips, cada um com o patinho da conta; deslizar a tela tambem troca
-            SeletorConta(e, contas, pager.currentPage, agora, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), aoNovaConta = { criando = true }) { i ->
-                escopo.launch { pager.animateScrollToPage(i) }
-            }
             // outra conta pedindo voce: aparece em cima, no tom de "precisa de voce", a um toque
             val outras = contas.withIndex().filter { (i, o) -> i != pager.currentPage && estadoDaConta(e, o, agora).bicho == "pede" }
             if (outras.isNotEmpty()) {
@@ -235,8 +240,11 @@ fun Inicio(
 
             HorizontalPager(pager, Modifier.fillMaxSize(), key = { contas.getOrNull(it)?.id ?: it }, beyondViewportPageCount = 1) { i ->
                 val conta = contas.getOrNull(i) ?: return@HorizontalPager
+                val rolagem = rememberScrollState()
+                val rolou by androidx.compose.animation.core.animateFloatAsState(if (rolagem.value > 4) 1f else 0f, label = "borda")
+                Box(Modifier.fillMaxSize()) {
                 Column(
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 8.dp, bottom = 104.dp).navigationBarsPadding(),
+                    Modifier.fillMaxSize().verticalScroll(rolagem).padding(top = 8.dp, bottom = 104.dp).navigationBarsPadding(),
                 ) {
                     CartaoConta(e, conta, agora, pato, Modifier.padding(horizontal = 16.dp))
                     // conta sem login: um toque para entrar, sem abrir o computador
@@ -287,6 +295,13 @@ fun Inicio(
                     if (!e.host.disponivel) {
                         Text("Abrir sessões pelo celular está desligado: o computador não conseguiu carregar o terminal virtual. Rode a instalação de novo.", style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(16.dp))
                     }
+                }
+                    // borda de cima: linha fina e um esmaecido curto, so depois de rolar
+                    Box(
+                        Modifier.fillMaxWidth().height(14.dp).graphicsLayer { alpha = rolou }
+                            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(c.fundo, c.fundo.copy(alpha = 0f)))),
+                    )
+                    Box(Modifier.fillMaxWidth().height(1.dp).graphicsLayer { alpha = rolou }.background(c.linha))
                 }
             }
         }
@@ -342,32 +357,29 @@ private fun SeletorConta(e: Estado, contas: List<Conta>, atual: Int, agora: Long
     val est = estadoDaConta(e, conta, agora)
     var aberto by remember { mutableStateOf(false) }
     val giro by androidx.compose.animation.core.animateFloatAsState(if (aberto) 180f else 0f, androidx.compose.animation.core.tween(220), label = "seta")
-    // outra conta precisa de voce: o seletor avisa mesmo fechado
+    // outra conta precisa de voce: a pilula avisa com um ponto, mesmo fechada
     val outraPede = contas.withIndex().any { (i, o) -> i != atual && estadoDaConta(e, o, agora).bicho == "pede" }
-    val densidade = androidx.compose.ui.platform.LocalDensity.current
-    var largura by remember { mutableStateOf(0) }
     Box(modifier) {
         Row(
-            Modifier.fillMaxWidth().onGloballyPositioned { largura = it.size.width }
-                .clip(RoundedCornerShape(16.dp)).background(if (aberto) c.elevada else c.cartao)
+            Modifier.clip(CircleShape).background(if (aberto) c.elevada else c.cartao)
                 .clickable(role = Role.DropdownList, onClickLabel = "Trocar de conta") { aberto = true }
-                .heightIn(min = 64.dp).padding(start = 10.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+                .semantics { contentDescription = "Conta: ${conta.nome}, ${est.texto}${if (outraPede) ". Outra conta precisa de você" else ""}" }
+                .height(40.dp).padding(start = 4.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val ag = e.agente(conta.agente)
-            Box(Modifier.size(40.dp).clip(CircleShape).background(c.fundo), contentAlignment = Alignment.Center) { AgenteIcone(ag, 20.dp) }
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(conta.nome, style = Texto.conta, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(if (conta.semLogin) "${ag.nome} · saiu do login" else ag.nome, style = Texto.pequeno, color = if (conta.semLogin) c.perigo else c.apoio, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (outraPede) Box(Modifier.padding(end = 10.dp).size(8.dp).clip(CircleShape).background(c.perigo).semantics { contentDescription = "Outra conta precisa de você" })
             Box(Modifier.size(32.dp).clip(CircleShape).background(c.fundo), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.KeyboardArrowDown, null, tint = c.texto, modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = giro })
+                Pato(est.bicho, "parado", Color(conta.cor), Modifier.size(width = 30.dp, height = 24.dp), andar = false, tocavel = false, tipo = conta.pato)
             }
+            Text(
+                conta.nome, style = Texto.rotulo, color = c.texto, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 8.dp).widthIn(max = 112.dp),
+            )
+            if (outraPede) Box(Modifier.padding(start = 6.dp).size(8.dp).clip(CircleShape).background(c.perigo))
+            Icon(Icons.Rounded.KeyboardArrowDown, null, tint = c.apoio, modifier = Modifier.padding(start = 2.dp).size(20.dp).graphicsLayer { rotationZ = giro })
         }
         androidx.compose.material3.DropdownMenu(
             aberto, { aberto = false },
-            Modifier.width(with(densidade) { largura.toDp() }).padding(horizontal = 8.dp),
+            Modifier.width(328.dp).padding(horizontal = 8.dp),
             offset = androidx.compose.ui.unit.DpOffset(0.dp, 6.dp),
             shape = RoundedCornerShape(20.dp), containerColor = c.elevada,
         ) {
@@ -716,7 +728,13 @@ private fun LinhaSessao(s: Sessao, cor: Color, aoTocar: () -> Unit) {
                 Modifier.fillMaxSize().clip(CircleShape)
                     .background(if (pede) c.fundo else cor.copy(alpha = if (c.escuro) 0.24f else 0.18f).compositeOver(c.cartao)),
                 contentAlignment = Alignment.Center,
-            ) { Text(s.titulo.take(1).uppercase(), style = Texto.conta, color = c.texto) }
+            ) {
+                // o patinho da conta no lugar de uma letra: e o que da identidade ao duckV
+                Pato(
+                    estado = if (pede) "pede" else if (s.status == "working") "trabalha" else if (!s.viva) "dorme" else "parado",
+                    modo = "calmo", cor = cor, modifier = Modifier.size(34.dp), andar = false, tocavel = false,
+                )
+            }
             Box(
                 Modifier.align(Alignment.BottomEnd).size(14.dp).clip(CircleShape).background(if (pede) c.invFundo else c.cartao).padding(2.dp),
                 contentAlignment = Alignment.Center,

@@ -21,8 +21,8 @@ const git = (args) => {
     return null;
   }
 };
-const SH = ['iniciar-duckv.sh', 'instalar.sh', 'testar.sh', 'demonstracao.sh', 'desinstalar.sh'];
-const CMD = ['iniciar-duckv.cmd', 'instalar.cmd', 'testar.cmd', 'demonstracao.cmd', 'desinstalar.cmd'];
+const SH = ['iniciar-duckv.sh', 'abrir-web.sh', 'instalar.sh', 'testar.sh', 'demonstracao.sh', 'desinstalar.sh'];
+const CMD = ['iniciar-duckv.cmd', 'abrir-web.cmd', 'instalar.cmd', 'testar.cmd', 'demonstracao.cmd', 'desinstalar.cmd'];
 for (const f of SH) {
   const b = fs.readFileSync(path.join(ROOT, f), 'utf8');
   ok(b.startsWith('#!/bin/sh\n') && !b.includes('\r'), `${f}: comeca com #!/bin/sh e usa quebra de linha Unix`);

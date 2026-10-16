@@ -72,6 +72,49 @@ ok(!!client.getInstructions(), 'canal envia instrucoes');
 await sleep(800);
 ok(state?.instances.some((i) => i.id === 'conta2-teste' && i.account === 'conta2' && i.canSend), 'sessao aparece no painel como controlavel');
 
+// --- anexos: a miniatura volta por uma rota propria, e nada fora da pasta de anexos sai por ela
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const subiu = await (await fetch(`${base}/api/anexo?nome=print.png`, { method: 'POST', headers: { cookie }, body: PNG })).json();
+ok(/^\/api\/anexo\/\d{4}-\d{2}-\d{2}-[0-9a-f]{8}\/print\.png$/.test(subiu.url || '') && fs.existsSync(subiu.caminho || ''), 'anexo enviado devolve o caminho e o endereco da miniatura');
+const mini = await fetch(base + subiu.url, { headers: { cookie } });
+ok(mini.status === 200 && mini.headers.get('content-type') === 'image/png' && Buffer.from(await mini.arrayBuffer()).equals(PNG), 'miniatura do anexo e servida como imagem');
+ok((await fetch(base + subiu.url)).status === 401, 'miniatura do anexo exige pareamento');
+const pagina = await (await fetch(`${base}/api/anexo?nome=pagina.html`, { method: 'POST', headers: { cookie }, body: '<script>alert(1)</script>' })).json();
+const baixa = await fetch(base + pagina.url, { headers: { cookie } });
+ok(baixa.headers.get('content-type') === 'application/octet-stream' && /^attachment/.test(baixa.headers.get('content-disposition') || ''), 'anexo que nao e imagem so baixa, nunca abre como pagina');
+const pastaAnexo = subiu.url.split('/')[3];
+fs.writeFileSync(path.join(TMP, 'segredo.txt'), 'nao pode sair');
+for (const t of ['/api/anexo/..%2f..%2fconfig.json', `/api/anexo/${pastaAnexo}/..%2f..%2fsegredo.txt`, `/api/anexo/${pastaAnexo}/..%5c..%5csegredo.txt`, '/api/anexo/2026-01-01-zzzzzzzz/print.png', `/api/anexo/${pastaAnexo}/.oculto`, `/api/anexo/${pastaAnexo}/nao-existe.png`]) {
+  ok((await fetch(base + t, { headers: { cookie } })).status === 404, `anexo fora do formato e recusado: ${t}`);
+}
+
+// --- navegador ja pareado: o link de pareamento leva direto para a tela, sem gastar o codigo nem pedir de novo
+const denovo = await fetch(`${base}/parear?k=qualquer-coisa`, { headers: { cookie }, redirect: 'manual' });
+ok(denovo.status === 302 && denovo.headers.get('location') === '/' && !denovo.headers.get('set-cookie'), 'navegador ja pareado entra direto pelo link');
+
+// --- sair de uma conta: apaga o login da pasta da conta e mantem o resto
+const pedirWs = (m) => new Promise((r) => {
+  const ref = 900 + Math.floor(Math.random() * 1e6);
+  phone.send(JSON.stringify({ ...m, ref }));
+  const t0 = Date.now();
+  const v = setInterval(() => {
+    const achou = got.find((x) => x.ref === ref);
+    if (achou || Date.now() - t0 > 45000) (clearInterval(v), r(achou || { t: 'tempo' }));
+  }, 100);
+});
+const c3 = path.join(TMP, 'c3');
+fs.mkdirSync(c3, { recursive: true });
+fs.writeFileSync(path.join(c3, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'x' } }));
+fs.writeFileSync(path.join(c3, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'teste@exemplo.com' }, outraCoisa: 1 }));
+const saiu = await pedirWs({ t: 'conta', op: 'sair', id: 'conta3' });
+const resto = JSON.parse(fs.readFileSync(path.join(c3, '.claude.json'), 'utf8'));
+ok(saiu.t === 'ack' && !fs.existsSync(path.join(c3, '.credentials.json')) && !resto.oauthAccount && resto.outraCoisa === 1, 'sair da conta apaga o login e mantem as outras configuracoes');
+await sleep(300);
+ok(state.accounts.find((a) => a.id === 'conta3')?.usage?.erro === 'login', 'depois de sair, a conta aparece pedindo para entrar');
+const comSessao = await pedirWs({ t: 'conta', op: 'sair', id: 'conta2' });
+ok(comSessao.t === 'err' && /Encerre as sessões/.test(comSessao.msg), 'sair de uma conta com sessao aberta pede para encerrar antes');
+ok((await pedirWs({ t: 'conta', op: 'sair', id: 'nao-existe' })).t === 'err', 'sair de uma conta que nao existe da erro');
+
 // --- historico + linha de status + eventos
 const tfile = path.join(TMP, 'sess-1.jsonl');
 const line = (o) => fs.appendFileSync(tfile, JSON.stringify(o) + '\n');

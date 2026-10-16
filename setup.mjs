@@ -317,7 +317,9 @@ if (remover) {
   // O app com janela propria (Electron) acha esta pasta por aqui, mesmo instalado em outro lugar.
   fs.mkdirSync(path.join(os.homedir(), '.duckv'), { recursive: true });
   fs.writeFileSync(path.join(os.homedir(), '.duckv', 'instalacao.json'), JSON.stringify({ pasta: ROOT }, null, 2));
-  if (await pergunta('\nInstalar o app do duckV com janela propria (contas, sessoes e terminal numa janela so)? O terminal continua funcionando.')) {
+  // No Mac o duckV abre no navegador (o app com janela propria e so para Windows e Linux).
+  if (MAC) console.log('\nNo Mac, o duckV abre no navegador: o atalho da Mesa liga o duckV e abre a tela dele. Na primeira vez, digite no Terminal os 4 numeros que o navegador mostrar.');
+  else if (await pergunta('\nInstalar o app do duckV com janela propria (contas, sessoes e terminal numa janela so)? O terminal continua funcionando.')) {
     if (rodar(`npm install --prefix "${path.join(ROOT, 'desktop')}" --no-fund --no-audit`)) console.log(criarAtalhoApp(ROOT));
     else console.log(`Nao consegui instalar o app agora. Ele se instala sozinho na primeira vez que voce abrir ${path.basename(lancadorApp(ROOT))}.`);
   }

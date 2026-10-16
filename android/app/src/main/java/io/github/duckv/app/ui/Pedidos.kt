@@ -23,6 +23,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.OutlinedTextField
@@ -145,11 +149,16 @@ fun CartaoPedido(conta: Conta, s: Sessao, p: Perm) {
             Botao("Recusar", { responder(false) }, Modifier.weight(1f), Icons.Rounded.Close, Peso.Invertido, !ocupado)
             Botao("Aceitar", { responder(true) }, Modifier.weight(1f), Icons.Rounded.Check, Peso.Principal, !ocupado)
         }
-        Text(
-            if (comRecado) "Cancelar recado" else "Recusar e dizer o que fazer",
-            style = Texto.rotulo, color = c.invTexto, textDecoration = TextDecoration.Underline,
-            modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { comRecado = !comRecado }.padding(vertical = 6.dp),
-        )
+        // botao de texto do Material (no lugar de um link sublinhado)
+        androidx.compose.material3.TextButton(
+            { comRecado = !comRecado },
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            modifier = Modifier.heightIn(min = 48.dp).offset(x = (-12).dp),
+            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = c.invTexto),
+        ) {
+            Icon(if (comRecado) Icons.Rounded.Close else Icons.Rounded.Edit, null, Modifier.size(18.dp))
+            Text(if (comRecado) "Cancelar recado" else "Recusar e dizer o que fazer", style = Texto.rotulo, modifier = Modifier.padding(start = 8.dp))
+        }
         AnimatedVisibility(comRecado) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
