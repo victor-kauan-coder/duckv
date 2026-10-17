@@ -216,7 +216,12 @@ export async function juntarPato(id, conta, { nome } = {}) {
   if (contagem.ok && numero(contagem.saida) === 0) {
     return { err: `${quem} ainda não commitou nada no branch ${pato.branch}. Não há o que juntar.` };
   }
-  const merge = await git(eq.raiz, ['merge', '--no-ff', '-m', `duckV: junta ${quem} (${pato.branch})`, pato.branch]);
+  // O commit de merge precisa de autor: sem nome e e-mail configurados no git (computador novo, VPS),
+  // ele sai como "duckV" em vez de falhar. Com identidade configurada, vale a da pessoa.
+  const temNome = (await git(eq.raiz, ['config', 'user.name'])).saida.trim();
+  const temEmail = (await git(eq.raiz, ['config', 'user.email'])).saida.trim();
+  const autor = temNome && temEmail ? [] : ['-c', `user.name=${temNome || 'duckV'}`, '-c', `user.email=${temEmail || 'duckv@localhost'}`];
+  const merge = await git(eq.raiz, [...autor, 'merge', '--no-ff', '-m', `duckV: junta ${quem} (${pato.branch})`, pato.branch]);
   if (!merge.ok) {
     const brigaram = await git(eq.raiz, ['diff', '--name-only', '--diff-filter=U']);
     const arquivos = brigaram.saida.split('\n').filter((l) => l.trim());
