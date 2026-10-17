@@ -72,13 +72,21 @@ fs.rmSync(soDoArquivo, { recursive: true, force: true });
 // a pagina web do celular: o chip "Todas as contas" e o cartao da equipe no inicio
 const paginaJs = fs.readFileSync(path.join(ROOT, 'app/app.js'), 'utf8');
 const paginaCss = fs.readFileSync(path.join(ROOT, 'app/style.css'), 'utf8');
-ok(/mandar\(\{ t: 'equipe', cwd, texto \}/.test(paginaJs), 'a pagina web manda equipe com a pasta e a tarefa');
+ok(/mandar\(\{ t: 'equipe', cwd, texto, isolar \}/.test(paginaJs), 'a pagina web manda equipe com a pasta, a tarefa e a copia por pato');
 ok(/Escreva o que a equipe deve fazer/.test(paginaJs) && /Abrir com \$\{contasDaEquipe\(\).length\} contas/.test(paginaJs), 'a tarefa e obrigatoria e o botao diz quantas contas entram');
 ok(/time.length >= 2/.test(paginaJs) && /patos-equipe/.test(paginaJs), 'o chip so aparece com duas contas ou mais, com os patinhos delas');
 ok(/equipesVivas|blocoEquipe/.test(paginaJs) && paginaCss.includes('.equipe-pista'), 'o inicio tem o cartao da equipe com a pista dos patos');
 ok(/fazNaEquipe/.test(paginaJs) && /equipe-faz/.test(paginaJs), 'cada pato da equipe leva o estado escrito embaixo');
 ok(paginaCss.includes("data-pato='nenhum'") && paginaCss.includes('prefers-reduced-motion'), 'a pista respeita "Sem pato" e o movimento reduzido');
 ok(!/[\u2013\u2014]/.test(paginaJs.match(/'[^']*'/g).join('')), 'nenhum travessao no texto da pagina web');
+
+// A copia por pato e o resultado da equipe na pagina web: o interruptor ao abrir, e o painel com o
+// branch, os commits e as linhas de cada um, com juntar e limpar.
+ok(/Uma cópia por pato/.test(paginaJs) && /campoCopia\.hidden = !time/.test(paginaJs), 'a pagina web oferece a copia por pato so quando a escolha e a equipe');
+ok(/t: 'equipeResultado'/.test(paginaJs) && /t: 'equipeJuntar'/.test(paginaJs) && /t: 'equipeLimpar'/.test(paginaJs), 'a pagina web le o resultado, junta um pato e limpa a equipe');
+ok(/MOTIVO_SEM_COPIA/.test(paginaJs) && /'nao-git'/.test(paginaJs), 'sem copias, a pagina web explica por que todos usam os mesmos arquivos');
+ok(/confirmarNoCelular\(\{[\s\S]{0,80}Limpar a equipe/.test(paginaJs), 'limpar a equipe pergunta antes no celular');
+ok(paginaCss.includes('.equipe-patos li + li') && !/\.equipe-patos li \{[^}]*background:/.test(paginaCss), 'os patos do resultado sao linhas com um fio, nao cartao dentro de cartao');
 
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'oi' })).t === 'err', 'tarefa curta demais e recusada');
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'x'.repeat(8001) })).t === 'err', 'tarefa longa demais e recusada');

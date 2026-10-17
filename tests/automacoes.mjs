@@ -101,6 +101,20 @@ t = em(20, 9, 0);
 const B2 = novo('b.json');
 ok(B2.historico(b.id).historico[0]?.perdida === true && abertas.length === 2, 'ligar depois da hora (o duckV estava desligado) anota perdida e não roda');
 
+// ---------------------------------------------------------------- as telas
+// O que as telas precisam ter: a pagina web e o app do computador falam as mesmas mensagens e escrevem
+// os mesmos estados (proxima, perdida, pausada), sem travessao no texto.
+const paginaJs = fs.readFileSync(path.join(ROOT, 'app/app.js'), 'utf8');
+const janelaJs = fs.readFileSync(path.join(ROOT, 'app/desktop.js'), 'utf8');
+for (const [onde, js] of [['a pagina web', paginaJs], ['a janela do computador', janelaJs]]) {
+  ok(["'automacoes'", "t: 'automacaoCriar'", "t: 'automacaoEditar'", "t: 'automacaoApagar'", "t: 'automacaoPausar'", "t: 'automacaoRodar'", "t: 'automacaoHistorico'"].every((m) => js.includes(m)), `${onde} fala todas as mensagens das automacoes`);
+  ok(/o computador estava desligado/.test(js) && /Ainda não rodou/.test(js), `${onde} escreve a execucao perdida e a que nunca rodou`);
+  ok(/Todo dia/.test(js) && /Dias úteis/.test(js) && /Uma vez por semana/.test(js) && /Cron/.test(js), `${onde} oferece os tres presets e o cron`);
+  ok(/Automática/.test(js), `${onde} deixa a conta automatica`);
+}
+ok(!/[\u2013\u2014]/.test((paginaJs.match(/'[^']*'/g) || []).join('')), 'nenhum travessao no texto da pagina web');
+ok(/location.hash = '#\/automacoes'/.test(paginaJs), 'as Opcoes da pagina web levam as automacoes');
+
 // ---------------------------------------------------------------- ida e volta pelo servidor
 const require = createRequire(path.join(ROOT, 'x.js'));
 const WebSocket = (await import(pathToFileURL(require.resolve('ws')).href)).default;

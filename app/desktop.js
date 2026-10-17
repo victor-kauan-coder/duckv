@@ -2447,7 +2447,8 @@ Clique para abrir; ${CTRL}+clique abre ao lado.`);
     raiz,
     atualizar(g) {
       ids = g.sessoes.map((s) => s.id);
-      const onde = pasta(g.sessoes[0]?.cwd);
+      // Isolada, cada sessao abre na copia dela: a pasta que a tela mostra e sempre a do projeto.
+      const onde = pasta(g.sessoes[0]?.equipe?.principal || g.sessoes[0]?.cwd);
       apoio.textContent = `${plural(g.sessoes.length, 'pato', 'patos')}${compacto ? '' : ' na mesma pasta'}${onde ? ` · ${onde}` : ''}`;
       tarefa.textContent = g.sessoes[0] ? nomeDaSessao(g.sessoes[0]) : '';
       tarefa.hidden = !tarefa.textContent;

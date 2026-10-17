@@ -1511,7 +1511,8 @@ async function abrirEquipe(m) {
       continue;
     }
     const inst = instances.get(r.id);
-    if (inst) inst.equipe = { id, ordem: i + 1, total: ids.length, branch: branchDe(conta), isolado: equipe.isolado, motivo: equipe.motivo || undefined };
+    // `principal` e a pasta do projeto: isolada, a sessao abre no worktree, e a tela precisa dizer de onde ela saiu.
+    if (inst) inst.equipe = { id, ordem: i + 1, total: ids.length, principal: cwd, branch: branchDe(conta), isolado: equipe.isolado, motivo: equipe.motivo || undefined };
     instancias.push(r.id);
     ordens.push(i + 1);
   }
