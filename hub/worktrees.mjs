@@ -16,7 +16,9 @@ const TEMPO = 30_000;
 // `.duckv/worktrees/` entra no .git/info/exclude do repositorio: as copias nao aparecem como
 // arquivos novos do projeto, e o .gitignore da pessoa fica como ela escreveu.
 export const PASTA_WORKTREES = '.duckv/worktrees';
-const LINHA_EXCLUDE = `${PASTA_WORKTREES}/`;
+// A pasta .duckv inteira fica fora do git: as copias dos patos e tambem o arquivo da divisao da equipe,
+// que mora na pasta principal (senao ela sempre pareceria "com mudancas" e juntar seria recusado).
+const LINHA_EXCLUDE = '.duckv/';
 
 const primeiraLinha = (t) =>
   String(t || '')

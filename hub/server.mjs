@@ -1484,6 +1484,10 @@ async function abrirEquipe(m) {
   const nomes = ids.map((x) => (accounts.has(x) ? pubAccount(x).nome : x));
   // O arquivo onde a divisao e combinada nasce antes das sessoes, na pasta principal: nenhum pato comeca
   // sem nada se o pato 1 nao abrir. Falhar aqui nao impede a equipe, so muda o que o briefing manda fazer.
+  // Num repositorio git, a pasta .duckv (este arquivo e as copias dos patos) fica fora do git antes de
+  // nascer, isolando ou nao: o arquivo nao aparece como mudanca nem atrapalha juntar um branch depois.
+  const raizGit = await wt.raizDoRepo(cwd);
+  if (raizGit) await wt.excluirDoGit(raizGit);
   const doc = criarArquivoDaEquipe(cwd, { id, nomes, tarefa });
   if (doc.erro) console.error(`Nao consegui criar o ${doc.arquivo}:`, doc.erro);
   // Cada pato no seu worktree: num repositorio git, cada conta ganha um branch e uma copia da pasta.
