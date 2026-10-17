@@ -617,8 +617,8 @@ a { color: var(--laranja-texto); text-underline-offset: 3px; }
 :root[data-pato='escondido'] .conta-cartao .cabeca { grid-template-columns: minmax(0, 1fr); min-height: 0; }
 :root[data-pato='escondido'] .mini-pato:not(.patinho .mini-pato) .pista { display: none; }
 :root[data-pato='escondido'] .mini-pato:not(.patinho .mini-pato)::after { content: ''; position: absolute; inset: 0; margin: auto; width: 10px; height: 10px; border-radius: 50%; background: var(--cor, var(--laranja)); }
-.nuvem-ajuda { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--c-low); }
-.nuvem-ajuda .icone { flex: none; margin-top: 2px; }
+.nuvem-ajuda, .equipe-ajuda { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--c-low); }
+.nuvem-ajuda .icone, .equipe-ajuda .icone { flex: none; margin-top: 2px; }
 #nova-tarefa { width: 100%; resize: vertical; min-height: 76px; }
 .repos-lista { max-height: 260px; overflow: auto; margin-top: 8px; }
 /* GitHub: quem esta logado e, durante o login, o codigo de dispositivo */
@@ -745,6 +745,45 @@ dialog.ampliada[open]::backdrop { background: rgba(10, 6, 4, 0.82); }
 .conta-cartao .lista { display: grid; gap: 2px; margin: 0 -8px; }
 .atalhos-dicas { margin-top: 28px; max-width: 1180px; display: flex; flex-wrap: wrap; gap: 8px 24px; color: var(--tinta-v); font-size: 13px; }
 .atalhos-dicas span { display: inline-flex; gap: 8px; align-items: center; }
+/* ------------------------------------------------------------ equipe ("Todas as contas")
+   As sessoes abertas juntas, uma por conta, viram um bloco so: o pato de cada conta anda na mesma
+   pista larga (o chao e uma linha continua), com o nome da conta e o que ele faz agora embaixo. */
+.equipes-visao { display: grid; gap: 16px; max-width: 1180px; margin-bottom: 20px; }
+.equipes-visao:empty { display: none; }
+.equipe { background: var(--c); border-radius: 16px; padding: 16px; display: grid; gap: 8px; align-content: start; }
+.equipe-cabeca { display: flex; align-items: center; gap: 8px; }
+.equipe-quem { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.equipe-quem b { font: 500 16px/24px var(--ui); }
+.equipe-quem span { font-size: 12px; line-height: 16px; color: var(--tinta-v); }
+.equipe-tarefa { font-size: 14px; line-height: 20px; color: var(--tinta-v); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equipe-pista { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin-top: 2px; }
+.equipe-pato { display: grid; gap: 1px; padding: 0 0 6px; border: 0; background: transparent; border-radius: 12px; color: var(--tinta); text-align: center; transition: background var(--rapido); }
+.equipe-pato b, .equipe-faz { padding: 0 4px; }
+.equipe-pato:hover { background: color-mix(in srgb, var(--tinta) 6%, transparent); }
+.equipe-pato b { font: 500 14px/20px var(--ui); letter-spacing: 0.1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equipe-faz { font-size: 12px; line-height: 16px; color: var(--tinta-v); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equipe-faz.pede { color: var(--laranja-texto); font-weight: 500; }
+.equipe-trilha { display: block; position: relative; height: 54px; margin-bottom: 7px; border-bottom: 1px solid var(--contorno-v); }
+.equipe-trilha .pista { position: absolute; inset: 0; width: 100%; --bicho: 46px; }
+.equipe-trilha .bicho { width: 46px; bottom: 1px; }
+/* na barra lateral o bloco e so uma faixa, sem cartao: ele mora entre os grupos de conta */
+.equipe.compacta { background: transparent; padding: 0 8px 10px; gap: 4px; }
+.equipe.compacta .equipe-cabeca { padding-left: 4px; }
+.equipe.compacta .equipe-quem b { font: 500 13px/20px var(--ui); }
+.equipe.compacta .equipe-quem span { font-size: 11px; }
+.equipe.compacta .equipe-trilha { height: 38px; margin-bottom: 5px; --bicho: 32px; }
+.equipe.compacta .equipe-trilha .bicho { width: 32px; }
+.equipe.compacta .equipe-pato { padding-bottom: 4px; }
+.equipe.compacta .equipe-pato b { font: 400 12px/16px var(--ui); }
+.equipe.compacta .equipe-faz { font-size: 11px; line-height: 15px; }
+/* "Sem pato" nas Opcoes: o ponto da cor da conta fica no lugar do pato, e o estado continua escrito */
+:root[data-pato='escondido'] .equipe-trilha .pista { display: none; }
+:root[data-pato='escondido'] .equipe-trilha::after { content: ''; position: absolute; left: 50%; bottom: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--cor, var(--laranja)); translate: -50% 0; }
+/* a linha "Todas as contas" do dialogo: os patinhos das contas juntos, um por cima do outro */
+.patos-equipe { display: flex; align-items: center; }
+.patos-equipe .mini-pato { width: 26px; height: 24px; margin-right: -6px; }
+.patos-equipe .mini-pato:last-child { margin-right: 0; }
+.patos-equipe .mini-pato .bicho { width: 24px; }
 
 /* ------------------------------------------------------------ fila (gaveta da direita) */
 .gaveta {

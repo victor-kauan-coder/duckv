@@ -562,6 +562,39 @@ function oQueFaz(s) {
   return s.lastText || 'Esperando sua mensagem';
 }
 const estadoDoPato = (s) => (s.status === 'ended' ? 'dorme' : precisa(s) ? 'pede' : s.status === 'working' ? 'trabalha' : 'parado');
+// Equipes ("Todas as contas"): sessoes abertas juntas, uma por conta, dividindo a mesma tarefa. Elas
+// aparecem num bloco so, na ordem dos patos. A que terminou fica no bloco com o pato dormindo, ate o
+// duckV esquecer dela.
+function equipes() {
+  const mapa = new Map();
+  for (const s of S.sessoes) {
+    if (!s.equipe?.id) continue;
+    const g = mapa.get(s.equipe.id) || { id: s.equipe.id, sessoes: [] };
+    g.sessoes.push(s);
+    mapa.set(g.id, g);
+  }
+  for (const g of mapa.values()) g.sessoes.sort((a, b) => (a.equipe.ordem || 0) - (b.equipe.ordem || 0));
+  return [...mapa.values()];
+}
+// Mantem um bloco por equipe dentro de um container, criando e tirando conforme elas abrem e fecham.
+function sincronizarEquipes(caixa, blocos, opts) {
+  const times = equipes();
+  for (const g of times) {
+    let b = blocos.get(g.id);
+    if (!b) {
+      b = blocoEquipe(opts);
+      blocos.set(g.id, b);
+    }
+    if (b.raiz.parentElement !== caixa) caixa.append(b.raiz);
+    b.atualizar(g);
+  }
+  for (const [id, b] of blocos) {
+    if (times.some((g) => g.id === id)) continue;
+    b.raiz.remove();
+    blocos.delete(id);
+  }
+  return times.length;
+}
 
 function textoDoReinicio(conta, chave, u) {
   const t = agora();
@@ -2242,6 +2275,39 @@ const area = (() => {
     salvar();
     desenhar();
   }
+  // "Abrir lado a lado": a equipe toda em paineis, com o layout do tamanho dela (ate 4). As sessoes
+  // recem-abertas chegam no proximo estado, entao o pedido espera por elas.
+  let esperandoTime = null;
+  function juntas(ids) {
+    esperandoTime = { ids: [...ids], ate: Date.now() + 5000 };
+    tentarJuntas();
+  }
+  function tentarJuntas() {
+    if (!esperandoTime) return;
+    const alvos = esperandoTime.ids.filter((id) => sessaoPorId(id));
+    if (alvos.length < esperandoTime.ids.length && Date.now() < esperandoTime.ate) return;
+    const todos = esperandoTime.ids.length;
+    esperandoTime = null;
+    if (!alvos.length) return avisar('Essas sessões não estão mais abertas.');
+    const cabem = alvos.slice(0, 4);
+    for (const p of lista) p.fechar();
+    lista = cabem.map((id) => {
+      novasMsgs.delete(id);
+      return criar(id);
+    });
+    guardarLocal('layout', cabem.length >= 4 ? '4' : cabem.length === 3 ? '3' : cabem.length === 2 ? '2c' : '1');
+    vista.mostrar('paineis');
+    aplicar();
+    for (const p of lista) {
+      animarEntrada(p.raiz, 'entra-painel');
+      p.iniciar();
+    }
+    focar(lista[0]);
+    setTimeout(() => lista[0]?.focar(), 50);
+    salvar();
+    desenhar();
+    if (cabem.length < todos) avisar(`Os painéis cabem 4 sessões: abri as ${cabem.length} primeiras da equipe.`);
+  }
   function trocar(raiz, id, modo) {
     const i = lista.findIndex((p) => p.raiz === raiz);
     if (i < 0) return abrir(id, { modo });
@@ -2297,6 +2363,7 @@ const area = (() => {
   return {
     grade,
     abrir,
+    juntas,
     trocar,
     fechar,
     layout,
@@ -2312,6 +2379,7 @@ const area = (() => {
       lista[i].focar();
     },
     atualizar() {
+      if (esperandoTime) tentarJuntas();
       if (esperando && (sessaoPorId(esperando.id) || Date.now() > esperando.ate)) {
         const e = esperando;
         esperando = null;
@@ -2321,6 +2389,79 @@ const area = (() => {
     },
   };
 })();
+
+// ------------------------------------------------------------ bloco da equipe
+// O mesmo bloco serve a barra lateral (compacto) e a Visao geral: o pato de cada conta anda na mesma
+// pista larga, com o nome da conta e o que ele faz agora embaixo. Clicar num pato abre a sessao dele;
+// "Abrir lado a lado" poe a equipe toda em paineis.
+function blocoEquipe({ compacto = false } = {}) {
+  const apoio = el('span');
+  const tarefa = el('p', { class: 'equipe-tarefa' });
+  const botaoJuntas = el('button', { class: 'botao texto pequeno', type: 'button' }, icone('square-split-horizontal', 16), 'Abrir lado a lado');
+  const pista = el('div', { class: 'equipe-pista', role: 'list' });
+  const raiz = el(
+    'section',
+    { class: `equipe${compacto ? ' compacta' : ''}` },
+    el('div', { class: 'equipe-cabeca' }, el('div', { class: 'equipe-quem' }, el('b', { text: 'Equipe' }), apoio), botaoJuntas),
+    compacto ? null : tarefa,
+    pista,
+  );
+  const colunas = new Map();
+  let ids = [];
+  botaoJuntas.addEventListener('click', () => area.juntas(ids));
+
+  // Uma coluna por pato: a pista dele, o nome da conta e o que ele faz agora.
+  function coluna() {
+    const p = bicho(true, { roteiro: true, inicio: entre(0.15, 0.85) });
+    const nome = el('b');
+    const faz = el('span', { class: 'equipe-faz' });
+    const botao = el('button', { class: 'equipe-pato', type: 'button', role: 'listitem' }, el('span', { class: 'equipe-trilha' }, p), nome, faz);
+    let sessao = null;
+    botao.addEventListener('click', (ev) => sessao && area.abrir(sessao.id, { aoLado: ev.ctrlKey || ev.metaKey }));
+    return {
+      raiz: botao,
+      atualizar(s) {
+        sessao = s;
+        const c = contaDe(s);
+        botao.style.setProperty('--cor', c.cor);
+        p.definir(estadoDoPato(s));
+        vestirPato(p, c.pato);
+        nome.textContent = c.nome;
+        faz.textContent = oQueFaz(s);
+        faz.classList.toggle('pede', precisa(s));
+        botao.setAttribute('aria-label', `${c.nome}: ${oQueFaz(s)}`);
+        dicaEm(botao, `${c.nome}: ${oQueFaz(s)}
+${nomeDaSessao(s)}
+
+Clique para abrir; ${CTRL}+clique abre ao lado.`);
+      },
+    };
+  }
+  return {
+    raiz,
+    atualizar(g) {
+      ids = g.sessoes.map((s) => s.id);
+      const onde = pasta(g.sessoes[0]?.cwd);
+      apoio.textContent = `${plural(g.sessoes.length, 'pato', 'patos')}${compacto ? '' : ' na mesma pasta'}${onde ? ` · ${onde}` : ''}`;
+      tarefa.textContent = g.sessoes[0] ? nomeDaSessao(g.sessoes[0]) : '';
+      tarefa.hidden = !tarefa.textContent;
+      for (const s of g.sessoes) {
+        let col = colunas.get(s.id);
+        if (!col) {
+          col = coluna();
+          colunas.set(s.id, col);
+        }
+        if (col.raiz.parentElement !== pista) pista.append(col.raiz);
+        col.atualizar(s);
+      }
+      for (const [id, col] of colunas) {
+        if (g.sessoes.some((s) => s.id === id)) continue;
+        col.raiz.remove();
+        colunas.delete(id);
+      }
+    },
+  };
+}
 
 // ------------------------------------------------------------ barra lateral
 const lateral = (() => {
@@ -2333,6 +2474,9 @@ const lateral = (() => {
   const contas = el('div');
   const navCelulares = el('button', { class: 'nav-item', type: 'button', onclick: () => vista.mostrar('celulares') }, icone('device-mobile', 20), el('span', { text: 'Celulares' }), el('span', { class: 'contador quieto' }));
   const navOpcoes = el('button', { class: 'nav-item', type: 'button', onclick: () => vista.mostrar('opcoes') }, icone('gear-six', 20), el('span', { text: 'Opções' }));
+  // Equipes ("Todas as contas"): um bloco por equipe, antes das contas, porque as sessoes dela vem juntas.
+  const tituloEquipes = el('div', { class: 'secao-titulo', hidden: true }, el('span', { text: 'Equipes' }));
+  const caixaEquipes = el('div');
   const recolher = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Recolher barra lateral', title: `Recolher barra lateral (${CTRL}+B)`, onclick: () => alternarLateral() }, icone('sidebar-simple', 20));
   const raiz = el(
     'aside',
@@ -2340,10 +2484,18 @@ const lateral = (() => {
     el('div', { class: 'lateral-topo' }, el('div', { class: 'marca-duckv', 'aria-label': 'duckV' }, 'duck', el('b', { text: 'V' })), recolher),
     el('div', { class: 'lateral-acoes' }, novaSessao, busca),
     el('nav', { class: 'nav', 'aria-label': 'Seções' }, navVisao, navPaineis, navFila),
-    el('div', { class: 'lateral-rolo' }, el('div', { class: 'secao-titulo' }, el('span', { text: 'Contas' }), el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Adicionar conta', title: 'Adicionar conta', onclick: () => vista.mostrar('opcoes', 'contas') }, icone('user-plus', 18))), contas),
+    el(
+      'div',
+      { class: 'lateral-rolo' },
+      tituloEquipes,
+      caixaEquipes,
+      el('div', { class: 'secao-titulo' }, el('span', { text: 'Contas' }), el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Adicionar conta', title: 'Adicionar conta', onclick: () => vista.mostrar('opcoes', 'contas') }, icone('user-plus', 18))),
+      contas,
+    ),
     el('div', { class: 'lateral-pe' }, navCelulares, navOpcoes),
   );
   const grupos = new Map();
+  const blocos = new Map();
 
   function grupoConta(c) {
     const pato = miniPato('dorme', c.cor);
@@ -2390,7 +2542,7 @@ const lateral = (() => {
       uso.querySelector('.barra')?.remove();
       if (typeof u5?.pct === 'number') uso.append(barra(u5.pct, conta.cor));
       dicaEm(uso, typeof u5?.pct === 'number' ? `Limite de 5 horas: ${Math.round(u5.pct)}% usado. ${textoDoReinicio(conta, 'five_hour', u5)}.` : 'Sem leitura do limite ainda');
-      const ss = S.sessoes.filter((s) => s.account === conta.id && (s.status !== 'ended' || area.paineis().some((p) => p.id === s.id))).sort((a, b) => a.startedAt - b.startedAt);
+      const ss = S.sessoes.filter((s) => s.account === conta.id && !s.equipe && (s.status !== 'ended' || area.paineis().some((p) => p.id === s.id))).sort((a, b) => a.startedAt - b.startedAt);
       const focada = area.focado()?.id;
       const nova = JSON.stringify([ss.map((s) => [s.id, s.status, nomeDaSessao(s), oQueFaz(s), Math.round(s.ctx?.pct ?? -1), novasMsgs.has(s.id), area.visivel(s.id), s.id === focada]), S.host.available]);
       if (nova === marca) return;
@@ -2442,6 +2594,7 @@ const lateral = (() => {
   }
 
   function atualizar() {
+    tituloEquipes.hidden = !sincronizarEquipes(caixaEquipes, blocos, { compacto: true });
     const n = todosOsPedidos().length;
     contPedidos.textContent = String(n);
     contPedidos.hidden = !n;
@@ -2604,8 +2757,10 @@ function criarVisao() {
     el('span', null, el('kbd', { class: 'atalho', text: `${CTRL} 1–4` }), 'layout dos painéis'),
     el('span', null, el('kbd', { class: 'atalho', text: `${CTRL} B` }), 'barra lateral'),
   );
-  const raiz = el('div', { class: 'visao' }, el('div', { class: 'visao-cabeca' }, el('div', null, cabTitulo, cabSub), abrir), resumoFila, grade, dicas);
+  const caixaEquipes = el('div', { class: 'equipes-visao' });
+  const raiz = el('div', { class: 'visao' }, el('div', { class: 'visao-cabeca' }, el('div', null, cabTitulo, cabSub), abrir), resumoFila, caixaEquipes, grade, dicas);
   const cartoes = new Map();
+  const blocos = new Map();
 
   function cartao(c) {
     const pista = bicho(true, { roteiro: true, inicio: 0.5 });
@@ -2637,7 +2792,8 @@ function criarVisao() {
         el('div', null, 'Semana', el('b', { text: typeof s7?.pct === 'number' ? `${Math.round(s7.pct)}%` : '—' }), typeof s7?.pct === 'number' && s7.resetsAt ? textoDoReinicio(conta, 'seven_day', s7) : ''),
         el('div', null, 'Tokens nesta janela', el('b', { text: tok != null ? compacto.format(tok) : '—' })),
       );
-      const ss = vivas(conta.id);
+      // As sessoes de uma equipe aparecem no bloco dela, acima dos cartoes.
+      const ss = vivas(conta.id).filter((s) => !s.equipe);
       lista.replaceChildren(
         ...ss.map((s) =>
           el(
@@ -2671,6 +2827,7 @@ function criarVisao() {
     cabSub.textContent = `${plural(S.contas.length, 'conta', 'contas')} · ${plural(ativas.length, 'sessão aberta', 'sessões abertas')}`;
     abrir.disabled = !S.host.available;
     sincronizarPedidos(resumoFila, pedidos.slice(0, 3).map((p) => ({ ...p })));
+    sincronizarEquipes(caixaEquipes, blocos, { compacto: false });
     if (pedidos.length > 3) resumoFila.append(el('button', { class: 'botao texto', type: 'button', onclick: () => fila.alternar(true), text: `Ver os outros ${pedidos.length - 3}` }));
     for (const c of S.contas) {
       let v = cartoes.get(c.id);
@@ -2759,8 +2916,11 @@ function abrirNova(opts = {}) {
   let onde = opts.onde === 'sistema' && S.desktop ? 'sistema' : opts.onde === 'nuvem' ? 'nuvem' : 'duckv';
   // Na nuvem: so a tarefa e a pasta (o repositorio do GitHub dela); o resto a nuvem decide.
   const tarefa = el('textarea', { id: 'nova-tarefa', class: 'campo-texto', rows: 3, maxLength: 4000, placeholder: 'Ex.: Corrija o teste de pagamento que está falhando e abra um pull request.' });
-  const campoTarefa = el('div', { class: 'campo', hidden: true }, el('label', { for: 'nova-tarefa', text: 'O que a sessão deve fazer' }), tarefa);
+  const rotuloTarefa = el('label', { for: 'nova-tarefa', text: 'O que a sessão deve fazer' });
+  const campoTarefa = el('div', { class: 'campo', hidden: true }, rotuloTarefa, tarefa);
   const ajudaNuvem = el('p', { class: 'ajuda nuvem-ajuda', hidden: true }, icone('cloud', 16), el('span', { text: 'Roda nos servidores da Anthropic, a partir do repositório escolhido, e continua mesmo com o computador desligado. Repositório que não está no computador ganha uma cópia leve na pasta do duckV. Você acompanha por aqui; para responder, abra no claude.ai.' }));
+  // "Todas as contas": uma sessao em cada conta, na mesma pasta, dividindo a tarefa.
+  const ajudaEquipe = el('p', { class: 'ajuda equipe-ajuda', hidden: true }, icone('stack', 16), el('span', { text: 'Cada conta abre uma sessão nesta pasta, todas ao mesmo tempo. A divisão do trabalho é combinada num arquivo da pasta: o primeiro pato propõe as partes e cada um anota ali o que pegou e o que terminou.' }));
   const contas = el('div', { class: 'escolhas', role: 'radiogroup', 'aria-label': 'Conta' });
   const caminho = el('input', { id: 'nova-pasta', type: 'text', autocomplete: 'off', spellcheck: false, placeholder: S.host.home || '' });
   const procurar = el('button', { class: 'botao quieto', type: 'button' }, icone('folder-open', 18), 'Procurar');
@@ -2832,6 +2992,7 @@ function abrirNova(opts = {}) {
     campoRepo,
     campoTarefa,
     ajudaNuvem,
+    ajudaEquipe,
     campoNome,
     ajustes,
     ajudaModo,
@@ -2840,6 +3001,9 @@ function abrirNova(opts = {}) {
   pe.append(el('button', { class: 'botao texto', type: 'button', text: 'Cancelar', onclick: () => d.close() }), abrir);
 
   const contaEscolhida = () => (contaId === 'auto' ? contaAutomatica('claude')?.conta || contaAutomatica()?.conta : S.contas.find((c) => c.id === contaId));
+  // As contas que entram no "Todas as contas": as que tem o agente instalado.
+  const contasDoTime = () => S.contas.filter((c) => c.instalado !== false);
+  const ehTime = () => contaId === 'equipe';
   function desenharContas() {
     const auto = contaAutomatica('claude') || contaAutomatica();
     const linhaEscolha = (id, rotulo, apoio, cor, uso) => {
@@ -2853,8 +3017,21 @@ function abrirNova(opts = {}) {
       if (cor) b.style.setProperty('--cor', cor);
       return b;
     };
+    const time = contasDoTime();
     contas.replaceChildren(
       linhaEscolha('auto', 'Automática', auto ? `Agora seria ${auto.conta.nome}: ${auto.motivo}` : 'Nenhuma conta disponível', null, ''),
+      // Uma sessao em cada conta, dividindo a tarefa: so faz sentido com duas contas ou mais.
+      ...(time.length >= 2
+        ? [
+            el(
+              'button',
+              { class: 'escolha', type: 'button', role: 'radio', 'aria-checked': String(ehTime()), onclick: () => ((contaId = 'equipe'), desenharContas(), desenharOnde(), aplicarAgente(true)) },
+              el('span', { class: 'patos-equipe' }, ...time.slice(0, 5).map((c) => miniPato('parado', c.cor, c.pato))),
+              el('span', { class: 't' }, el('b', { text: 'Todas as contas' }), el('span', { text: 'Cada conta abre uma sessão e elas dividem a tarefa' })),
+              el('span', { class: 'uso-escolha', text: plural(time.length, 'conta', 'contas') }),
+            ),
+          ]
+        : []),
       ...S.contas.map((c) => {
         const u = c.usage?.five_hour?.pct;
         return linhaEscolha(c.id, c.nome, `${agenteDaConta(c).nome}${c.instalado === false ? ' · não instalado' : ''}${c.email ? ` · ${c.email}` : ''}`, c.cor, typeof u === 'number' ? `${Math.round(u)}% em 5 h` : '');
@@ -2864,12 +3041,12 @@ function abrirNova(opts = {}) {
   function desenharOnde() {
     // A nuvem e so do Claude Code; o terminal do sistema, so no app do computador.
     const claude = (contaEscolhida()?.agente || 'claude') === 'claude';
-    if (onde === 'nuvem' && !claude) onde = 'duckv';
+    if (ehTime() || (onde === 'nuvem' && !claude)) onde = 'duckv';
     ondeChips.replaceChildren(
       ...[
         ['duckv', 'Neste computador', 'monitor', true],
-        ['nuvem', 'Na nuvem', 'cloud', claude],
-        ['sistema', 'Terminal do sistema', 'terminal-window', !!S.desktop],
+        ['nuvem', 'Na nuvem', 'cloud', claude && !ehTime()],
+        ['sistema', 'Terminal do sistema', 'terminal-window', !!S.desktop && !ehTime()],
       ]
         .filter(([, , , pode]) => pode)
         .map(([v, t, ic]) => el('button', { class: 'chip', type: 'button', role: 'radio', 'aria-checked': String(onde === v), onclick: () => ((onde = v), desenharOnde(), aplicarAgente(false)) }, icone(ic, 16), t)),
@@ -2894,17 +3071,27 @@ function abrirNova(opts = {}) {
     }
     esforco.disabled = !ag.esforcos.length;
     const nuvem = onde === 'nuvem';
-    ajustes.hidden = onde !== 'duckv';
-    ajudaModo.hidden = onde !== 'duckv';
-    campoNome.hidden = nuvem;
+    const time = ehTime();
+    // Na equipe, cada conta abre com os padroes dela: modelo, esforco e modo saem de cena, e a tarefa
+    // (obrigatoria) da o nome das sessoes.
+    ajustes.hidden = onde !== 'duckv' || time;
+    ajudaModo.hidden = onde !== 'duckv' || time;
+    campoNome.hidden = nuvem || time;
     campoPasta.hidden = nuvem;
     campoRepo.hidden = !nuvem;
     if (nuvem) carregarRepos();
-    campoTarefa.hidden = !nuvem;
+    campoTarefa.hidden = !nuvem && !time;
+    rotuloTarefa.textContent = time ? 'O que as contas devem fazer' : 'O que a sessão deve fazer';
+    tarefa.placeholder = time ? 'Ex.: Revise o app inteiro e corrija o que estiver fora do padrão.' : 'Ex.: Corrija o teste de pagamento que está falhando e abra um pull request.';
     ajudaNuvem.hidden = !nuvem;
+    ajudaEquipe.hidden = !time;
     ajudaModo.textContent = MODOS_AJUDA[modo.value] || '';
-    abrir.textContent = onde === 'sistema' ? 'Abrir no terminal' : nuvem ? 'Criar na nuvem' : 'Abrir sessão';
-    d.querySelector('.dialogo-topo p').textContent = nuvem ? 'Cria uma sessão do Claude Code na nuvem da Anthropic.' : 'Abre no computador. Você acompanha e comanda daqui, do celular ou pelo terminal.';
+    abrir.textContent = time ? `Abrir com ${contasDoTime().length} contas` : onde === 'sistema' ? 'Abrir no terminal' : nuvem ? 'Criar na nuvem' : 'Abrir sessão';
+    d.querySelector('.dialogo-topo p').textContent = time
+      ? 'Uma sessão em cada conta, na mesma pasta, trabalhando ao mesmo tempo.'
+      : nuvem
+        ? 'Cria uma sessão do Claude Code na nuvem da Anthropic.'
+        : 'Abre no computador. Você acompanha e comanda daqui, do celular ou pelo terminal.';
   }
   modo.addEventListener('change', () => (ajudaModo.textContent = MODOS_AJUDA[modo.value] || ''));
   function navegar(dir) {
@@ -2936,7 +3123,7 @@ function abrirNova(opts = {}) {
     erroGeral.hidden = true;
     const c = contaEscolhida();
     const cwd = caminho.value.trim();
-    if (!c) return falhou('Escolha uma conta.');
+    if (!c && !ehTime()) return falhou('Escolha uma conta.');
     if (onde === 'nuvem' && !repoEscolhido) {
       falhou('Escolha o repositório do GitHub.');
       return buscaRepo.focus();
@@ -2945,6 +3132,25 @@ function abrirNova(opts = {}) {
       erroPasta.textContent = 'Escolha a pasta do projeto.';
       erroPasta.hidden = false;
       return caminho.focus();
+    }
+    // "Todas as contas": o servidor abre uma sessao por conta e manda o briefing de equipe em cada uma.
+    if (ehTime()) {
+      if (tarefa.value.trim().length < 3) {
+        falhou('Escreva o que as contas devem fazer.');
+        return tarefa.focus();
+      }
+      abrir.disabled = true;
+      abrir.textContent = 'Abrindo as sessões…';
+      return mandar({ t: 'equipe', cwd, texto: tarefa.value }, (erro, r) => {
+        abrir.disabled = false;
+        aplicarAgente(false);
+        if (erro) return falhou(erro);
+        d.close();
+        const abertas = (r.instances || []).length;
+        const falhas = r.falhas || [];
+        avisar(falhas.length ? `${plural(abertas, 'conta abriu', 'contas abriram')}. ${falhas[0].conta}: ${falhas[0].erro}` : `${plural(abertas, 'conta trabalhando', 'contas trabalhando')} na mesma pasta`);
+        area.juntas(r.instances || []);
+      });
     }
     if (onde === 'nuvem' && tarefa.value.trim().length < 3) {
       falhou('Escreva o que a sessão deve fazer.');

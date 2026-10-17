@@ -21,6 +21,7 @@ import { agenteDe, ehAgente, catalogo, instalado, sairDaConta } from './agentes.
 import { listarComandos } from './comandos.mjs';
 import { criarAtualizacao } from './atualizacao.mjs';
 import { hostPermitido } from './rede.mjs';
+import { novoIdEquipe, briefingEquipe } from './equipe.mjs';
 import { semBlocos } from '../lib/texto.mjs';
 import { textoPerigoso as filtrarTexto } from './filtro.mjs';
 import { terminalLinux } from '../lib/atalhos.mjs';
@@ -127,6 +128,8 @@ const savePrefs = () => writeJson(PREFS_FILE, prefs);
 // O celular so escolhe valores das listas fechadas de cada agente.
 const temOpcao = (lista, v) => lista.some(([id]) => id === v);
 const texto = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+// Corte que respeita a palavra: serve ao nome que o duckV tira da primeira mensagem da sessao.
+const cortar = (t, n) => (t.length <= n ? t : t.slice(0, n).replace(/\s+\S*$/, '') || t.slice(0, n));
 
 function setPrefs(m) {
   if (m.op === 'conta') {
@@ -353,6 +356,7 @@ function getInst(id, accountId) {
       permMode: null,
       agent: null,
       goneAt: null,
+      equipe: null,
     };
     instances.set(id, i);
     if (r.transcript) setTranscript(i, r.transcript);
@@ -412,6 +416,8 @@ function pubInst(i) {
     arquivada: i.nuvem ? !!i.arquivada : undefined,
     lastText: i.lastText,
     previas: previas.publico(i),
+    // "Todas as contas": a mesma tarefa dividida entre as contas. Sessao sozinha nao tem este campo.
+    equipe: i.equipe || undefined,
   };
 }
 
@@ -436,7 +442,9 @@ function snapshot() {
       tokens: a.tokens,
       lastReset: a.lastReset,
       agente: a.agente || 'claude',
-      instalado: instalado(agenteDe(a.agente)),
+      // "instalado" quer dizer "da para abrir sessao nesta conta": nos testes e na demonstracao, o
+      // terminal de mentira faz o papel do agente.
+      instalado: contaInstalada(a),
       padrao: !!a.padrao,
     })),
     instances: [...instances.values()].map(pubInst),
@@ -838,10 +846,20 @@ async function onPhoneMessage(c, m) {
       }
       break;
     }
+    // Nova sessao no computador: { t: 'start', account, cwd, model?, effort?, mode?, name?, texto?, cols?, rows?, ref }.
+    // "texto" e a primeira mensagem, mandada assim que a caixa de mensagem do agente aparecer.
     case 'start': {
       const r = startSession(m);
       if (r.err) send(c, { t: 'err', ref: m.ref, msg: r.err });
       else send(c, { t: 'ack', ref: m.ref, instance: r.id });
+      break;
+    }
+    // "Todas as contas": { t: 'equipe', cwd, texto, contas?, model?, effort?, mode?, ref } abre uma sessao
+    // por conta na mesma pasta e devolve o id da equipe, as sessoes abertas e as contas que falharam.
+    case 'equipe': {
+      const r = abrirEquipe(m);
+      if (r.err) send(c, { t: 'err', ref: m.ref, msg: r.err });
+      else send(c, { t: 'ack', ref: m.ref, equipe: r.equipe, instances: r.instances, falhas: r.falhas || undefined });
       break;
     }
     case 'stop': {
@@ -1251,7 +1269,17 @@ function startSession(m) {
   if (effort && !temOpcao(ag.esforcos, effort)) return { err: 'Nível de esforço inválido.' };
   const mode = m.mode ? String(m.mode) : null;
   if (mode && !temOpcao(ag.modos, mode)) return { err: 'Modo de permissão inválido.' };
-  const name = String(m.name || '').replace(/[^\p{L}\p{N} _.-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 50) || null;
+  let name = String(m.name || '').replace(/[^\p{L}\p{N} _.-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 50) || null;
+  // Primeira mensagem da sessao: entra na fila e e digitada quando a caixa de mensagem do agente aparecer.
+  // Passa pelo mesmo filtro das mensagens, aqui antes de abrir: texto recusado nao deixa sessao aberta.
+  const primeira = String(m.texto ?? '').trim();
+  if (primeira.length > 8000) return { err: 'Mensagem longa demais (máximo de 8000 caracteres).' };
+  if (primeira) {
+    const proibido = textoPerigoso(primeira, ag, comandosDe({ account: acc.id, cwd, hosted: true }));
+    if (proibido) return { err: proibido };
+  }
+  // Sem nome escolhido, a sessao se chama pela primeira mensagem, como as conversas do computador.
+  if (!name && primeira) name = cortar(primeira.replace(/[^\p{L}\p{N} _.-]/gu, ' ').replace(/\s+/g, ' ').trim(), 40) || null;
   if ([...instances.values()].filter((i) => i.hosted).length >= 8) return { err: 'Já existem 8 sessões abertas pelo celular. Encerre uma antes de abrir outra.' };
 
   const id = `${acc.id}-c${crypto.randomBytes(4).toString('hex')}`;
@@ -1267,6 +1295,8 @@ function startSession(m) {
   if (ag.id !== 'claude') {
     // Os outros agentes: pasta da conta, argumentos de listas fechadas e a conversa lida do que ele grava.
     env = ag.env(acc.dir, acc.padrao);
+    // Na demonstracao, o terminal de mentira faz o papel de qualquer agente e avisa o duckV como um de verdade.
+    if (process.env.PAINEL_DEMO === '1') Object.assign(env, { PAINEL_ACCOUNT: acc.id, PAINEL_INSTANCE: id, PAINEL_PORT: String(PORT), FAKE_AGENTE: ag.id });
     const sessao = desk ? null : ag.novaSessao?.() || null;
     args = ag.args({ model, effort, mode, name, resume: desk?.sessionId, sessao });
     inst.busca = { desde: now() - 3000, cwd, sessao: desk ? desk.sessionId : sessao, resume: !!desk };
@@ -1313,7 +1343,7 @@ function startSession(m) {
       caixa: ag.caixa,
       cols: Number(m.cols) || 60,
       rows: Number(m.rows) || 32,
-      command: ag.id === 'claude' ? testCommand : null,
+      command: ag.id === 'claude' || process.env.PAINEL_DEMO === '1' ? testCommand : null,
       onScreen: (snap) => telaDe(inst, snap),
       onRaw: (d) => cruDe(inst, d),
       onEspera: (n, tela) => {
@@ -1335,8 +1365,54 @@ function startSession(m) {
     return { err: `Não consegui abrir o ${ag.nome}: ${e.message}` };
   }
   rememberFolder(cwd);
+  if (primeira) inst.hosted.send(primeira);
   dirty();
   return { id };
+}
+
+// Conta pronta para abrir sessao: o agente dela esta instalado neste computador (nos testes e na
+// demonstracao, o terminal de mentira faz o papel do Claude Code).
+const contaInstalada = (a) => (!!testCommand && (process.env.PAINEL_DEMO === '1' || (a.agente || 'claude') === 'claude')) || instalado(agenteDe(a.agente));
+
+// "Todas as contas": uma sessao por conta, todas na mesma pasta, cada uma comecando pelo briefing de
+// equipe (hub/equipe.mjs) com a tarefa no fim. As sessoes nao se falam: a divisao do trabalho e
+// combinada no arquivo .duckv/equipe-<id>.md da pasta. Uma conta que falha nao impede as outras.
+function abrirEquipe(m) {
+  const tarefa = String(m.texto ?? '').trim();
+  if (tarefa.length < 3) return { err: 'Escreva o que as contas devem fazer (pelo menos 3 caracteres).' };
+  if (tarefa.length > 8000) return { err: 'Tarefa longa demais (máximo de 8000 caracteres).' };
+  // Sem a lista de contas, entram todas as que tem o agente instalado.
+  const ids = Array.isArray(m.contas) ? [...new Set(m.contas.map((x) => String(x)))] : [...accounts.values()].filter(contaInstalada).map((a) => a.id);
+  if (ids.length < 2) return { err: 'Uma equipe precisa de pelo menos 2 contas.' };
+  // O limite de sessoes abertas pelo duckV vale para a equipe toda, conferido antes de abrir qualquer uma.
+  const cabem = 8 - [...instances.values()].filter((i) => i.hosted).length;
+  if (ids.length > cabem) {
+    return {
+      err:
+        cabem <= 0
+          ? 'O duckV já está com as 8 sessões que ele mantém abertas. Encerre alguma antes de abrir uma equipe.'
+          : `Só cabe${cabem === 1 ? '' : 'm'} mais ${cabem} ${cabem === 1 ? 'sessão' : 'sessões'} agora, e esta equipe precisa de ${ids.length}. Encerre algumas sessões ou escolha menos contas.`,
+    };
+  }
+  const id = novoIdEquipe();
+  const nomes = ids.map((x) => (accounts.has(x) ? pubAccount(x).nome : x));
+  const instancias = [];
+  const falhas = [];
+  for (const [i, conta] of ids.entries()) {
+    const r = accounts.has(conta)
+      ? startSession({ account: conta, cwd: m.cwd, model: m.model, effort: m.effort, mode: m.mode, cols: m.cols, rows: m.rows, name: cortar(tarefa, 50), texto: briefingEquipe({ id, ordem: i + 1, nomes, tarefa }) })
+      : { err: 'Conta não encontrada.' };
+    if (r.err) {
+      falhas.push({ conta, erro: r.err });
+      continue;
+    }
+    const inst = instances.get(r.id);
+    if (inst) inst.equipe = { id, ordem: i + 1, total: ids.length };
+    instancias.push(r.id);
+  }
+  if (!instancias.length) return { err: falhas[0]?.erro || 'Não consegui abrir nenhuma sessão da equipe.' };
+  dirty();
+  return { equipe: id, instances: instancias, falhas: falhas.length ? falhas : null };
 }
 
 // Saida crua do terminal virtual para os terminais abertos na janela do notebook, juntada a cada

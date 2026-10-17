@@ -59,6 +59,7 @@ O **duckV** junta num app só os agentes de código que rodam no seu computador,
 | **Contexto à vista** | Um anel ao lado da caixa de mensagem mostra quanto da memória da conversa já foi usado, com o detalhe a um toque. |
 | **Permissões no bolso** | Aceite, recuse ou recuse dizendo o que fazer no lugar. Direto na notificação, mesmo com o app fechado. |
 | **Abrir sessões pelo celular** | Escolha conta, pasta, modelo, esforço e modo de permissão; a sessão roda no computador e você comanda pelo app. |
+| **Todas as contas na mesma tarefa** | Uma tarefa, uma sessão por conta na mesma pasta: cada pato recebe o briefing da equipe e eles combinam a divisão num arquivo da pasta. Aparecem juntos num bloco, na mesma pista. |
 | **Conversas do Claude desktop** | Todas as conversas de cada conta, inclusive as feitas no app Claude desktop, para acompanhar ou continuar. |
 | **Nuvem e Cowork** | As sessões do Claude Code na nuvem (claude.ai/code) e as tarefas do Cowork aparecem junto das outras, para ler, com o que cada uma pede e um atalho para responder no claude.ai. |
 | **Anexos** | Mande arquivos do celular para o agente ler. |
@@ -259,6 +260,14 @@ Toque em **Abrir sessão**, escolha a conta (o selo mostra qual agente vai abrir
 - **Perguntas do agente** (incluindo "você confia nesta pasta?") aparecem como botões, e dá para escrever uma resposta própria quando a pergunta permite.
 - **Controles:** interromper, compactar, limpar e encerrar. No Claude Code, também trocar modelo, esforço e modo no meio da sessão.
 - **Tela do terminal:** a tela crua do agente, com setas, Enter, Esc, os links tocáveis e um campo para digitar. Serve para o que não virar botão.
+
+Se você já escrever a tarefa na hora de abrir, ela é mandada sozinha assim que o agente mostrar a caixa de mensagem, e dá nome à sessão.
+
+### Todas as contas na mesma tarefa
+
+Na escolha da conta existe também **Todas as contas**: o duckV abre uma sessão em cada conta instalada, todas na mesma pasta, e cada uma começa por um briefing de equipe que diz quantos patos são, qual é o dele, quais são os outros e que todos trabalham ali ao mesmo tempo. As sessões não se falam: a divisão do trabalho é combinada no arquivo `.duckv/equipe-<id>.md` da pasta, onde o primeiro pato propõe a divisão por partes e arquivos, os outros pegam a sua parte e cada um anota o que pegou e o que já terminou.
+
+Na barra lateral e na Visão geral essas sessões aparecem juntas num bloco **Equipe**, com o pato de cada conta na mesma pista, o nome da conta e o que ele faz agora embaixo; um clique no pato abre a sessão dele e **Abrir lado a lado** põe a equipe toda em painéis. O duckV mantém no máximo 8 sessões abertas por ele, então a equipe inteira precisa caber nesse limite.
 
 ### Abrir uma sessão no computador
 
@@ -492,6 +501,7 @@ Roda todas as baterias, uma depois da outra, e mostra o resumo (`node tests/roda
 | `servidor` | Servidor, canal MCP com um cliente real, permissões e histórico |
 | `pareamento` | Pareamento com os 4 números confirmados no computador |
 | `sessoes` | Sessões abertas pelo celular, com um terminal de mentira no lugar do agente, e argumentos que tentam injetar comandos no `cmd.exe` |
+| `equipe` | "Todas as contas": uma sessão por conta na mesma pasta, o briefing de equipe, o mínimo de duas contas, a conta que falha sozinha e o limite de 8 sessões |
 | `desktop` | App do computador: a chave que só vale no próprio computador, pedidos que só o app pode fazer, terminal de verdade e arquivos de `node_modules` que não podem sair pelo servidor |
 | `seguranca` | Ataques de verdade contra um duckV ligado: DNS rebinding, WebSocket sequestrado por outro site, CSRF, segredo dos agentes, travessia de pastas (inclusive `::$DATA`, `CON` e UNC do Windows), limites de tamanho, vazamento de segredos e força bruta no pareamento |
 
@@ -507,6 +517,8 @@ node tools/simular.mjs
 ```
 
 Liga um duckV separado (porta 8766) com três contas, sessões e pedidos de mentira, para ver o app sem conectar o Claude Code de verdade. No Windows, `demonstracao.cmd`; no Linux e no macOS, `sh demonstracao.sh`.
+
+Na demonstração, **Abrir sessão** e **Todas as contas** também funcionam: qualquer conta abre um terminal de mentira (nenhum agente de verdade é chamado) que finge trabalhar, com a tarefa virando conversa e o estado e a atividade mudando. Serve para ver os patos da equipe andando juntos sem gastar limite.
 
 </details>
 
