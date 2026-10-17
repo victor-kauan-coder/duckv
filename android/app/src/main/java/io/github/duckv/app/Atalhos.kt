@@ -109,6 +109,8 @@ class BlocoRapido : TileService() {
         t.updateTile()
     }
 
+    // Antes do Android 14 so existe a versao com Intent; do 14 em diante, a com PendingIntent.
+    @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
         if (Build.VERSION.SDK_INT >= 34) startActivityAndCollapse(Atalhos.pendente(this))
