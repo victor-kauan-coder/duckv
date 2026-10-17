@@ -908,3 +908,83 @@ dialog.folha { border-top: 0; border-radius: var(--r-folha) var(--r-folha) 0 0; 
   background: var(--cor, var(--laranja));
   translate: -50% 0;
 }
+
+/* ------------------------------------------------------------ busca na conversa, fila e "@" */
+.s-topo { grid-template-columns: var(--toque) minmax(0, 1fr) auto auto; }
+.painel > div { min-width: 0; }
+.busca-conversa .so-icone { width: 40px; }
+.busca-conversa { display: flex; align-items: center; gap: 2px; padding: 6px 4px 6px var(--margem); border-bottom: 1px solid var(--linha); }
+.busca-conversa input { flex: 1; min-width: 0; min-height: 44px; padding: 0 14px; border: 1.5px solid var(--vazio); border-radius: var(--r-campo); background: var(--superficie); outline: none; }
+.busca-conversa input:focus { border-color: var(--texto); }
+.busca-contador { min-width: 0; padding: 0 4px 0 8px; font-size: 14px; color: var(--apoio); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.busca-contador[data-vazio='true'] { color: var(--perigo); }
+.busca-conversa .so-icone:disabled { color: var(--vazio); cursor: default; }
+::highlight(busca) { background-color: color-mix(in srgb, var(--laranja) 35%, transparent); color: inherit; }
+::highlight(busca-atual) { background-color: var(--texto); color: var(--fundo); }
+
+.fila-msgs { display: grid; gap: 8px; }
+.na-fila { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'rotulo acoes' 'texto texto'; align-items: center; padding: 2px 2px 12px 14px; background: var(--superficie); border: 1.5px solid var(--linha); border-radius: var(--r-cartao); }
+.na-fila-rotulo { grid-area: rotulo; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--apoio); }
+.na-fila p { grid-area: texto; padding-right: 12px; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.na-fila-acoes { grid-area: acoes; display: flex; gap: 6px; justify-content: flex-end; }
+.na-fila.editando { grid-template-areas: 'rotulo' 'texto' 'acoes'; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px; }
+.na-fila.editando label, .mud-comentar label { grid-area: rotulo; font-size: 14px; font-weight: 600; color: var(--apoio); }
+.na-fila.editando textarea, .mud-comentar textarea { grid-area: texto; width: 100%; resize: vertical; padding: 10px 12px; border: 1.5px solid var(--vazio); border-radius: var(--r-campo); background: var(--fundo); line-height: 1.4; }
+.na-fila.editando textarea:focus, .mud-comentar textarea:focus { border-color: var(--texto); outline: none; }
+.na-fila.editando .na-fila-acoes .botao, .mud-comentar-acoes .botao { min-height: 44px; }
+
+.sugestoes { grid-column: 1 / -1; display: grid; padding: 4px; background: var(--superficie); border: 1.5px solid var(--linha); border-radius: var(--r-cartao); max-height: 40vh; overflow-y: auto; }
+.sugestoes button { width: 100%; min-height: 48px; display: grid; justify-items: start; align-content: center; padding: 4px 12px; border: 0; border-radius: var(--r-campo); background: none; text-align: left; }
+.sugestoes button:hover, .sugestoes button:focus-visible { background: color-mix(in srgb, var(--laranja) 16%, var(--superficie)); }
+.sugestoes b { font: 500 14px/1.3 var(--mono); }
+.sugestoes span { font-size: 13px; color: var(--apoio); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* ------------------------------------------------------------ mudancas (diff da pasta)
+   Somadas e tiradas nas cores ok e perigo bem diluidas, sempre com + e - escritos ao lado. */
+.painel.mudancas { grid-template-rows: auto minmax(0, 1fr) auto; }
+.mud-topo { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 2px 4px 2px var(--margem); border-bottom: 1px solid var(--linha); }
+.mud-resumo { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--apoio); }
+.mud-resumo b { color: var(--texto); font-weight: 600; }
+.mud-num { display: inline-flex; gap: 8px; flex: none; font: 600 13px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+.mud-num .mais { color: var(--ok); }
+.mud-num .menos { color: var(--perigo); }
+.mud-num [data-zero='true'] { color: var(--apoio); }
+.mud-corpo { overflow-y: auto; overscroll-behavior: contain; padding: 12px var(--margem) 24px; display: flex; flex-direction: column; }
+.mud-vazio { margin: auto; max-width: 32ch; display: grid; justify-items: center; gap: 8px; text-align: center; color: var(--apoio); }
+.mud-vazio b { color: var(--texto); font-weight: 600; }
+.mud-vazio .botao { margin-top: 8px; }
+.mud-lista { flex: none; margin-bottom: 12px; padding: 4px; display: grid; background: var(--superficie); border: 1.5px solid var(--linha); border-radius: var(--r-cartao); }
+.mud-lista button { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 4px 12px; border: 0; border-radius: var(--r-campo); background: none; text-align: left; }
+.mud-lista button:hover { background: color-mix(in srgb, var(--texto) 6%, transparent); }
+.mud-lista .caminho, .mud-arquivo-cab .caminho { flex: 1; min-width: 0; font: 400 13px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mud-estado { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--fundo); color: var(--apoio); font-size: 12px; font-weight: 600; }
+.mud-aviso { margin-bottom: 12px; font-size: 14px; color: var(--apoio); }
+.mud-arquivo { flex: none; container-type: inline-size; margin-top: 12px; border: 1.5px solid var(--linha); border-radius: var(--r-campo); overflow: clip; background: var(--superficie); }
+.mud-arquivo-cab { position: sticky; top: -12px; z-index: 1; width: 100%; min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--linha); background: var(--superficie); text-align: left; }
+.mud-arquivo-cab[aria-expanded='false'] { border-bottom: 0; }
+.mud-arquivo-cab .icone { color: var(--apoio); }
+.mud-grande { padding: 12px; font-size: 14px; color: var(--apoio); }
+.mud-trechos { overflow-x: auto; font: 400 12.5px/1.6 var(--mono); font-variant-ligatures: none; }
+.mud-cab { padding: 4px 12px; background: var(--fundo); color: var(--apoio); font: 600 13px/1.4 var(--ui); white-space: nowrap; min-width: max-content; }
+.mud-linha { display: grid; grid-template-columns: 3.2em 1.6em auto; min-width: max-content; width: 100%; min-height: 28px; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+.mud-linha .n { padding-right: 6px; text-align: right; color: var(--apoio); font-variant-numeric: tabular-nums; }
+.mud-linha .s { text-align: center; font-weight: 700; }
+.mud-linha code { font: inherit; white-space: pre; padding-right: 20px; }
+.mud-linha[data-t='+'] { background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.mud-linha[data-t='+'] .s { color: var(--ok); }
+.mud-linha[data-t='-'] { background: color-mix(in srgb, var(--perigo) 11%, transparent); }
+.mud-linha[data-t='-'] .s { color: var(--perigo); }
+.mud-linha:active { background-image: linear-gradient(color-mix(in srgb, var(--texto) 9%, transparent), color-mix(in srgb, var(--texto) 9%, transparent)); }
+.mud-linha:focus-visible { outline: 2px solid var(--texto); outline-offset: -2px; }
+.mud-comentar, .mud-comentario { position: sticky; left: 0; width: 100cqw; font-family: var(--ui); font-size: 15px; }
+.mud-comentar { display: grid; grid-template-areas: 'rotulo' 'texto' 'acoes'; gap: 8px; padding: 12px; background: var(--fundo); border-top: 1px solid var(--linha); border-bottom: 1px solid var(--linha); }
+.mud-comentar-acoes { grid-area: acoes; display: flex; justify-content: flex-end; gap: 8px; }
+.mud-comentario { display: flex; align-items: flex-start; gap: 2px; padding: 2px 2px 2px 14px; background: color-mix(in srgb, var(--laranja) 22%, var(--superficie)); }
+.mud-comentario p { flex: 1; min-width: 0; padding: 12px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mud-rodape { display: grid; gap: 8px; padding: 10px var(--margem); border-top: 1px solid var(--linha); background: var(--fundo); }
+.mud-pronto { font-size: 14px; color: var(--apoio); }
+.mud-rodape-acoes { display: grid; grid-template-columns: auto 1fr; gap: 8px; }
+.mud-rodape-acoes .botao { padding: 0 14px; white-space: nowrap; }
+/* tres abas cabem em 360 px: cada uma divide a largura */
+.abas { gap: 0; }
+.abas button { flex: 1 1 0; justify-content: center; padding: 0 6px; min-width: 0; }

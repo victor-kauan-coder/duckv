@@ -1343,7 +1343,7 @@ body.corpo-aviso { background: transparent; overflow: hidden; padding: 0; user-s
 .mud-arquivo-cab[aria-expanded='false'] { box-shadow: none; }
 .mud-arquivo-cab .icone { color: var(--tinta-v); }
 .mud-grande { padding: 12px 14px; font-size: 13px; color: var(--tinta-v); }
-.mud-trechos { overflow-x: auto; font: 400 12.5px/19px var(--mono); padding-bottom: 4px; }
+.mud-trechos { overflow-x: auto; font: 400 12.5px/19px var(--mono); font-variant-ligatures: none; padding-bottom: 4px; }
 .mud-cab { padding: 4px 12px; background: var(--c); color: var(--tinta-v); white-space: pre; font: 500 12px/18px var(--ui); min-width: max-content; }
 .mud-linha { display: grid; grid-template-columns: 3.4em 3.4em 1.6em auto; min-width: max-content; cursor: pointer; }
 .mud-linha .n { padding-right: 8px; text-align: right; color: var(--tinta-v); font-variant-numeric: tabular-nums; user-select: none; }
