@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { briefingEquipe, arquivoDaEquipe } from '../hub/equipe.mjs';
+import { briefingEquipe, arquivoDaEquipe, criarArquivoDaEquipe, textoDoArquivo } from '../hub/equipe.mjs';
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(AQUI, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'duckv-equipe-'));
@@ -13,7 +13,9 @@ const WebSocket = (await import(pathToFileURL(require.resolve('ws')).href)).defa
 const PORT = '18791';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) process.exitCode = 1; };
-const proj = path.join(os.homedir(), 'duckv-equipe-proj'); fs.mkdirSync(proj, { recursive: true });
+// A pasta do projeto fica dentro da pasta pessoal (folderAllowed so aceita de la) e e temporaria,
+// para dois testes rodando juntos nao mexerem na mesma: no fim ela e apagada.
+const proj = fs.mkdtempSync(path.join(os.homedir(), 'duckv-equipe-proj-'));
 // Nove contas: as tres primeiras formam a equipe dos testes e o resto serve para estourar o limite de 8.
 const NOMES = ['Trabalho', 'Pessoal', 'Estudos', 'Quarta', 'Quinta', 'Sexta', 'Setima', 'Oitava', 'Nona'];
 const contas = NOMES.map((nome, i) => ({ id: `conta${i + 1}`, nome, cor: '#ff7a1a', dir: path.join(TMP, `c${i + 1}`) }));
@@ -48,9 +50,40 @@ ok(/pato 2, da conta Pessoal/.test(bri) && bri.includes('o pato 1 (Trabalho) e o
 ok(bri.includes(arquivoDaEquipe('eq0a0b0c0d')) && /anota ali o que pegou/.test(bri), 'o briefing manda combinar a divisao no arquivo da pasta');
 ok(bri.trimEnd().endsWith('Corrija o teste de pagamento.'), 'a tarefa vem no fim do briefing');
 
+// o arquivo da equipe: o servidor cria antes de abrir as sessoes, com a tarefa, os patos e as secoes
+const soDoArquivo = fs.mkdtempSync(path.join(os.homedir(), 'duckv-equipe-doc-'));
+const doc1 = criarArquivoDaEquipe(soDoArquivo, { id: 'eq0a0b0c0d', nomes: ['Trabalho', 'Pessoal'], tarefa: 'Corrija o teste de pagamento.' });
+const caminhoDoc = path.join(soDoArquivo, '.duckv', 'equipe-eq0a0b0c0d.md');
+ok(doc1.criado && fs.existsSync(caminhoDoc) && fs.statSync(path.join(soDoArquivo, '.duckv')).isDirectory(), 'o arquivo da equipe e a pasta .duckv sao criados');
+const conteudo = fs.readFileSync(caminhoDoc, 'utf8');
+ok(conteudo === textoDoArquivo({ nomes: ['Trabalho', 'Pessoal'], tarefa: 'Corrija o teste de pagamento.' }), 'o arquivo sai com o conteudo da equipe');
+ok(/^# Equipe duckV: Corrija o teste de pagamento\.$/m.test(conteudo), 'o titulo do arquivo leva a tarefa');
+ok(/^- pato 1: Trabalho$/m.test(conteudo) && /^- pato 2: Pessoal$/m.test(conteudo), 'o arquivo lista os patos na ordem, com a conta de cada um');
+const secoes = ['## Divisão (o pato 1 propõe)', '## Quem pegou o quê', '## Feito'];
+ok(
+  secoes.every((h) => conteudo.includes(h)) && conteudo.split(/\n## [^\n]*\n/).slice(1).every((t) => t.trim() === ''),
+  'o arquivo tem as tres secoes, vazias para preencher',
+);
+fs.writeFileSync(caminhoDoc, 'o que os patos ja escreveram');
+const doc2 = criarArquivoDaEquipe(soDoArquivo, { id: 'eq0a0b0c0d', nomes: ['Trabalho', 'Pessoal'], tarefa: 'Outra tarefa.' });
+ok(!doc2.criado && !doc2.erro && fs.readFileSync(caminhoDoc, 'utf8') === 'o que os patos ja escreveram', 'arquivo que ja existe nao e sobrescrito');
+fs.rmSync(soDoArquivo, { recursive: true, force: true });
+
+// a pagina web do celular: o chip "Todas as contas" e o cartao da equipe no inicio
+const paginaJs = fs.readFileSync(path.join(ROOT, 'app/app.js'), 'utf8');
+const paginaCss = fs.readFileSync(path.join(ROOT, 'app/style.css'), 'utf8');
+ok(/mandar\(\{ t: 'equipe', cwd, texto \}/.test(paginaJs), 'a pagina web manda equipe com a pasta e a tarefa');
+ok(/Escreva o que a equipe deve fazer/.test(paginaJs) && /Abrir com \$\{contasDaEquipe\(\).length\} contas/.test(paginaJs), 'a tarefa e obrigatoria e o botao diz quantas contas entram');
+ok(/time.length >= 2/.test(paginaJs) && /patos-equipe/.test(paginaJs), 'o chip so aparece com duas contas ou mais, com os patinhos delas');
+ok(/equipesVivas|blocoEquipe/.test(paginaJs) && paginaCss.includes('.equipe-pista'), 'o inicio tem o cartao da equipe com a pista dos patos');
+ok(/fazNaEquipe/.test(paginaJs) && /equipe-faz/.test(paginaJs), 'cada pato da equipe leva o estado escrito embaixo');
+ok(paginaCss.includes("data-pato='nenhum'") && paginaCss.includes('prefers-reduced-motion'), 'a pista respeita "Sem pato" e o movimento reduzido');
+ok(!/[\u2013\u2014]/.test(paginaJs.match(/'[^']*'/g).join('')), 'nenhum travessao no texto da pagina web');
+
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'oi' })).t === 'err', 'tarefa curta demais e recusada');
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'x'.repeat(8001) })).t === 'err', 'tarefa longa demais e recusada');
 ok((await ask({ t: 'equipe', cwd: '/etc', texto: 'Divida a tarefa entre voces' })).t === 'err', 'pasta fora das permitidas e recusada');
+ok(!fs.existsSync(path.join('/etc', '.duckv')), 'pasta recusada nao ganha a pasta .duckv');
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'Divida a tarefa entre voces', contas: ['conta1'] })).t === 'err', 'equipe de uma conta so e recusada');
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'Divida a tarefa entre voces', contas: ['conta1', 'conta1'] })).t === 'err', 'a mesma conta repetida nao faz uma equipe');
 // Sem a lista, entram as nove contas instaladas: passa do limite de 8 e nada e aberto.
@@ -67,6 +100,9 @@ ok(time.every((s) => s?.equipe?.id === eq.equipe && s.equipe.total === 3), 'as t
 ok(time.map((s) => s?.equipe?.ordem).join() === '1,2,3', 'a ordem dos patos comeca em 1');
 ok(time.map((s) => s?.account).join() === 'conta1,conta2,conta3', 'cada conta ganhou uma sessao');
 ok(time.every((s) => s?.name === tarefa.slice(0, 50)), 'as sessoes da equipe se chamam pela tarefa');
+const naPasta = path.join(proj, '.duckv', `equipe-${eq.equipe}.md`);
+ok(fs.existsSync(naPasta), 'abrir a equipe deixa o arquivo dela na pasta do projeto');
+ok(fs.readFileSync(naPasta, 'utf8').includes(tarefa) && /^- pato 1: Trabalho$/m.test(fs.readFileSync(naPasta, 'utf8')), 'o arquivo da pasta tem a tarefa e os patos');
 
 // o briefing e a primeira mensagem da sessao: espera a caixa de mensagem aparecer e vai sozinho
 const primeiro = eq.instances[0];
