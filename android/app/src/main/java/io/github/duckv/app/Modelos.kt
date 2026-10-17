@@ -98,8 +98,41 @@ data class Sessao(
     val remota get() = origem == "nuvem" || origem == "cowork"
 }
 
-/** Lugar da sessao numa equipe: [ordem] de 1 a [total]. */
-data class Equipe(val id: String, val ordem: Int, val total: Int)
+/**
+ * Lugar da sessao numa equipe: [ordem] de 1 a [total]. Com uma copia por pato ([isolado]), esta sessao
+ * abriu num worktree do git, no [branch] dela, e [principal] e a pasta do projeto de onde ela saiu.
+ * Sem copias, [motivo] diz por que (nao-git, sem-commits, desligado, erro).
+ */
+data class Equipe(
+    val id: String,
+    val ordem: Int,
+    val total: Int,
+    val branch: String? = null,
+    val isolado: Boolean = false,
+    val motivo: String? = null,
+    val principal: String? = null,
+)
+
+/** Quando uma automacao roda: todo dia, nos dias uteis, uma vez por semana ou por uma expressao cron. */
+data class Quando(val tipo: String, val hora: String = "09:00", val dia: Int = 1, val cron: String = "")
+
+/** Uma execucao de automacao no historico: a sessao que abriu, o erro, ou a hora que passou perdida. */
+data class Execucao(val em: Long, val instancia: String?, val conta: String?, val erro: String?, val perdida: Boolean, val manual: Boolean, val marcada: Long?)
+
+/** Automacao agendada: na hora marcada, o computador abre uma sessao com [texto] na pasta dela. */
+data class Automacao(
+    val id: String,
+    val nome: String,
+    val quando: Quando,
+    val quandoTexto: String,
+    val conta: String?,
+    val pasta: String,
+    val texto: String,
+    val ativa: Boolean,
+    val proxima: Long?,
+    val ultima: Execucao?,
+    val execucoes: Int,
+)
 
 data class Host(
     val disponivel: Boolean,
@@ -128,6 +161,8 @@ data class Estado(
     val app: VersaoApp? = null,
     /** Login no GitHub do computador (pelo gh), para as sessoes na nuvem. */
     val github: GithubEstado = GithubEstado(),
+    /** As automacoes agendadas, da proxima a rodar para a mais distante. */
+    val automacoes: List<Automacao> = emptyList(),
 ) {
     fun conta(id: String) = contas.find { it.id == id }
         ?: Conta(id, id, 0xFFFF7A1A, Padroes(null, null, null, null), null, null, null, null, null)
@@ -231,7 +266,9 @@ fun lerEstado(m: JSONObject): Estado {
             links = i.optJSONArray("links").strings(),
             previas = i.optJSONObject("previas")?.let { pv -> Previas(pv.optJSONArray("portas").let { a -> List(a?.length() ?: 0) { a!!.optInt(it) } }, pv.optJSONArray("arquivos").strings(), pv.optJSONArray("artefatos").strings()) } ?: Previas(),
             login = i.optBoolean("login"),
-            equipe = i.optJSONObject("equipe")?.let { q -> q.s("id")?.takeIf { it.isNotEmpty() }?.let { Equipe(it, q.optInt("ordem"), q.optInt("total")) } },
+            equipe = i.optJSONObject("equipe")?.let { q ->
+                q.s("id")?.takeIf { it.isNotEmpty() }?.let { Equipe(it, q.optInt("ordem"), q.optInt("total"), q.s("branch"), q.optBoolean("isolado"), q.s("motivo"), q.s("principal")) }
+            },
         )
     }
     val h = m.optJSONObject("host") ?: JSONObject()
@@ -275,8 +312,39 @@ fun lerEstado(m: JSONObject): Estado {
             )
         } ?: GithubEstado(),
         app = lerVersaoApp(m.optJSONObject("app")),
+        automacoes = m.optJSONArray("automacoes").mapa(::lerAutomacao),
     )
 }
+
+/** Uma automacao como o computador a conta, com o "quando" ja escrito para a tela. */
+fun lerAutomacao(o: JSONObject): Automacao {
+    val q = o.optJSONObject("quando") ?: JSONObject()
+    return Automacao(
+        id = o.optString("id"),
+        nome = o.optString("nome"),
+        quando = Quando(q.optString("tipo", "diario"), q.optString("hora", "09:00"), q.optInt("dia", 1), q.optString("cron")),
+        quandoTexto = o.optString("quandoTexto"),
+        conta = o.s("conta")?.takeIf { it.isNotEmpty() },
+        pasta = o.optString("pasta"),
+        texto = o.optString("texto"),
+        ativa = o.optBoolean("ativa", true),
+        proxima = o.l("proxima"),
+        ultima = o.optJSONObject("ultima")?.let(::lerExecucao),
+        execucoes = o.optInt("execucoes"),
+    )
+}
+
+fun lerExecucao(o: JSONObject) = Execucao(
+    em = o.optLong("em"),
+    instancia = o.s("instancia")?.takeIf { it.isNotEmpty() },
+    conta = o.s("conta")?.takeIf { it.isNotEmpty() },
+    erro = o.s("erro")?.takeIf { it.isNotEmpty() },
+    perdida = o.optBoolean("perdida"),
+    manual = o.optBoolean("manual"),
+    marcada = o.l("marcada"),
+)
+
+fun lerHistorico(a: JSONArray?): List<Execucao> = a.mapa(::lerExecucao)
 
 fun lerMsgs(a: JSONArray?): List<Msg> = a.mapa {
     Msg(it.optString("id"), it.optString("role"), it.optString("text"), it.s("tool"), it.optString("via") == "celular", it.s("img"), it.s("via"), it.s("arq"), it.optLong("ts"))

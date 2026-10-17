@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,7 +72,7 @@ private val CORES = listOf(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
+fun TelaOpcoes(e: Estado?, aoAutomacoes: () -> Unit, aoVoltar: () -> Unit) {
     val c = cores
     val aviso = LocalAviso.current
     val ctx = LocalContext.current
@@ -129,6 +130,20 @@ fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TituloSecao("Automações")
+                    val ligadas = e.automacoes.count { it.ativa }
+                    Text(
+                        if (e.automacoes.isEmpty()) "Na hora marcada, o computador abre uma sessão sozinho com a primeira mensagem que você escrever."
+                        else "${plural(ligadas, "automação ligada", "automações ligadas")} de ${e.automacoes.size}. Na hora marcada, o computador abre uma sessão sozinho.",
+                        style = Texto.apoio, color = c.apoio,
+                    )
+                    Botao(
+                        if (e.automacoes.isEmpty()) "Criar uma automação" else "Ver as automações",
+                        aoAutomacoes, Modifier.fillMaxWidth(), Icons.Rounded.Schedule, Peso.Quieto,
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     TituloSecao("GitHub")
                     Text("Para criar sessões na nuvem a partir dos seus repositórios.", style = Texto.apoio, color = c.apoio)
                     CartaoGithub(e.github)
@@ -182,28 +197,6 @@ fun TelaOpcoes(e: Estado?, aoVoltar: () -> Unit) {
                 }, Modifier.fillMaxWidth(), Peso.Perigo)
             }
         }
-    }
-}
-
-@Composable
-private fun Chave(texto: String, marcado: Boolean, ajuda: String? = null, aoMudar: (Boolean) -> Unit) {
-    val c = cores
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(role = Role.Switch) { aoMudar(!marcado) }.padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(texto, style = Texto.rotulo, color = c.texto)
-            if (ajuda != null) Text(ajuda, style = Texto.apoio, color = c.apoio)
-        }
-        EspacoLargo(12.dp)
-        Switch(
-            marcado, null,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Tinta, checkedTrackColor = Laranja, checkedBorderColor = Laranja,
-                uncheckedThumbColor = c.apoio, uncheckedTrackColor = c.superficie, uncheckedBorderColor = c.vazio,
-            ),
-        )
     }
 }
 
