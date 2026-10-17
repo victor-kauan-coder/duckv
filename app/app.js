@@ -224,7 +224,8 @@ const TRUQUES = {
 const DURACAO = { grasna: 900, bate: 800, rabo: 800, pisca: 320, cisca: 1300, olha: 1200, pulinho: 480, espia: 1100 };
 const semMovimento = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-function bicho() {
+// `truques` desligado: o pato fica parado no estado que receber, para os patinhos pequenos dos chips.
+function bicho(truques = true) {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('viewBox', '-1 -5.5 20 19');
   svg.setAttribute('aria-hidden', 'true');
@@ -270,7 +271,7 @@ function bicho() {
     }
     setTimeout(gracinha, 3500 + Math.random() * 6000);
   }
-  setTimeout(gracinha, 1500 + Math.random() * 4000);
+  if (truques) setTimeout(gracinha, 1500 + Math.random() * 4000);
 
   pista.definir = (estado) => {
     if (pista.dataset.estado === estado) return;
@@ -278,6 +279,15 @@ function bicho() {
     delete pista.dataset.truque;
   };
   return pista;
+}
+
+// Patinho pequeno e parado, com a cor da conta: serve de icone, como no chip "Todas as contas".
+function miniPato(estado, cor) {
+  const p = bicho(false);
+  p.definir(estado);
+  const caixa = el('span', { class: 'mini-pato' }, p);
+  if (cor) caixa.style.setProperty('--cor', cor);
+  return caixa;
 }
 
 // ------------------------------------------------------------ estado e ligacao
@@ -412,6 +422,41 @@ function oQueFaz(s) {
   if (s.status === 'working') return s.activity || 'Trabalhando';
   if (s.status === 'error') return s.activity || 'Parou com erro';
   return s.lastText || 'Esperando sua mensagem';
+}
+
+const estadoDoPato = (s) => (s.status === 'ended' ? 'dorme' : precisa(s) ? 'pede' : s.status === 'working' ? 'trabalha' : 'parado');
+
+// "Todas as contas": as contas que entram numa equipe sao as instaladas, com login e com limite sobrando.
+const contasDaEquipe = () =>
+  S.contas.filter((c) => c.instalado !== false && c.usage?.erro !== 'login' && !(c.usage?.five_hour?.pct >= 100) && !(c.usage?.seven_day?.pct >= 100));
+
+// As equipes com alguma sessao viva (sessoes com o mesmo equipe.id), da mais nova para a mais antiga.
+function equipesVivas() {
+  const mapa = new Map();
+  for (const s of S.sessoes) {
+    if (!s.equipe?.id) continue;
+    const g = mapa.get(s.equipe.id) || { id: s.equipe.id, sessoes: [] };
+    g.sessoes.push(s);
+    mapa.set(g.id, g);
+  }
+  for (const g of mapa.values()) g.sessoes.sort((a, b) => (a.equipe.ordem || 0) - (b.equipe.ordem || 0));
+  return [...mapa.values()]
+    .filter((g) => g.sessoes.some((s) => s.status !== 'ended'))
+    .sort((a, b) => Math.max(...b.sessoes.map((s) => s.startedAt)) - Math.max(...a.sessoes.map((s) => s.startedAt)));
+}
+
+// O que o pato da equipe faz agora, em duas palavras: o estado fica sempre escrito embaixo dele.
+const fazNaEquipe = (s) =>
+  s.status === 'ended' ? 'Terminou' : precisa(s) ? 'Pede você' : s.status === 'working' ? s.activity || 'Trabalhando' : s.status === 'error' ? 'Parou com erro' : 'Esperando você';
+
+// A equipe em uma frase: quantas pedem voce, quantas trabalham, quantas ja terminaram.
+function resumoDaEquipe(ss) {
+  const pedem = ss.filter((s) => s.status !== 'ended' && precisa(s)).length;
+  const trabalham = ss.filter((s) => s.status !== 'ended' && !precisa(s) && s.status === 'working').length;
+  if (pedem) return { texto: pedem === 1 ? '1 pede você' : `${pedem} pedem você`, como: 'pede' };
+  if (trabalham) return { texto: `${trabalham} trabalhando`, como: 'trabalha' };
+  if (ss.every((s) => s.status === 'ended')) return { texto: 'Todas terminaram', como: 'fim' };
+  return { texto: 'Esperando sua mensagem', como: 'parado' };
 }
 
 function celulas(caixa, total, cheias, opts = {}) {
@@ -550,6 +595,98 @@ function pedidosDe(sessoes) {
   return itens;
 }
 
+// ------------------------------------------------------------ cartao da equipe ("Todas as contas")
+// As sessoes abertas juntas, uma por conta, dividindo a mesma tarefa, ficam num cartao so, acima das
+// contas: o pato de cada conta anda na mesma pista, e embaixo dele vem o nome da conta e o que ele faz
+// agora, sempre escrito. Trabalhando ele anda, pedindo pula com a exclamacao, parado respira e
+// encerrado dorme. Tocar num pato abre a sessao dele.
+function blocoEquipe() {
+  const selo = el('span', { class: 'equipe-selo' }, el('i'), el('b'));
+  // Uma linha so de apoio: quantos patos, a pasta e a tarefa, cortada com reticencias se nao couber.
+  const tarefa = el('p', { class: 'equipe-tarefa' });
+  const pista = el('div', { class: 'equipe-pista', role: 'list' });
+  const raiz = el('section', { class: 'equipe' }, el('div', { class: 'equipe-cabeca' }, el('h2', { text: 'Equipe' }), selo), tarefa, pista);
+  const colunas = new Map();
+
+  // Uma coluna por pato: a pista dele, o nome da conta e o que ele faz agora.
+  function coluna() {
+    const p = bicho();
+    const nome = el('b');
+    const faz = el('span', { class: 'equipe-faz' });
+    const botao = el(
+      'button',
+      { class: 'equipe-pato', type: 'button', role: 'listitem' },
+      el('span', { class: 'equipe-trilha' }, p),
+      el('span', { class: 'equipe-nome' }, el('i'), nome),
+      faz,
+    );
+    let sessao = null;
+    botao.addEventListener('click', () => sessao && (location.hash = `#/s/${encodeURIComponent(sessao.id)}`));
+    return {
+      raiz: botao,
+      atualizar(s) {
+        sessao = s;
+        const c = contaDe(s);
+        pintar(botao, c.cor);
+        p.definir(estadoDoPato(s));
+        nome.textContent = c.nome;
+        faz.textContent = fazNaEquipe(s);
+        faz.classList.toggle('pede', precisa(s) && s.status !== 'ended');
+        botao.setAttribute('aria-label', `${c.nome}: ${fazNaEquipe(s)}. Abrir a sessão.`);
+      },
+    };
+  }
+
+  return {
+    raiz,
+    atualizar(g) {
+      const onde = pasta(g.sessoes[0]?.cwd);
+      tarefa.textContent = [plural(g.sessoes.length, 'pato', 'patos'), onde, g.sessoes[0] ? nomeDaSessao(g.sessoes[0]) : ''].filter(Boolean).join(' · ');
+      tarefa.hidden = !tarefa.textContent;
+      const r = resumoDaEquipe(g.sessoes);
+      selo.lastChild.textContent = r.texto;
+      selo.dataset.como = r.como;
+      for (const s of g.sessoes) {
+        let col = colunas.get(s.id);
+        if (!col) {
+          col = coluna();
+          colunas.set(s.id, col);
+        }
+        if (col.raiz.parentElement !== pista) pista.append(col.raiz);
+        col.atualizar(s);
+      }
+      for (const [id, col] of colunas) {
+        if (g.sessoes.some((s) => s.id === id)) continue;
+        col.raiz.remove();
+        colunas.delete(id);
+      }
+    },
+  };
+}
+
+// Mantem um cartao por equipe dentro da caixa, criando e tirando conforme elas abrem e fecham.
+function sincronizarEquipes(caixa, blocos) {
+  const times = equipesVivas();
+  for (const g of times) {
+    let b = blocos.get(g.id);
+    if (!b) {
+      b = blocoEquipe();
+      blocos.set(g.id, b);
+    }
+    if (b.raiz.parentElement !== caixa) caixa.append(b.raiz);
+    b.atualizar(g);
+  }
+  for (const [id, b] of blocos) {
+    if (times.some((g) => g.id === id)) continue;
+    b.raiz.remove();
+    blocos.delete(id);
+  }
+  return times;
+}
+
+// A equipe que acabou de ser aberta: a tela inicial traz o cartao dela para a vista uma vez.
+let equipeFoco = null;
+
 // ------------------------------------------------------------ tela inicial
 function criarConta(conta) {
   const pista = bicho();
@@ -670,6 +807,8 @@ function criarInicio() {
   );
   const demo = el('div', { class: 'faixa-aviso neutra', hidden: true }, el('b', { text: 'Modo demonstração' }), 'As contas, as sessões e os números desta tela são de mentira.');
   const pedidos = el('div', { class: 'pedidos' });
+  const equipes = el('div', { class: 'equipes' });
+  const blocosEquipe = new Map();
   const contas = el('div');
   const esqueleto = el('div', { 'aria-hidden': 'true' }, ...[0, 1].map(() => el('div', { class: 'esqueleto' }, el('i'), el('i'), el('i'))));
   const porId = new Map();
@@ -678,7 +817,7 @@ function criarInicio() {
   const semTerminal = el('p', { hidden: true });
   const rodape = el('footer', { class: 'rodape' }, ligacao, botaoAvisos, notaAvisos, semTerminal);
   const opcoes = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Opções', onclick: () => (location.hash = '#/opcoes') }, icone('gear-six', 24));
-  const raiz = el('div', null, el('header', { class: 'barra' }, el('h1', { text: 'duckV' }), el('div', { class: 'barra-acoes' }, abrir, opcoes)), semLigacao, demo, pedidos, esqueleto, contas, rodape);
+  const raiz = el('div', null, el('header', { class: 'barra' }, el('h1', { text: 'duckV' }), el('div', { class: 'barra-acoes' }, abrir, opcoes)), semLigacao, demo, pedidos, equipes, esqueleto, contas, rodape);
 
   function avisos() {
     const pode = 'serviceWorker' in navigator && 'PushManager' in window && window.isSecureContext;
@@ -711,6 +850,13 @@ function criarInicio() {
     abrir.hidden = !S.pronto || !S.host.available;
     rodape.hidden = !S.pronto;
     sincronizarPedidos(pedidos, pedidosDe(S.sessoes));
+    // As equipes vem acima das contas, porque as sessoes delas chegam juntas e se leem juntas.
+    sincronizarEquipes(equipes, blocosEquipe);
+    // A equipe aberta agora chega um instante depois da resposta: quando o cartao dela existir, a vista vai nele.
+    if (equipeFoco && blocosEquipe.has(equipeFoco)) {
+      blocosEquipe.get(equipeFoco).raiz.scrollIntoView({ block: 'nearest', behavior: semMovimento.matches ? 'auto' : 'smooth' });
+      equipeFoco = null;
+    }
     for (const c of S.contas) {
       let v = porId.get(c.id);
       if (!v) {
@@ -1258,14 +1404,21 @@ function criarSessao(id, abaInicial) {
 }
 
 // ------------------------------------------------------------ nova sessao
+// "Todas as contas" no lugar de uma conta: a equipe abre uma sessao por conta na mesma pasta.
+const TODAS = 'equipe';
+
 function criarNova(contaInicial) {
-  let contaId = S.contas.some((c) => c.id === contaInicial) ? contaInicial : null;
+  let contaId = S.contas.some((c) => c.id === contaInicial) ? contaInicial : contaInicial === TODAS ? TODAS : null;
+  const ehTime = () => contaId === TODAS;
   const opcoesConta = el('div', { class: 'opcoes', role: 'radiogroup', 'aria-label': 'Conta' });
   const caminho = el('input', { id: 'nova-pasta', type: 'text', autocomplete: 'off', autocapitalize: 'off', spellcheck: false, placeholder: 'C:\\projetos\\meu-projeto' });
   const erroPasta = el('p', { class: 'erro', role: 'alert', hidden: true });
   const recentes = el('div', { class: 'recentes' });
   const navegador = el('div', { class: 'navegador', hidden: true });
   const nome = el('input', { id: 'nova-nome', type: 'text', autocomplete: 'off', maxLength: 50 });
+  const tarefa = el('textarea', { id: 'nova-tarefa', rows: 4, maxLength: 8000, placeholder: 'Ex.: corrija o teste que está falhando e abra um pull request' });
+  const erroTarefa = el('p', { class: 'erro', role: 'alert', hidden: true });
+  const ajudaEquipe = el('p', { class: 'ajuda' });
   const modelo = folhaSeletor({ id: 'nova-modelo', rotulo: 'Modelo' });
   const esforco = folhaSeletor({ id: 'nova-esforco', rotulo: 'Esforço', opcoes: [{ v: '', t: 'Padrão do modelo' }] });
   const modo = folhaSeletor({ id: 'nova-modo', rotulo: 'Permissões' });
@@ -1274,10 +1427,14 @@ function criarNova(contaInicial) {
   const abrir = el('button', { class: 'botao principal cheio', type: 'submit', text: 'Abrir sessão' });
 
   const campoDe = (rotulo, alvo, ...resto) => el('div', { class: 'campo' }, el('label', { for: alvo.id, text: rotulo }), alvo, ...resto);
+  const campoConta = el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Conta' }), opcoesConta, ajudaEquipe);
+  const campoTarefa = campoDe('O que a equipe deve fazer', tarefa, erroTarefa);
+  const campoNome = campoDe('Nome da sessão (opcional)', nome);
+  const camposDaConta = [campoDe('Modelo', modelo), campoDe('Esforço de raciocínio', esforco), campoDe('Modo de permissão', modo, ajudaModo)];
   const form = el(
     'form',
     { class: 'formulario', noValidate: true },
-    el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Conta' }), opcoesConta),
+    campoConta,
     campoDe(
       'Pasta do projeto',
       caminho,
@@ -1286,10 +1443,9 @@ function criarNova(contaInicial) {
       navegador,
       recentes,
     ),
-    campoDe('Nome da sessão (opcional)', nome),
-    campoDe('Modelo', modelo),
-    campoDe('Esforço de raciocínio', esforco),
-    campoDe('Modo de permissão', modo, ajudaModo),
+    campoTarefa,
+    campoNome,
+    ...camposDaConta,
     el('div', { class: 'campo' }, erroGeral, abrir),
   );
   const raiz = el(
@@ -1329,14 +1485,49 @@ function criarNova(contaInicial) {
     });
   }
 
+  const nomeDaConta = (id) => S.contas.find((c) => c.id === id)?.nome || id;
+
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     erroGeral.hidden = true;
+    erroTarefa.hidden = true;
     const cwd = caminho.value.trim();
     if (!cwd) {
       erroPasta.textContent = 'Escolha a pasta do projeto.';
       erroPasta.hidden = false;
       caminho.focus();
+      return;
+    }
+    // "Todas as contas": o computador abre uma sessao por conta e manda o briefing de equipe em cada uma.
+    if (ehTime()) {
+      const texto = tarefa.value.trim();
+      if (texto.length < 3) {
+        erroTarefa.textContent = 'Escreva o que a equipe deve fazer.';
+        erroTarefa.hidden = false;
+        tarefa.focus();
+        return;
+      }
+      abrir.disabled = true;
+      abrir.textContent = 'Abrindo as contas';
+      mandar({ t: 'equipe', cwd, texto }, (erro, r) => {
+        abrir.disabled = false;
+        rotularBotao();
+        if (erro) {
+          erroGeral.textContent = erro;
+          erroGeral.hidden = false;
+          return;
+        }
+        const abertas = (r.instances || []).length;
+        const falhas = r.falhas || [];
+        avisar(
+          falhas.length
+            ? `${plural(abertas, 'conta abriu', 'contas abriram')}. Fora: ${falhas.map((f) => `${nomeDaConta(f.conta)} (${f.erro})`).join('; ')}`
+            : `${plural(abertas, 'conta trabalhando', 'contas trabalhando')} na mesma pasta`,
+        );
+        // Volta para o inicio, onde o cartao da equipe mostra os patos das contas juntos.
+        equipeFoco = r.equipe || null;
+        location.hash = '';
+      });
       return;
     }
     abrir.disabled = true;
@@ -1364,9 +1555,31 @@ function criarNova(contaInicial) {
     if (p.cwd && !caminho.value.trim()) caminho.value = p.cwd;
   }
 
+  // O botao diz quantas contas entram quando a escolha e a equipe.
+  function rotularBotao() {
+    abrir.textContent = ehTime() ? `Abrir com ${contasDaEquipe().length} contas` : 'Abrir sessão';
+  }
+
+  // Na equipe, a tarefa e obrigatoria e cada conta abre com os padroes dela: nome, modelo, esforco e
+  // modo saem de cena.
+  function mostrarCampos() {
+    const time = ehTime();
+    campoTarefa.hidden = !time;
+    campoNome.hidden = time;
+    for (const c of camposDaConta) c.hidden = time;
+    const nomes = contasDaEquipe().map((c) => c.nome);
+    ajudaEquipe.hidden = !time;
+    ajudaEquipe.textContent = time
+      ? `${nomes.length > 1 ? `${nomes.slice(0, -1).join(', ')} e ${nomes.at(-1)}` : nomes.join('')} abrem uma sessão cada, nesta pasta do computador, e dividem a tarefa entre si. A divisão fica num arquivo da pasta, e cada conta começa com os padrões dela.`
+      : '';
+    if (!abrir.textContent.startsWith('Abrindo')) rotularBotao();
+  }
+
   let preenchido = false;
   function atualizar() {
     if (!S.pronto) return;
+    const time = contasDaEquipe();
+    if (ehTime() && time.length < 2) contaId = null;
     if (!contaId) contaId = S.contas.find((c) => c.id === contaInicial)?.id || S.contas[0]?.id;
     opcoesConta.replaceChildren(
       ...S.contas.map((c) =>
@@ -1379,10 +1592,30 @@ function criarNova(contaInicial) {
           onclick: () => {
             contaId = c.id;
             aplicarPadroes();
+            mostrarCampos();
             atualizar();
           },
         }),
       ),
+      // "Todas as contas" so aparece com duas contas ou mais, com os patinhos delas juntos.
+      ...(time.length >= 2
+        ? [el(
+            'button',
+            {
+              class: 'botao chip-equipe',
+              type: 'button',
+              role: 'radio',
+              'aria-checked': ehTime() ? 'true' : 'false',
+              onclick: () => {
+                contaId = TODAS;
+                mostrarCampos();
+                atualizar();
+              },
+            },
+            el('span', { class: 'patos-equipe' }, ...time.slice(0, 4).map((c) => miniPato('parado', c.cor))),
+            'Todas as contas',
+          )]
+        : []),
     );
     if (!preenchido) {
       preenchido = true;
@@ -1405,7 +1638,8 @@ function criarNova(contaInicial) {
         ),
       );
     }
-    abrir.disabled = !S.host.available || abrir.textContent === 'Abrindo';
+    mostrarCampos();
+    abrir.disabled = !S.host.available || abrir.textContent.startsWith('Abrindo');
     if (!S.host.available) {
       erroGeral.textContent = 'O computador não conseguiu carregar o terminal virtual, então não dá para abrir sessões por aqui. Rode a instalação de novo.';
       erroGeral.hidden = false;
@@ -1597,7 +1831,7 @@ function criarOpcoes() {
         'Aparência neste celular',
         escolhaUnica('Tema', [['sistema', 'Igual ao do celular'], ['claro', 'Claro'], ['escuro', 'Escuro']], LOCAL.tema, (v) => guardarLocal('tema', v)),
         escolhaUnica('Tamanho do texto', [['normal', 'Normal'], ['grande', 'Grande'], ['maior', 'Maior']], LOCAL.texto, (v) => guardarLocal('texto', v)),
-        escolhaUnica('Pato', [['animado', 'Animado, com gracinhas'], ['calmo', 'Sem gracinhas'], ['parado', 'Parado']], LOCAL.pato, (v) => guardarLocal('pato', v)),
+        escolhaUnica('Pato', [['animado', 'Animado, com gracinhas'], ['calmo', 'Sem gracinhas'], ['parado', 'Parado'], ['nenhum', 'Sem pato']], LOCAL.pato, (v) => guardarLocal('pato', v)),
         caixinha('Mostrar na conversa as ferramentas que o Claude usa', LOCAL.ferramentas, (v) => guardarLocal('ferramentas', v)),
       ),
       grupo('Contas', el('p', { class: 'ajuda', text: 'Nome, cor e como cada conta começa uma sessão aberta pelo celular.' }), ...S.contas.map(blocoConta)),

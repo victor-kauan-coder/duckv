@@ -202,6 +202,7 @@ O duckV também abre no navegador, sem instalar nada. Ele escolhe sozinho a tela
 
 - **Como app**: no iPhone, "Adicionar à Tela de Início" abre o duckV em tela cheia, com ícone próprio; no Chrome e no Edge do computador, use **Instalar duckV** (no menu do navegador); no Safari do Mac, **Arquivo › Adicionar ao Dock**.
 - **Avisos no iPhone**: o iOS só manda notificações de sites para um app **adicionado à Tela de Início** (iOS 16.4 ou mais novo) e aberto por **HTTPS** (ligue os certificados HTTPS no painel do Tailscale). Os botões Aceitar e Recusar na própria notificação existem só no app Android; no iPhone, o toque no aviso abre o pedido.
+- **Todas as contas no navegador**: em **Abrir sessão**, o chip **Todas as contas** (com os patinhos das contas) abre uma sessão por conta na mesma pasta, com a tarefa obrigatória; no início, o cartão **Equipe** traz os patos das contas na mesma pista, o nome de cada conta e o que ela faz agora, e um toque no pato abre a sessão dele.
 - **O que o navegador não faz**: o terminal de verdade das sessões, o pareamento de outros aparelhos e as janelas de terminal do sistema ficam só no app do computador (a chave dele nunca sai do computador).
 - **Depois de parear**, abrir o link de novo leva direto para a tela do duckV, sem pedir os números outra vez. O código do link continua valendo para o próximo aparelho.
 
@@ -275,7 +276,7 @@ Sem o computador, a folha mostra as sessões da nuvem que o duckV viu por últim
 
 ### Todas as contas na mesma tarefa
 
-Na escolha da conta existe também **Todas as contas**: o duckV abre uma sessão em cada conta instalada, todas na mesma pasta, e cada uma começa por um briefing de equipe que diz quantos patos são, qual é o dele, quais são os outros e que todos trabalham ali ao mesmo tempo. As sessões não se falam: a divisão do trabalho é combinada no arquivo `.duckv/equipe-<id>.md` da pasta, onde o primeiro pato propõe a divisão por partes e arquivos, os outros pegam a sua parte e cada um anota o que pegou e o que já terminou.
+Na escolha da conta existe também **Todas as contas**: o duckV abre uma sessão em cada conta instalada, todas na mesma pasta, e cada uma começa por um briefing de equipe que diz quantos patos são, qual é o dele, quais são os outros e que todos trabalham ali ao mesmo tempo. As sessões não se falam: a divisão do trabalho é combinada no arquivo `.duckv/equipe-<id>.md` da pasta, que o duckV cria antes de abrir as sessões, já com a tarefa, a lista dos patos e as seções **Divisão**, **Quem pegou o quê** e **Feito** para preencher (um arquivo que já exista não é tocado). O pato 1 propõe a divisão por partes e arquivos; se ele não abrir, propõe o pato de menor número que abriu. Os outros pegam a sua parte e cada um anota ali o que pegou e o que já terminou.
 
 Na barra lateral e na Visão geral essas sessões aparecem juntas num bloco **Equipe**, com o pato de cada conta na mesma pista, o nome da conta e o que ele faz agora embaixo; um clique no pato abre a sessão dele e **Abrir lado a lado** põe a equipe toda em painéis. O duckV mantém no máximo 8 sessões abertas por ele, então a equipe inteira precisa caber nesse limite.
 

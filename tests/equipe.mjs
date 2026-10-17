@@ -69,6 +69,17 @@ const doc2 = criarArquivoDaEquipe(soDoArquivo, { id: 'eq0a0b0c0d', nomes: ['Trab
 ok(!doc2.criado && !doc2.erro && fs.readFileSync(caminhoDoc, 'utf8') === 'o que os patos ja escreveram', 'arquivo que ja existe nao e sobrescrito');
 fs.rmSync(soDoArquivo, { recursive: true, force: true });
 
+// a pagina web do celular: o chip "Todas as contas" e o cartao da equipe no inicio
+const paginaJs = fs.readFileSync(path.join(ROOT, 'app/app.js'), 'utf8');
+const paginaCss = fs.readFileSync(path.join(ROOT, 'app/style.css'), 'utf8');
+ok(/mandar\(\{ t: 'equipe', cwd, texto \}/.test(paginaJs), 'a pagina web manda equipe com a pasta e a tarefa');
+ok(/Escreva o que a equipe deve fazer/.test(paginaJs) && /Abrir com \$\{contasDaEquipe\(\).length\} contas/.test(paginaJs), 'a tarefa e obrigatoria e o botao diz quantas contas entram');
+ok(/time.length >= 2/.test(paginaJs) && /patos-equipe/.test(paginaJs), 'o chip so aparece com duas contas ou mais, com os patinhos delas');
+ok(/equipesVivas|blocoEquipe/.test(paginaJs) && paginaCss.includes('.equipe-pista'), 'o inicio tem o cartao da equipe com a pista dos patos');
+ok(/fazNaEquipe/.test(paginaJs) && /equipe-faz/.test(paginaJs), 'cada pato da equipe leva o estado escrito embaixo');
+ok(paginaCss.includes("data-pato='nenhum'") && paginaCss.includes('prefers-reduced-motion'), 'a pista respeita "Sem pato" e o movimento reduzido');
+ok(!/[\u2013\u2014]/.test(paginaJs.match(/'[^']*'/g).join('')), 'nenhum travessao no texto da pagina web');
+
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'oi' })).t === 'err', 'tarefa curta demais e recusada');
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'x'.repeat(8001) })).t === 'err', 'tarefa longa demais e recusada');
 ok((await ask({ t: 'equipe', cwd: '/etc', texto: 'Divida a tarefa entre voces' })).t === 'err', 'pasta fora das permitidas e recusada');

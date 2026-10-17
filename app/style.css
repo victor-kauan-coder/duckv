@@ -794,3 +794,117 @@ dialog.folha { border-top: 0; border-radius: var(--r-folha) var(--r-folha) 0 0; 
 #aviso { border-radius: 14px; }
 .abas { border-bottom-width: 1px; }
 .abas button { border-radius: 12px 12px 0 0; }
+
+/* ------------------------------------------------------------ equipe ("Todas as contas")
+   Um cartao por equipe, acima das contas: o pato de cada conta anda na mesma pista e, embaixo dele,
+   vem o nome da conta e o que ele faz agora (sempre escrito, nunca so pela cor). A cor da conta
+   entra como ponto de acento: nenhuma caixa atras do pato e nenhuma sombra no cartao (DESIGN.md). */
+.equipes { display: grid; gap: 12px; padding: 0 var(--margem); }
+.equipes:not(:empty) { margin-bottom: 18px; }
+.equipe {
+  display: grid;
+  gap: 6px;
+  padding: 13px 10px 8px;
+  background: var(--superficie);
+  border: 1.5px solid var(--linha);
+  border-radius: var(--r-cartao);
+}
+.equipe-cabeca { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
+.equipe-cabeca h2 { flex: 1; min-width: 0; font: 600 17px/1.3 var(--ui); }
+.equipe-selo { flex: none; display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 999px; background: var(--fundo); font-size: 13px; font-weight: 600; }
+.equipe-selo i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.equipe-selo[data-como='trabalha'] i { background: var(--laranja); }
+.equipe-selo[data-como='pede'] { background: var(--inv-fundo); color: var(--inv-texto); }
+.equipe-selo[data-como='pede'] i { background: var(--laranja); }
+.equipe-tarefa { min-width: 0; padding: 0 6px; font-size: 14px; color: var(--apoio); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equipe-pista { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; margin-top: 2px; }
+.equipe-pato {
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  min-height: 44px;
+  padding: 0 2px 8px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--texto);
+  text-align: center;
+  transition: background var(--rapido);
+}
+.equipe-pato:hover { background: color-mix(in srgb, var(--texto) 6%, transparent); }
+.equipe-pato:active { background: color-mix(in srgb, var(--texto) 11%, transparent); }
+/* o chao e um so: a borda de baixo de cada trilha encosta na da vizinha */
+.equipe-trilha { --pato-l: min(44px, 86%); display: block; position: relative; height: 52px; margin-bottom: 8px; border-bottom: 1.5px solid var(--linha); }
+.equipe-trilha .pista { position: absolute; inset: 0; width: 100%; }
+.equipe-trilha .vira { width: var(--pato-l); }
+.equipe-trilha .bicho { width: 100%; bottom: 2px; }
+.equipe-trilha .pista[data-estado='parado'] .trilho,
+.equipe-trilha .pista[data-estado='pede'] .trilho,
+.equipe-trilha .pista[data-estado='dorme'] .trilho,
+.equipe-trilha .pista[data-estado='cansado'] .trilho { transform: translateX(calc(50% - var(--pato-l) / 2)); }
+.equipe-trilha .pista[data-estado='trabalha'] .trilho,
+.equipe-trilha .pista[data-estado='festa'] .trilho { animation-name: anda-na-equipe; }
+@keyframes anda-na-equipe {
+  0%, 100% { transform: translateX(0); }
+  48%, 52% { transform: translateX(calc(100% - var(--pato-l))); }
+}
+/* Pato parado por escolha ou por movimento reduzido: ele fica no meio da trilha, e o que ele faz
+   continua escrito embaixo. */
+:root[data-pato='parado'] .equipe-trilha .pista[data-estado='trabalha'] .trilho,
+:root[data-pato='parado'] .equipe-trilha .pista[data-estado='festa'] .trilho { transform: translateX(calc(50% - var(--pato-l) / 2)); }
+@media (prefers-reduced-motion: reduce) {
+  .equipe-trilha .pista[data-estado='trabalha'] .trilho,
+  .equipe-trilha .pista[data-estado='festa'] .trilho { transform: translateX(calc(50% - var(--pato-l) / 2)); }
+}
+.equipe-nome { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; }
+.equipe-nome i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--cor, var(--laranja)); }
+.equipe-nome b { font: 600 14px/1.3 var(--ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equipe-faz { font-size: 12px; line-height: 1.35; color: var(--apoio); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.equipe-faz.pede { color: var(--realce); font-weight: 600; }
+
+/* Patinho pequeno e parado: o icone do chip "Todas as contas", um meio por cima do outro. */
+.mini-pato { position: relative; display: block; flex: none; width: 24px; height: 22px; }
+.mini-pato .pista { position: absolute; inset: 0; width: 100%; }
+.mini-pato .vira { width: 22px; left: 1px; }
+.mini-pato .bicho { width: 22px; bottom: 0; }
+.mini-pato .trilho, .mini-pato .pista[data-estado] .trilho { transform: none; animation: none; }
+.mini-pato .vira, .mini-pato .pista[data-estado] .vira { animation: none; }
+.patos-equipe { display: flex; align-items: center; margin-right: 2px; }
+.patos-equipe .mini-pato { margin-right: -9px; }
+.patos-equipe .mini-pato:last-child { margin-right: 0; }
+.chip-equipe { padding-left: 12px; }
+/* A escolha marcada troca o fundo de tinta por um laranja claro: a letra volta a ser a tinta,
+   senao ela fica da cor do fundo da tela e some. */
+.opcoes .botao[aria-pressed='true'], .opcoes .botao[aria-checked='true'] { color: var(--texto); }
+
+/* Campo de texto de varias linhas (a tarefa da equipe), igual aos outros campos. */
+.campo textarea {
+  width: 100%;
+  min-height: 104px;
+  padding: 12px;
+  background: var(--superficie);
+  border: 1.5px solid var(--vazio);
+  border-radius: var(--r-campo);
+  line-height: 1.45;
+  resize: vertical;
+  transition: border-color var(--rapido);
+}
+.campo textarea::placeholder { color: var(--apoio); opacity: 1; }
+.campo textarea:hover { border-color: var(--apoio); }
+.campo textarea:focus-visible { outline: none; border-color: var(--texto); }
+
+/* Opcoes > Pato > Sem pato: o pato sai da tela e o que ele dizia continua escrito.
+   Onde ele marcava a conta, fica o ponto da cor dela. */
+:root[data-pato='nenhum'] .pista { display: none; }
+:root[data-pato='nenhum'] .ficha::after,
+:root[data-pato='nenhum'] .equipe-trilha::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--cor, var(--laranja));
+  translate: -50% 0;
+}
