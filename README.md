@@ -485,6 +485,7 @@ Roda todas as baterias, uma depois da outra, e mostra o resumo (`node tests/roda
 | `servidor` | Servidor, canal MCP com um cliente real, permissões e histórico |
 | `pareamento` | Pareamento com os 4 números confirmados no computador |
 | `sessoes` | Sessões abertas pelo celular, com um terminal de mentira no lugar do agente, e argumentos que tentam injetar comandos no `cmd.exe` |
+| `equipe` | "Todas as contas": uma sessão por conta na mesma pasta, o briefing de equipe, o mínimo de duas contas, a conta que falha sozinha e o limite de 8 sessões |
 | `desktop` | App do computador: a chave que só vale no próprio computador, pedidos que só o app pode fazer, terminal de verdade e arquivos de `node_modules` que não podem sair pelo servidor |
 | `seguranca` | Ataques de verdade contra um duckV ligado: DNS rebinding, WebSocket sequestrado por outro site, CSRF, segredo dos agentes, travessia de pastas (inclusive `::$DATA`, `CON` e UNC do Windows), limites de tamanho, vazamento de segredos e força bruta no pareamento |
 
@@ -500,6 +501,8 @@ node tools/simular.mjs
 ```
 
 Liga um duckV separado (porta 8766) com três contas, sessões e pedidos de mentira, para ver o app sem conectar o Claude Code de verdade. No Windows, `demonstracao.cmd`; no Linux e no macOS, `sh demonstracao.sh`.
+
+Na demonstração, **Abrir sessão** e **Todas as contas** também funcionam: qualquer conta abre um terminal de mentira (nenhum agente de verdade é chamado) que finge trabalhar, com a tarefa virando conversa e o estado e a atividade mudando. Serve para ver os patos da equipe andando juntos sem gastar limite.
 
 </details>
 
