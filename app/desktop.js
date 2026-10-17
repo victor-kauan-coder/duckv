@@ -484,6 +484,7 @@ function ligar() {
       S.desktop = m.desktop || null;
       S.retomaveis = m.retomaveis || [];
       if (m.prefs) S.prefs = m.prefs;
+      S.automacoes = m.automacoes || [];
       if (m.github) {
         const mudouLogin = S.github?.login !== m.github.login;
         S.github = m.github;
@@ -2883,12 +2884,14 @@ function blocoEquipe({ compacto = false } = {}) {
   const tarefa = el('p', { class: 'equipe-tarefa' });
   const botaoJuntas = el('button', { class: 'botao texto pequeno', type: 'button' }, icone('square-split-horizontal', 16), 'Abrir lado a lado');
   const pista = el('div', { class: 'equipe-pista', role: 'list' });
+  const resultado = compacto ? null : resultadoDaEquipe();
   const raiz = el(
     'section',
     { class: `equipe${compacto ? ' compacta' : ''}` },
     el('div', { class: 'equipe-cabeca' }, el('div', { class: 'equipe-quem' }, el('b', { text: 'Equipe' }), apoio), botaoJuntas),
     compacto ? null : tarefa,
     pista,
+    resultado?.raiz,
   );
   const colunas = new Map();
   let ids = [];
@@ -2925,7 +2928,8 @@ Clique para abrir; ${CTRL}+clique abre ao lado.`);
     raiz,
     atualizar(g) {
       ids = g.sessoes.map((s) => s.id);
-      const onde = pasta(g.sessoes[0]?.cwd);
+      // Isolada, cada sessao abre na copia dela: a pasta que a tela mostra e sempre a do projeto.
+      const onde = pasta(g.sessoes[0]?.equipe?.principal || g.sessoes[0]?.cwd);
       apoio.textContent = `${plural(g.sessoes.length, 'pato', 'patos')}${compacto ? '' : ' na mesma pasta'}${onde ? ` · ${onde}` : ''}`;
       tarefa.textContent = g.sessoes[0] ? nomeDaSessao(g.sessoes[0]) : '';
       tarefa.hidden = !tarefa.textContent;
@@ -2943,8 +2947,327 @@ Clique para abrir; ${CTRL}+clique abre ao lado.`);
         col.raiz.remove();
         colunas.delete(id);
       }
+      resultado?.atualizar(g);
     },
   };
+}
+
+// O que cada pato fez: com uma copia por pato (git worktree), o branch, os commits e as linhas de cada
+// um, "Juntar este" (merge na pasta principal) e "Limpar a equipe". Carrega so quando aberto: cada
+// leitura roda git na pasta. Sem copias (pasta sem git), uma frase diz que todos usam os mesmos arquivos.
+const MOTIVO_SEM_COPIA = {
+  'nao-git': 'A pasta não é um repositório git: os patos trabalham todos nos mesmos arquivos.',
+  'sem-commits': 'O repositório ainda não tem nenhum commit: os patos trabalham todos nos mesmos arquivos.',
+  desligado: 'As cópias foram desligadas ao abrir: os patos trabalham todos nos mesmos arquivos.',
+  erro: 'Não deu para criar as cópias: os patos trabalham todos nos mesmos arquivos.',
+};
+function resultadoDaEquipe() {
+  const nota = el('p', { class: 'equipe-nota', hidden: true });
+  const abrirBotao = el('button', { class: 'botao texto pequeno', type: 'button', 'aria-expanded': 'false' }, icone('list-checks', 16), el('span', { text: 'O que cada pato fez' }));
+  const atualizarBotao = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Ler de novo', title: 'Ler de novo', hidden: true }, icone('arrows-clockwise', 16));
+  const corpo = el('div', { class: 'equipe-resultado', hidden: true, 'aria-live': 'polite' });
+  const barra = el('div', { class: 'equipe-resultado-barra' }, abrirBotao, el('span', { class: 'espaco' }), atualizarBotao);
+  const raiz = el('div', { class: 'equipe-resultado-caixa', hidden: true }, barra, corpo);
+  let equipe = null;
+  let aberto = false;
+  let lendo = false;
+
+  function ler() {
+    if (!equipe || lendo) return;
+    lendo = true;
+    if (!corpo.firstChild) corpo.replaceChildren(el('p', { class: 'p-nota', text: 'Lendo os branches…' }));
+    mandar({ t: 'equipeResultado', equipe }, (erro, r) => {
+      lendo = false;
+      if (erro) return corpo.replaceChildren(el('p', { class: 'erro', text: erro }));
+      desenhar(r);
+    });
+  }
+  function desenhar(r) {
+    const linhas = r.patos.map((p) => {
+      const c = S.contas.find((x) => x.id === p.conta) || { nome: p.nome || p.conta, cor: '#ff7a1a' };
+      const feito = p.erro ? p.erro : p.commits ? `${plural(p.commits, 'commit', 'commits')}, +${p.mais} −${p.menos}` : 'Ainda não commitou nada';
+      const extra = p.juntado ? 'Já juntado na pasta principal' : p.pendentes ? `${plural(p.pendentes, 'arquivo', 'arquivos')} ainda sem commit` : '';
+      const juntar = el('button', { class: 'botao quieto pequeno', type: 'button', disabled: !p.commits || !!p.juntado || !r.principalLimpa }, el('span', { text: p.juntado ? 'Juntado' : 'Juntar este' }));
+      juntar.addEventListener('click', () => {
+        juntar.disabled = true;
+        juntar.firstChild.textContent = 'Juntando…';
+        mandar({ t: 'equipeJuntar', equipe, conta: p.conta }, (erro, rr) => {
+          if (erro) {
+            juntar.disabled = false;
+            juntar.firstChild.textContent = 'Juntar este';
+            return avisar(erro);
+          }
+          avisar(rr?.msg || `O trabalho de ${c.nome} foi juntado na pasta principal`);
+          ler();
+        });
+      });
+      const li = el('li', null, el('i', { class: 'ponto-conta' }), el('span', { class: 't' }, el('b', { text: c.nome }), el('code', { text: p.branch }), el('span', { class: p.erro ? 'erro' : '', text: [feito, extra].filter(Boolean).join('. ') })), juntar);
+      li.style.setProperty('--cor', c.cor);
+      return li;
+    });
+    const limpar = duasVezes(el('button', { class: 'botao perigo pequeno', type: 'button' }, icone('trash', 16), el('span', { text: 'Limpar a equipe' })), 'Limpar a equipe', () =>
+      mandar({ t: 'equipeLimpar', equipe }, (erro) => (erro ? avisar(erro) : (avisar('Cópias e branches da equipe removidos'), ler()))),
+    );
+    const comparar = el('button', { class: 'botao quieto pequeno', type: 'button', onclick: () => compararPatos(r) }, icone('square-split-horizontal', 16), el('span', { text: 'Comparar lado a lado' }));
+    // replaceChildren escreveria "null" no lugar do aviso ausente
+    corpo.replaceChildren(
+      ...[
+        r.principalLimpa ? null : el('p', { class: 'equipe-aviso' }, icone('warning-circle', 16), el('span', { text: 'A pasta principal tem mudanças sem commit. Faça um commit (ou guarde as mudanças) antes de juntar um pato.' })),
+        el('ul', { class: 'equipe-patos' }, ...linhas),
+        el('div', { class: 'equipe-resultado-pe' }, el('span', { class: 'p-nota', text: 'Juntar traz o branch do pato para a pasta principal com um merge. Limpar apaga as cópias e os branches, depois que as sessões terminam.' }), comparar, limpar),
+      ].filter(Boolean),
+    );
+  }
+  abrirBotao.addEventListener('click', () => {
+    aberto = !aberto;
+    abrirBotao.setAttribute('aria-expanded', String(aberto));
+    corpo.hidden = !aberto;
+    atualizarBotao.hidden = !aberto;
+    if (aberto) ler();
+  });
+  atualizarBotao.addEventListener('click', ler);
+  return {
+    raiz: el('div', null, nota, raiz),
+    atualizar(g) {
+      const eq = g.sessoes[0]?.equipe || {};
+      equipe = eq.id || null;
+      const isolada = !!eq.isolado;
+      raiz.hidden = !isolada;
+      nota.hidden = isolada || !eq.motivo;
+      nota.textContent = MOTIVO_SEM_COPIA[eq.motivo] || '';
+      // um pato terminou o turno: se o resultado esta aberto, le de novo (os commits podem ter mudado)
+      const marca = g.sessoes.map((s) => s.status).join();
+      if (aberto && raiz.dataset.marca && raiz.dataset.marca !== marca) ler();
+      raiz.dataset.marca = marca;
+    },
+  };
+}
+
+// ------------------------------------------------------------ automacoes agendadas
+// Na hora marcada, o duckV abre uma sessao (conta, pasta) com a primeira mensagem. Todo dia, nos dias
+// uteis, uma vez por semana ou por cron. Nada roda atrasado: com o computador desligado na hora, a
+// execucao entra no historico como perdida.
+const DIAS_SEMANA = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+const fDiaSemana = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' });
+// "hoje às 08:30", "amanhã às 08:30" ou "sex., 23 de out. às 08:30"
+function quandoRelativo(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const hoje = new Date(agora());
+  const dias = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())) / 86400000);
+  const dia = dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : dias === -1 ? 'ontem' : fDiaSemana.format(d);
+  return `${dia} às ${fHora.format(d)}`;
+}
+function textoDaExecucao(x) {
+  if (!x) return '';
+  if (x.perdida) return `Perdida ${quandoRelativo(x.marcada || x.em)}: o computador estava desligado`;
+  if (x.erro) return `Não abriu ${quandoRelativo(x.em)}: ${x.erro}`;
+  const conta = x.conta ? S.contas.find((c) => c.id === x.conta)?.nome : null;
+  return `Abriu a sessão ${quandoRelativo(x.em)}${conta ? ` em ${conta}` : ''}${x.manual ? ' (rodada à mão)' : ''}`;
+}
+
+function criarAutomacoesTela() {
+  const raiz = el('div', { class: 'pagina' });
+  let marca = '';
+  const nova = () => editarAutomacao(null);
+  function atualizar() {
+    const lista = S.automacoes || [];
+    const m = JSON.stringify([lista, S.contas.map((c) => [c.id, c.nome]), Math.floor(agora() / 60000)]);
+    if (m === marca) return;
+    marca = m;
+    const cabeca = el(
+      'div',
+      { class: 'pagina-cabeca' },
+      el('div', null, el('h2', { class: 'titulo-pagina', text: 'Automações' }), el('p', { class: 'sub', text: 'Na hora marcada, o duckV abre uma sessão com a primeira mensagem que você escreveu. Se o computador estiver desligado na hora, ela espera a próxima.' })),
+      lista.length ? el('button', { class: 'botao principal', type: 'button', onclick: nova }, icone('plus', 18), 'Nova automação') : null,
+    );
+    if (!lista.length) {
+      raiz.replaceChildren(
+        el(
+          'div',
+          { class: 'pagina-largura' },
+          cabeca,
+          el('section', { class: 'bloco vazio-bloco' }, miniPato('dorme'), el('b', { text: 'Nenhuma automação ainda' }), el('p', { text: 'Por exemplo: todo dia às 8h, rodar os testes e corrigir o que falhar; ou toda sexta, revisar o que mudou na semana.' }), el('button', { class: 'botao principal', type: 'button', onclick: nova }, icone('plus', 18), 'Nova automação')),
+        ),
+      );
+      return;
+    }
+    const itens = lista.map((a) => {
+      const conta = a.conta ? S.contas.find((c) => c.id === a.conta) : null;
+      const rodar = el('button', { class: 'botao quieto pequeno', type: 'button' }, icone('lightning', 16), el('span', { text: 'Rodar agora' }));
+      rodar.addEventListener('click', () => {
+        rodar.disabled = true;
+        mandar({ t: 'automacaoRodar', id: a.id }, (erro, r) => {
+          rodar.disabled = false;
+          if (erro) return avisar(erro);
+          avisar(`${a.nome}: sessão aberta`);
+          if (r.instance) area.abrir(r.instance);
+        });
+      });
+      const apagar = duasVezes(el('button', { class: 'botao perigo pequeno', type: 'button' }, el('span', { text: 'Apagar' })), 'Apagar', () => mandar({ t: 'automacaoApagar', id: a.id }, (e) => avisar(e || `${a.nome} apagada`)));
+      const chave = interruptor(a.ativa, (v) => new Promise((res) => mandar({ t: 'automacaoPausar', id: a.id, ativa: v }, (e) => (e ? (avisar(e), res(false)) : res(true)))), a.ativa ? `Pausar ${a.nome}` : `Ligar ${a.nome}`);
+      const ultima = a.ultima ? textoDaExecucao(a.ultima) : 'Ainda não rodou';
+      return el(
+        'li',
+        { class: `automacao${a.ativa ? '' : ' pausada'}` },
+        el('span', { class: 'automacao-ic' }, icone('clock-counter-clockwise', 20)),
+        el(
+          'span',
+          { class: 't' },
+          el('b', { text: a.nome }),
+          el('span', { text: `${a.quandoTexto}, ${conta ? conta.nome : 'conta automática'}, ${pasta(a.pasta) || a.pasta}` }),
+          el('span', { class: 'automacao-proxima', text: a.ativa ? (a.proxima ? `Próxima: ${quandoRelativo(a.proxima)}` : 'Sem próxima hora possível') : 'Pausada' }),
+          el('span', { class: `automacao-ultima${a.ultima?.erro ? ' erro' : ''}`, text: ultima }),
+          el(
+            'span',
+            { class: 'automacao-acoes' },
+            rodar,
+            el('button', { class: 'botao texto pequeno', type: 'button', onclick: () => editarAutomacao(a) }, icone('pencil-simple', 16), 'Editar'),
+            el('button', { class: 'botao texto pequeno', type: 'button', onclick: () => historicoDaAutomacao(a) }, icone('clock-counter-clockwise', 16), `Histórico (${a.execucoes})`),
+            apagar,
+          ),
+        ),
+        chave,
+      );
+    });
+    raiz.replaceChildren(el('div', { class: 'pagina-largura' }, cabeca, el('section', { class: 'bloco' }, el('ul', { class: 'automacoes' }, ...itens))));
+  }
+  return { raiz, atualizar };
+}
+
+function editarAutomacao(a) {
+  const { d, corpo, pe, form } = dialogo(a ? 'Editar automação' : 'Nova automação', 'Na hora marcada, o duckV abre uma sessão com esta primeira mensagem.');
+  const q = a?.quando || { tipo: 'dias-uteis', hora: '09:00' };
+  let tipo = q.tipo;
+  const nome = el('input', { id: 'aut-nome', type: 'text', maxLength: 60, autocomplete: 'off', value: a?.nome || '', placeholder: 'Ex.: Testes da manhã' });
+  const hora = el('input', { id: 'aut-hora', type: 'text', inputMode: 'numeric', maxLength: 5, autocomplete: 'off', value: q.hora || '09:00', placeholder: '08:30' });
+  const dia = seletor({ id: 'aut-dia', opcoes: DIAS_SEMANA.map((t, i) => ({ v: String(i), t })), valor: String(q.dia ?? 1) });
+  const cron = el('input', { id: 'aut-cron', type: 'text', spellcheck: false, autocomplete: 'off', class: 'mono', value: q.cron || '', placeholder: '30 8 * * 1-5' });
+  const conta = seletor({ id: 'aut-conta', opcoes: [{ v: '', t: 'Automática', apoio: 'A de mais limite livre na hora' }, ...S.contas.filter((c) => c.instalado !== false).map((c) => ({ v: c.id, t: c.nome }))], valor: a?.conta || '' });
+  const pastaCampo = el('input', { id: 'aut-pasta', type: 'text', spellcheck: false, autocomplete: 'off', value: a?.pasta || S.host.folders[0] || '', placeholder: S.host.home || '' });
+  const recentes = el('div', { class: 'chips' }, ...S.host.folders.slice(0, 5).map((f) => el('button', { class: 'chip', type: 'button', title: f, onclick: () => (pastaCampo.value = f) }, icone('folder', 16), pasta(f) || f)));
+  const texto = el('textarea', { id: 'aut-texto', class: 'campo-texto', rows: 4, maxLength: 8000, placeholder: 'Ex.: Rode os testes e corrija o que estiver falhando. No fim, resuma o que mudou.' });
+  texto.value = a?.texto || '';
+  const erros = {};
+  const erroDe = (campo) => (erros[campo] = el('p', { class: 'erro', role: 'alert', hidden: true }));
+  const campo = (id, rotulo, ...filhos) => el('div', { class: 'campo' }, el('label', { for: id, text: rotulo }), ...filhos);
+  const tipos = el('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'Quando' });
+  const campoHora = campo('aut-hora', 'Hora', hora);
+  const campoDia = campo('aut-dia', 'Dia da semana', dia);
+  const campoCron = campo('aut-cron', 'Expressão cron', cron, el('p', { class: 'ajuda', text: 'Minuto, hora, dia do mês, mês e dia da semana. Ex.: 30 8 * * 1-5 (8:30 de segunda a sexta).' }));
+  function desenharTipo() {
+    tipos.replaceChildren(
+      ...[['diario', 'Todo dia'], ['dias-uteis', 'Dias úteis'], ['semanal', 'Uma vez por semana'], ['cron', 'Cron']].map(([v, t]) =>
+        el('button', { class: 'chip', type: 'button', role: 'radio', 'aria-checked': String(tipo === v), onclick: () => ((tipo = v), desenharTipo()) }, t),
+      ),
+    );
+    campoHora.hidden = tipo === 'cron';
+    campoDia.hidden = tipo !== 'semanal';
+    campoCron.hidden = tipo !== 'cron';
+  }
+  const quandoErro = erroDe('quando');
+  corpo.append(
+    campo('aut-nome', 'Nome', nome, erroDe('nome')),
+    el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Quando' }), tipos, quandoErro),
+    el('div', { class: 'lado-a-lado' }, campoHora, campoDia),
+    campoCron,
+    campo('aut-conta', 'Conta', conta, erroDe('conta')),
+    campo('aut-pasta', 'Pasta do projeto', pastaCampo, recentes, erroDe('pasta')),
+    campo('aut-texto', 'Primeira mensagem da sessão', texto, erroDe('texto')),
+  );
+  const salvar = el('button', { class: 'botao principal', type: 'submit', text: a ? 'Salvar' : 'Criar automação' });
+  pe.append(el('button', { class: 'botao texto', type: 'button', text: 'Cancelar', onclick: () => d.close() }), salvar);
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    Object.values(erros).forEach((e) => (e.hidden = true));
+    const quando = tipo === 'cron' ? { tipo, cron: cron.value.trim() } : { tipo, hora: hora.value.trim(), ...(tipo === 'semanal' ? { dia: Number(dia.value) } : {}) };
+    const automacao = { nome: nome.value.trim() || 'Automação', quando, conta: conta.value || null, pasta: pastaCampo.value.trim(), texto: texto.value.trim(), ativa: a ? a.ativa : true };
+    salvar.disabled = true;
+    mandar(a ? { t: 'automacaoEditar', id: a.id, automacao } : { t: 'automacaoCriar', automacao }, (erro, r) => {
+      salvar.disabled = false;
+      if (erro) {
+        const alvo = erros[r?.campo] || quandoErro;
+        Object.assign(alvo, { hidden: false, textContent: erro });
+        return alvo.scrollIntoView({ block: 'nearest' });
+      }
+      d.close();
+      avisar(a ? 'Automação salva' : `Automação criada. Próxima: ${quandoRelativo(r.automacao?.proxima)}`);
+    });
+  });
+  desenharTipo();
+  d.showModal();
+  (a ? texto : nome).focus();
+}
+
+function historicoDaAutomacao(a) {
+  const { d, corpo, pe } = dialogo(`Histórico: ${a.nome}`, a.quandoTexto);
+  const lista = el('ul', { class: 'automacao-historico', 'aria-busy': 'true' }, el('li', { class: 'p-nota', text: 'Carregando…' }));
+  corpo.append(lista);
+  pe.append(el('button', { class: 'botao texto', type: 'button', text: 'Fechar', onclick: () => d.close() }));
+  mandar({ t: 'automacaoHistorico', id: a.id }, (erro, r) => {
+    lista.removeAttribute('aria-busy');
+    if (erro) return lista.replaceChildren(el('li', { class: 'erro', text: erro }));
+    const h = r.historico || [];
+    lista.replaceChildren(
+      ...(h.length
+        ? h.map((x) =>
+            el(
+              'li',
+              { class: x.erro ? 'erro' : x.perdida ? 'perdida' : '' },
+              icone(x.erro ? 'warning-circle' : x.perdida ? 'clock-counter-clockwise' : 'check-circle', 18),
+              el('span', { text: textoDaExecucao(x) }),
+              x.instancia && sessaoPorId(x.instancia) ? el('button', { class: 'botao texto pequeno', type: 'button', text: 'Abrir', onclick: () => (d.close(), area.abrir(x.instancia)) }) : null,
+            ),
+          )
+        : [el('li', { class: 'p-nota', text: 'Ainda não rodou nenhuma vez.' })]),
+    );
+  });
+  d.showModal();
+}
+
+// Comparar lado a lado: uma coluna por pato com os arquivos que ele mexeu, do que mudou mais para o que
+// mudou menos. Arquivo que mais de um pato mexeu vem marcado: e ali que o merge do segundo pode brigar.
+function compararPatos(r) {
+  const patos = r.patos.filter((p) => !p.erro);
+  const { d, corpo, pe } = dialogo('O que cada pato mexeu', 'Os arquivos de cada branch, lado a lado. O que aparece em mais de uma coluna é onde eles se encontram.');
+  d.classList.add('largo');
+  const quantos = new Map();
+  for (const p of patos) for (const a of p.arquivos || []) quantos.set(a.caminho, (quantos.get(a.caminho) || 0) + 1);
+  const colunas = patos.map((p) => {
+    const c = S.contas.find((x) => x.id === p.conta) || { nome: p.nome || p.conta, cor: '#ff7a1a' };
+    const arquivos = p.arquivos || [];
+    const col = el(
+      'div',
+      { class: 'comparar-coluna' },
+      el('div', { class: 'comparar-cabeca' }, el('i', { class: 'ponto-conta' }), el('b', { text: c.nome }), el('span', { class: 'p-nota', text: p.commits ? `${plural(p.commits, 'commit', 'commits')}, ${plural(arquivos.length, 'arquivo', 'arquivos')}` : 'Ainda não commitou nada' })),
+      el('code', { class: 'comparar-branch', text: p.branch }),
+      arquivos.length
+        ? el(
+            'ul',
+            { class: 'comparar-arquivos' },
+            ...arquivos.map((a) =>
+              el(
+                'li',
+                { class: quantos.get(a.caminho) > 1 ? 'junto' : '', title: a.caminho },
+                el('span', { class: 'comparar-nome', text: a.caminho }),
+                el('span', { class: 'comparar-linhas', text: a.binario ? 'binário' : `+${a.mais} −${a.menos}` }),
+              ),
+            ),
+          )
+        : el('p', { class: 'p-nota', text: 'Nenhum arquivo commitado neste branch.' }),
+    );
+    col.style.setProperty('--cor', c.cor);
+    return col;
+  });
+  const juntos = [...quantos.entries()].filter(([, n]) => n > 1).map(([caminho]) => caminho);
+  corpo.append(
+    el('div', { class: 'comparar' }, ...colunas),
+    juntos.length
+      ? el('p', { class: 'equipe-aviso' }, icone('warning-circle', 16), el('span', { text: `${plural(juntos.length, 'arquivo foi mexido', 'arquivos foram mexidos')} por mais de um pato: ${juntos.slice(0, 6).join(', ')}${juntos.length > 6 ? '…' : ''}. Junte um de cada vez e resolva o que o git apontar.` }))
+      : el('p', { class: 'p-nota', text: 'Nenhum arquivo foi mexido por mais de um pato: os branches não se encostam.' }),
+  );
+  pe.append(el('button', { class: 'botao texto', type: 'button', text: 'Fechar', onclick: () => d.close() }));
+  d.showModal();
 }
 
 // ------------------------------------------------------------ barra lateral
@@ -2958,6 +3281,7 @@ const lateral = (() => {
   const contas = el('div');
   const navCelulares = el('button', { class: 'nav-item', type: 'button', onclick: () => vista.mostrar('celulares') }, icone('device-mobile', 20), el('span', { text: 'Celulares' }), el('span', { class: 'contador quieto' }));
   const navOpcoes = el('button', { class: 'nav-item', type: 'button', onclick: () => vista.mostrar('opcoes') }, icone('gear-six', 20), el('span', { text: 'Opções' }));
+  const navAutomacoes = el('button', { class: 'nav-item', type: 'button', onclick: () => vista.mostrar('automacoes') }, icone('clock-counter-clockwise', 20), el('span', { text: 'Automações' }), el('span', { class: 'contador quieto' }));
   // Equipes ("Todas as contas"): um bloco por equipe, antes das contas, porque as sessoes dela vem juntas.
   const tituloEquipes = el('div', { class: 'secao-titulo', hidden: true }, el('span', { text: 'Equipes' }));
   const caixaEquipes = el('div');
@@ -2976,7 +3300,7 @@ const lateral = (() => {
       el('div', { class: 'secao-titulo' }, el('span', { text: 'Contas' }), el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Adicionar conta', title: 'Adicionar conta', onclick: () => vista.mostrar('opcoes', 'contas') }, icone('user-plus', 18))),
       contas,
     ),
-    el('div', { class: 'lateral-pe' }, navCelulares, navOpcoes),
+    el('div', { class: 'lateral-pe' }, navAutomacoes, navCelulares, navOpcoes),
   );
   const grupos = new Map();
   const blocos = new Map();
@@ -3088,6 +3412,11 @@ const lateral = (() => {
     navPaineis.lastChild.textContent = String(area.paineis().length);
     navPaineis.lastChild.hidden = !area.paineis().length;
     navOpcoes.setAttribute('aria-current', String(vista.atual === 'opcoes'));
+    navAutomacoes.setAttribute('aria-current', String(vista.atual === 'automacoes'));
+    // quantas estao ligadas (as pausadas nao contam)
+    const ligadas = (S.automacoes || []).filter((a) => a.ativa).length;
+    navAutomacoes.lastChild.textContent = ligadas ? String(ligadas) : '';
+    navAutomacoes.lastChild.hidden = !ligadas;
     navCelulares.setAttribute('aria-current', String(vista.atual === 'celulares'));
     navCelulares.hidden = !S.desktop;
     const nAp = S.desktop?.aparelhos?.length || 0;
@@ -3408,7 +3737,16 @@ function abrirNova(opts = {}) {
   const campoTarefa = el('div', { class: 'campo' }, rotuloTarefa, tarefa, ajudaTarefa);
   const ajudaNuvem = el('p', { class: 'ajuda nuvem-ajuda', hidden: true }, icone('cloud', 16), el('span', { text: 'Roda nos servidores da Anthropic, a partir do repositório escolhido, e continua mesmo com o computador desligado. Repositório que não está no computador ganha uma cópia leve na pasta do duckV. Você acompanha por aqui; para responder, abra no claude.ai.' }));
   // "Todas as contas": uma sessao em cada conta, na mesma pasta, dividindo a tarefa.
-  const ajudaEquipe = el('p', { class: 'ajuda equipe-ajuda', hidden: true }, icone('stack', 16), el('span', { text: 'Cada conta abre uma sessão nesta pasta, todas ao mesmo tempo. A divisão do trabalho é combinada num arquivo da pasta: o primeiro pato propõe as partes e cada um anota ali o que pegou e o que terminou.' }));
+  const ajudaEquipe = el('p', { class: 'ajuda equipe-ajuda', hidden: true }, icone('stack', 16), el('span', { text: 'Cada conta abre uma sessão, todas ao mesmo tempo. A divisão do trabalho é combinada num arquivo da pasta: o primeiro pato propõe as partes e cada um anota ali o que pegou e o que terminou.' }));
+  // Uma copia por pato (git worktree): cada conta no seu branch, e voce junta o melhor no fim.
+  let isolar = true;
+  const chaveIsolar = interruptor(true, (v) => (isolar = v), 'Uma cópia por pato');
+  const campoIsolar = el(
+    'div',
+    { class: 'linha-opcao', hidden: true },
+    el('span', { class: 't' }, el('b', { text: 'Uma cópia por pato' }), el('span', { text: 'Num repositório git, cada conta trabalha no seu branch, numa cópia da pasta, e você junta o melhor depois. Sem git, todas usam a mesma pasta.' })),
+    chaveIsolar,
+  );
   const contas = el('div', { class: 'escolhas', role: 'radiogroup', 'aria-label': 'Conta' });
   const caminho = el('input', { id: 'nova-pasta', type: 'text', autocomplete: 'off', spellcheck: false, placeholder: S.host.home || '' });
   caminho.value = String(opts.cwd || '').slice(0, 1000);
@@ -3482,6 +3820,7 @@ function abrirNova(opts = {}) {
     campoTarefa,
     ajudaNuvem,
     ajudaEquipe,
+    campoIsolar,
     campoNome,
     ajustes,
     ajudaModo,
@@ -3582,6 +3921,7 @@ function abrirNova(opts = {}) {
     ajudaTarefa.hidden = nuvem || time;
     ajudaNuvem.hidden = !nuvem;
     ajudaEquipe.hidden = !time;
+    campoIsolar.hidden = !time;
     ajudaModo.textContent = MODOS_AJUDA[modo.value] || '';
     abrir.textContent = time ? `Abrir com ${contasDoTime().length} contas` : onde === 'sistema' ? 'Abrir no terminal' : nuvem ? 'Criar na nuvem' : 'Abrir sessão';
     d.querySelector('.dialogo-topo p').textContent = time
@@ -3638,14 +3978,15 @@ function abrirNova(opts = {}) {
       }
       abrir.disabled = true;
       abrir.textContent = 'Abrindo as sessões…';
-      return mandar({ t: 'equipe', cwd, texto: tarefa.value }, (erro, r) => {
+      return mandar({ t: 'equipe', cwd, texto: tarefa.value, isolar }, (erro, r) => {
         abrir.disabled = false;
         aplicarAgente(false);
         if (erro) return falhou(erro);
         d.close();
         const abertas = (r.instances || []).length;
         const falhas = r.falhas || [];
-        avisar(falhas.length ? `${plural(abertas, 'conta abriu', 'contas abriram')}. ${falhas[0].conta}: ${falhas[0].erro}` : `${plural(abertas, 'conta trabalhando', 'contas trabalhando')} na mesma pasta`);
+        const onde = r.isolamento?.isolado ? 'cada uma no seu branch' : 'na mesma pasta';
+        avisar(falhas.length ? `${plural(abertas, 'conta abriu', 'contas abriram')}. ${falhas[0].conta}: ${falhas[0].erro}` : `${plural(abertas, 'conta trabalhando', 'contas trabalhando')}, ${onde}`);
         area.juntas(r.instances || []);
       });
     }
@@ -4262,7 +4603,7 @@ const vista = (() => {
       el('div', null, miniPato('parado'), el('h1', { text: 'Nenhum painel aberto' }), el('p', { text: 'Clique numa sessão na barra lateral para abrir aqui. Com Ctrl, ela abre ao lado; também dá para arrastar uma sessão até um painel.' }), el('button', { class: 'botao principal', type: 'button', onclick: () => abrirNova() }, icone('plus', 18), 'Nova sessão')),
     ),
   );
-  const telas = { visao: criarVisao(), opcoes: criarOpcoes(), celulares: criarCelulares() };
+  const telas = { visao: criarVisao(), opcoes: criarOpcoes(), celulares: criarCelulares(), automacoes: criarAutomacoesTela() };
   const obj = {
     atual: LOCAL.paineis?.length ? 'paineis' : 'visao',
     raiz,
@@ -4279,7 +4620,7 @@ const vista = (() => {
     },
     atualizar() {
       if (obj.atual === 'paineis' && corpo.firstChild !== (area.paineis().length ? area.grade : vazio)) corpo.replaceChildren(area.paineis().length ? area.grade : vazio);
-      const nomes = { paineis: 'Painéis', visao: 'Visão geral', opcoes: 'Opções', celulares: 'Celulares' };
+      const nomes = { paineis: 'Painéis', visao: 'Visão geral', opcoes: 'Opções', celulares: 'Celulares', automacoes: 'Automações' };
       titulo.textContent = nomes[obj.atual];
       apoio.textContent = obj.atual === 'paineis' ? plural(area.paineis().length, 'sessão', 'sessões') : '';
       layouts.hidden = obj.atual !== 'paineis';

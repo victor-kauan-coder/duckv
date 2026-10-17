@@ -295,6 +295,7 @@ const S = {
   pronto: false,
   contas: [],
   sessoes: [],
+  automacoes: [], // as automacoes agendadas, como o computador as conta
   host: { available: false, models: [], efforts: [], modes: [], folders: [], home: '', sep: '/' },
   prefs: { avisos: { perm: true, fim: true, reset: true, limiar: 80 }, rapidas: [] },
   desvio: 0, // diferenca entre o relogio do celular e o do computador
@@ -346,6 +347,7 @@ function ligar() {
       S.pronto = true;
       S.contas = m.accounts;
       S.sessoes = m.instances;
+      S.automacoes = m.automacoes || [];
       S.host = m.host || S.host;
       S.demo = !!m.demo;
       S.retomaveis = m.retomaveis || [];
@@ -606,7 +608,8 @@ function blocoEquipe() {
   // Uma linha so de apoio: quantos patos, a pasta e a tarefa, cortada com reticencias se nao couber.
   const tarefa = el('p', { class: 'equipe-tarefa' });
   const pista = el('div', { class: 'equipe-pista', role: 'list' });
-  const raiz = el('section', { class: 'equipe' }, el('div', { class: 'equipe-cabeca' }, el('h2', { text: 'Equipe' }), selo), tarefa, pista);
+  const resultado = resultadoDaEquipe();
+  const raiz = el('section', { class: 'equipe' }, el('div', { class: 'equipe-cabeca' }, el('h2', { text: 'Equipe' }), selo), tarefa, pista, resultado.raiz);
   const colunas = new Map();
 
   // Uma coluna por pato: a pista dele, o nome da conta e o que ele faz agora.
@@ -641,7 +644,8 @@ function blocoEquipe() {
   return {
     raiz,
     atualizar(g) {
-      const onde = pasta(g.sessoes[0]?.cwd);
+      // Isolada, cada sessao abre na copia dela: a pasta que a tela mostra e sempre a do projeto.
+      const onde = pasta(g.sessoes[0]?.equipe?.principal || g.sessoes[0]?.cwd);
       tarefa.textContent = [plural(g.sessoes.length, 'pato', 'patos'), onde, g.sessoes[0] ? nomeDaSessao(g.sessoes[0]) : ''].filter(Boolean).join(' · ');
       tarefa.hidden = !tarefa.textContent;
       const r = resumoDaEquipe(g.sessoes);
@@ -661,6 +665,113 @@ function blocoEquipe() {
         col.raiz.remove();
         colunas.delete(id);
       }
+      resultado.atualizar(g);
+    },
+  };
+}
+
+// ------------------------------------------------------------ o que cada pato fez
+// Com uma copia por pato (um worktree do git), cada conta trabalha no branch dela. Aqui vem, por pato, o
+// branch, os commits a frente da base e as linhas somadas e tiradas, com "Juntar este" (merge na pasta
+// principal) e "Limpar a equipe" no fim. Le so quando aberto: cada leitura roda git no computador.
+// Sem copias, uma frase diz por que todos mexem nos mesmos arquivos.
+const MOTIVO_SEM_COPIA = {
+  'nao-git': 'A pasta não é um repositório git: os patos trabalham todos nos mesmos arquivos.',
+  'sem-commits': 'O repositório ainda não tem nenhum commit: os patos trabalham todos nos mesmos arquivos.',
+  desligado: 'As cópias foram desligadas ao abrir: os patos trabalham todos nos mesmos arquivos.',
+  erro: 'Não deu para criar as cópias: os patos trabalham todos nos mesmos arquivos.',
+};
+function resultadoDaEquipe() {
+  const nota = el('p', { class: 'equipe-nota', hidden: true });
+  const seta = icone('caret-down', 18);
+  const abrirBotao = el('button', { class: 'equipe-abrir', type: 'button', 'aria-expanded': 'false' }, icone('list-checks', 18), el('span', { class: 't', text: 'O que cada pato fez' }), seta);
+  const corpo = el('div', { class: 'equipe-resultado', hidden: true, 'aria-live': 'polite' });
+  const caixa = el('div', { class: 'equipe-resultado-caixa', hidden: true }, abrirBotao, corpo);
+  let equipe = null;
+  let aberto = false;
+  let lendo = false;
+
+  function ler() {
+    if (!equipe || lendo) return;
+    lendo = true;
+    if (!corpo.firstChild) corpo.replaceChildren(el('p', { class: 'sem', text: 'Lendo os branches…' }));
+    mandar({ t: 'equipeResultado', equipe }, (erro, r) => {
+      lendo = false;
+      if (erro) return corpo.replaceChildren(el('p', { class: 'erro', text: erro }));
+      desenhar(r);
+    });
+  }
+
+  function desenhar(r) {
+    const linhas = r.patos.map((p) => {
+      const c = S.contas.find((x) => x.id === p.conta) || { nome: p.nome || p.conta, cor: '#ff7a1a' };
+      const feito = p.erro ? p.erro : p.commits ? `${plural(p.commits, 'commit', 'commits')}, +${p.mais} −${p.menos}` : 'Ainda não commitou nada';
+      const extra = p.juntado ? 'Já juntado na pasta principal' : p.pendentes ? `${plural(p.pendentes, 'arquivo', 'arquivos')} ainda sem commit` : '';
+      const juntar = el('button', { class: 'botao', type: 'button', disabled: !p.commits || !!p.juntado || !r.principalLimpa, text: p.juntado ? 'Juntado' : 'Juntar este' });
+      juntar.addEventListener('click', () => {
+        juntar.disabled = true;
+        juntar.textContent = 'Juntando…';
+        mandar({ t: 'equipeJuntar', equipe, conta: p.conta }, (erro, rr) => {
+          if (erro) {
+            juntar.disabled = false;
+            juntar.textContent = 'Juntar este';
+            return avisar(erro);
+          }
+          avisar(rr?.msg || `O trabalho de ${c.nome} foi juntado na pasta principal`);
+          ler();
+        });
+      });
+      const li = el(
+        'li',
+        null,
+        el('span', { class: 't' }, el('span', { class: 'equipe-pato-nome' }, el('i'), el('b', { text: c.nome })), el('code', { text: p.branch }), el('span', { class: p.erro ? 'erro' : 'apoio', text: [feito, extra].filter(Boolean).join('. ') })),
+        juntar,
+      );
+      li.style.setProperty('--cor', c.cor);
+      return li;
+    });
+    const limpar = el('button', { class: 'botao perigo cheio', type: 'button' }, icone('trash', 18), 'Limpar a equipe');
+    limpar.addEventListener('click', async () => {
+      const ok = await confirmarNoCelular({
+        titulo: 'Limpar a equipe?',
+        texto: 'As cópias dos patos e os branches deles saem do computador. O que já foi juntado na pasta principal continua lá. As sessões da equipe precisam estar encerradas.',
+        sim: 'Limpar a equipe',
+        perigo: true,
+      });
+      if (!ok) return;
+      mandar({ t: 'equipeLimpar', equipe }, (erro) => (erro ? avisar(erro) : (avisar('Cópias e branches da equipe removidos'), ler())));
+    });
+    corpo.replaceChildren(
+      ...[
+        r.principalLimpa ? null : el('p', { class: 'equipe-aviso' }, icone('warning-circle', 18), el('span', { text: 'A pasta principal tem mudanças sem commit. Faça um commit (ou guarde as mudanças) antes de juntar um pato.' })),
+        el('ul', { class: 'equipe-patos' }, ...linhas),
+        el('p', { class: 'sem', text: 'Juntar traz o branch do pato para a pasta principal com um merge. Limpar apaga as cópias e os branches, depois que as sessões terminam.' }),
+        limpar,
+        el('button', { class: 'botao quieto cheio', type: 'button', onclick: ler }, icone('arrows-clockwise', 18), 'Ler de novo'),
+      ].filter(Boolean),
+    );
+  }
+
+  abrirBotao.addEventListener('click', () => {
+    aberto = !aberto;
+    abrirBotao.setAttribute('aria-expanded', String(aberto));
+    corpo.hidden = !aberto;
+    if (aberto) ler();
+  });
+
+  return {
+    raiz: el('div', { class: 'equipe-fim' }, nota, caixa),
+    atualizar(g) {
+      const eq = g.sessoes[0]?.equipe || {};
+      equipe = eq.id || null;
+      const isolada = !!eq.isolado;
+      caixa.hidden = !isolada;
+      nota.hidden = isolada || !eq.motivo;
+      nota.textContent = MOTIVO_SEM_COPIA[eq.motivo] || '';
+      // um pato terminou o turno: com o resultado aberto, le de novo (os commits podem ter mudado)
+      const marca = g.sessoes.map((s) => s.status).join();
+      if (aberto && caixa.dataset.marca && caixa.dataset.marca !== marca) ler();
+      caixa.dataset.marca = marca;
     },
   };
 }
@@ -1885,6 +1996,14 @@ function criarNova(contaInicial) {
   const campoDe = (rotulo, alvo, ...resto) => el('div', { class: 'campo' }, el('label', { for: alvo.id, text: rotulo }), alvo, ...resto);
   const campoConta = el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Conta' }), opcoesConta, ajudaEquipe);
   const campoTarefa = campoDe('O que a equipe deve fazer', tarefa, erroTarefa);
+  // Uma copia por pato (um worktree do git): cada conta no seu branch, e você junta o melhor no fim.
+  let isolar = true;
+  const campoCopia = el(
+    'label',
+    { class: 'marcar campo-copia' },
+    caixaMarcar(true, (v) => (isolar = v), 'Uma cópia por pato'),
+    el('span', { class: 't' }, el('b', { text: 'Uma cópia por pato' }), el('span', { class: 'ajuda', text: 'Num repositório git, cada conta trabalha no seu branch, numa cópia da pasta, e você junta o melhor depois. Sem git, todas usam a mesma pasta.' })),
+  );
   const campoNome = campoDe('Nome da sessão (opcional)', nome);
   const camposDaConta = [campoDe('Modelo', modelo), campoDe('Esforço de raciocínio', esforco), campoDe('Modo de permissão', modo, ajudaModo)];
   const form = el(
@@ -1900,6 +2019,7 @@ function criarNova(contaInicial) {
       recentes,
     ),
     campoTarefa,
+    campoCopia,
     campoNome,
     ...camposDaConta,
     el('div', { class: 'campo' }, erroGeral, abrir),
@@ -1965,7 +2085,7 @@ function criarNova(contaInicial) {
       }
       abrir.disabled = true;
       abrir.textContent = 'Abrindo as contas';
-      mandar({ t: 'equipe', cwd, texto }, (erro, r) => {
+      mandar({ t: 'equipe', cwd, texto, isolar }, (erro, r) => {
         abrir.disabled = false;
         rotularBotao();
         if (erro) {
@@ -1975,10 +2095,11 @@ function criarNova(contaInicial) {
         }
         const abertas = (r.instances || []).length;
         const falhas = r.falhas || [];
+        const onde = r.isolamento?.isolado ? 'cada uma no seu branch' : 'na mesma pasta';
         avisar(
           falhas.length
             ? `${plural(abertas, 'conta abriu', 'contas abriram')}. Fora: ${falhas.map((f) => `${nomeDaConta(f.conta)} (${f.erro})`).join('; ')}`
-            : `${plural(abertas, 'conta trabalhando', 'contas trabalhando')} na mesma pasta`,
+            : `${plural(abertas, 'conta trabalhando', 'contas trabalhando')}, ${onde}`,
         );
         // Volta para o inicio, onde o cartao da equipe mostra os patos das contas juntos.
         equipeFoco = r.equipe || null;
@@ -2021,6 +2142,7 @@ function criarNova(contaInicial) {
   function mostrarCampos() {
     const time = ehTime();
     campoTarefa.hidden = !time;
+    campoCopia.hidden = !time;
     campoNome.hidden = time;
     for (const c of camposDaConta) c.hidden = time;
     const nomes = contasDaEquipe().map((c) => c.nome);
@@ -2276,6 +2398,7 @@ function criarOpcoes() {
       salvar({ op: 'rapidas', lista });
     });
     const a = S.prefs.avisos;
+    const ligadas = (S.automacoes || []).filter((x) => x.ativa).length;
     const desparear = duasVezes(el('button', { class: 'botao perigo', type: 'button' }, icone('sign-out', 18), el('span', { text: 'Desparear este celular' })), 'Desparear este celular', async () => {
       await fetch('/api/desparear', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
       S.pareado = false;
@@ -2291,6 +2414,11 @@ function criarOpcoes() {
         caixinha('Mostrar na conversa as ferramentas que o Claude usa', LOCAL.ferramentas, (v) => guardarLocal('ferramentas', v)),
       ),
       grupo('Contas', el('p', { class: 'ajuda', text: 'Nome, cor e como cada conta começa uma sessão aberta pelo celular.' }), ...S.contas.map(blocoConta)),
+      grupo(
+        'Automações',
+        el('p', { class: 'ajuda', text: ligadas ? `${plural(ligadas, 'automação ligada', 'automações ligadas')} de ${S.automacoes.length}. Na hora marcada, o computador abre uma sessão sozinho.` : 'Na hora marcada, o computador abre uma sessão sozinho com a primeira mensagem que você escrever.' }),
+        el('button', { class: 'botao cheio', type: 'button', onclick: () => (location.hash = '#/automacoes') }, icone('clock-counter-clockwise', 18), S.automacoes.length ? 'Ver as automações' : 'Criar uma automação'),
+      ),
       grupo(
         'Avisos',
         el('p', { class: 'ajuda', text: 'Valem para todos os celulares pareados que ativaram os avisos.' }),
@@ -2311,6 +2439,306 @@ function criarOpcoes() {
     );
   }
   return { raiz, atualizar, id: 'opcoes' };
+}
+
+// ------------------------------------------------------------ automacoes agendadas
+// Na hora marcada, o computador abre uma sessao (conta, pasta) com a primeira mensagem escrita aqui.
+// Todo dia, nos dias uteis, uma vez por semana ou por uma expressao cron. Nada roda atrasado: com o
+// computador desligado na hora, a execucao entra no historico como perdida e a proxima e a de amanha.
+const DIAS_SEMANA = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+const TIPOS_QUANDO = [['diario', 'Todo dia'], ['dias-uteis', 'Dias úteis'], ['semanal', 'Uma vez por semana'], ['cron', 'Cron']];
+const fDiaCurto = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' });
+// "hoje às 08:30", "amanhã às 08:30" ou "sex., 23 de out. às 08:30"
+function quandoRelativo(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const hoje = new Date(agora());
+  const dias = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())) / 86400000);
+  const dia = dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : dias === -1 ? 'ontem' : fDiaCurto.format(d);
+  return `${dia} às ${fHora.format(d)}`;
+}
+function textoDaExecucao(x) {
+  if (!x) return '';
+  if (x.perdida) return `Perdida ${quandoRelativo(x.marcada || x.em)}: o computador estava desligado`;
+  if (x.erro) return `Não abriu ${quandoRelativo(x.em)}: ${x.erro}`;
+  const conta = x.conta ? S.contas.find((c) => c.id === x.conta)?.nome : null;
+  return `Abriu a sessão ${quandoRelativo(x.em)}${conta ? ` em ${conta}` : ''}${x.manual ? ' (rodada à mão)' : ''}`;
+}
+
+// A lista: nome, quando, próxima e última execução. Tocar numa abre a tela dela.
+function criarAutomacoesTela() {
+  const lista = el('div', { class: 'automacoes' });
+  const raiz = el(
+    'div',
+    null,
+    el(
+      'header',
+      { class: 's-topo' },
+      el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Voltar para as Opções', onclick: () => (location.hash = '#/opcoes') }, icone('arrow-left', 24)),
+      el('div', null, el('h1', { text: 'Automações' }), el('p', { class: 'onde', text: 'O computador abre a sessão na hora marcada.' })),
+      el('span'),
+    ),
+    el('div', { class: 'formulario' }, lista),
+  );
+  let marca = '';
+  function atualizar() {
+    if (!S.pronto) return;
+    const itens = S.automacoes || [];
+    const m = JSON.stringify([itens, S.contas.map((c) => [c.id, c.nome]), Math.floor(agora() / 60000)]);
+    if (m === marca) return;
+    marca = m;
+    const nova = el('button', { class: 'botao principal cheio', type: 'button', onclick: () => (location.hash = '#/automacoes/nova') }, icone('plus', 18), 'Nova automação');
+    if (!itens.length) {
+      lista.replaceChildren(
+        el(
+          'div',
+          { class: 'grupo' },
+          el('p', { class: 'ajuda', text: 'Nenhuma automação ainda. Por exemplo: todo dia às 8h, rodar os testes e corrigir o que falhar; ou toda sexta, revisar o que mudou na semana.' }),
+          nova,
+        ),
+      );
+      return;
+    }
+    lista.replaceChildren(
+      el(
+        'ul',
+        { class: 'lista-automacoes' },
+        ...itens.map((a) => {
+          const conta = a.conta ? S.contas.find((c) => c.id === a.conta) : null;
+          const proxima = a.ativa ? (a.proxima ? `Próxima: ${quandoRelativo(a.proxima)}` : 'Sem próxima hora possível') : 'Pausada';
+          return el(
+            'li',
+            { class: a.ativa ? '' : 'pausada' },
+            el(
+              'button',
+              { class: 'automacao', type: 'button', onclick: () => (location.hash = `#/automacoes/${encodeURIComponent(a.id)}`) },
+              el('span', { class: 'automacao-ic' }, icone('clock-counter-clockwise', 20)),
+              el(
+                'span',
+                { class: 't' },
+                el('b', { text: a.nome }),
+                el('span', { class: 'apoio', text: `${a.quandoTexto}, ${conta ? conta.nome : 'conta automática'}, ${pasta(a.pasta) || a.pasta}` }),
+                el('span', { class: 'automacao-proxima', text: proxima }),
+                el('span', { class: `automacao-ultima${a.ultima?.erro ? ' erro' : ''}`, text: a.ultima ? textoDaExecucao(a.ultima) : 'Ainda não rodou' }),
+              ),
+              icone('caret-right', 18),
+            ),
+          );
+        }),
+      ),
+      nova,
+    );
+  }
+  return { raiz, atualizar, id: 'automacoes' };
+}
+
+// A tela de uma automação: os campos, as ações e o histórico. `id` nulo é uma automação nova.
+// A tela nasce vazia e se monta quando o estado do computador chega, com as contas e as pastas dele.
+function criarAutomacao(id) {
+  const atual = () => (id ? (S.automacoes || []).find((x) => x.id === id) : null);
+  const titulo = el('h1', { text: id ? 'Automação' : 'Nova automação' });
+  const apoio = el('p', { class: 'onde', text: 'O computador abre a sessão na hora marcada.' });
+  const corpo = el('div');
+  const raiz = el(
+    'div',
+    null,
+    el(
+      'header',
+      { class: 's-topo' },
+      el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Voltar para as automações', onclick: () => (location.hash = '#/automacoes') }, icone('arrow-left', 24)),
+      el('div', null, titulo, apoio),
+      el('span'),
+    ),
+    corpo,
+  );
+
+  let montado = false;
+  let campos = null;
+
+  function montar(a) {
+    const q = a?.quando || { tipo: 'dias-uteis', hora: '09:00' };
+    let tipo = q.tipo;
+    const nome = el('input', { id: 'aut-nome', type: 'text', maxLength: 60, autocomplete: 'off', value: a?.nome || '', placeholder: 'Ex.: Testes da manhã' });
+    const hora = el('input', { id: 'aut-hora', type: 'time', value: q.hora || '09:00' });
+    const dia = folhaSeletor({ id: 'aut-dia', rotulo: 'Dia da semana', opcoes: DIAS_SEMANA.map((t, i) => ({ v: String(i), t })), valor: String(q.dia ?? 1) });
+    const cron = el('input', { id: 'aut-cron', type: 'text', spellcheck: false, autocomplete: 'off', autocapitalize: 'off', class: 'mono', value: q.cron || '', placeholder: '30 8 * * 1-5' });
+    const conta = folhaSeletor({
+      id: 'aut-conta',
+      rotulo: 'Conta',
+      opcoes: [{ v: '', t: 'Automática', apoio: 'A de mais limite livre na hora' }, ...S.contas.filter((c) => c.instalado !== false).map((c) => ({ v: c.id, t: c.nome }))],
+      valor: a?.conta || '',
+    });
+    const caminho = el('input', { id: 'aut-pasta', type: 'text', autocomplete: 'off', autocapitalize: 'off', spellcheck: false, value: a?.pasta || S.host.folders[0] || '', placeholder: S.host.home || '' });
+    const texto = el('textarea', { id: 'aut-texto', rows: 4, maxLength: 8000, placeholder: 'Ex.: Rode os testes e corrija o que estiver falhando. No fim, resuma o que mudou.' });
+    texto.value = a?.texto || '';
+    const erros = {};
+    const erroDe = (campo) => (erros[campo] = el('p', { class: 'erro', role: 'alert', hidden: true }));
+    const recentes = el(
+      'div',
+      { class: 'recentes' },
+      ...(S.host.folders.length ? [el('p', { class: 'ajuda', text: 'Pastas usadas há pouco' })] : []),
+      ...S.host.folders.slice(0, 4).map((f) => el('button', { type: 'button', text: f, onclick: () => ((caminho.value = f), (erros.pasta.hidden = true)) })),
+    );
+    const campoDe = (rotulo, alvo, ...resto) => el('div', { class: 'campo' }, el('label', { for: alvo.id, text: rotulo }), alvo, ...resto);
+    const tipos = el('div', { class: 'opcoes', role: 'radiogroup', 'aria-label': 'Quando' });
+    const campoHora = campoDe('Hora', hora);
+    const campoDia = el('div', { class: 'campo' }, el('label', { for: 'aut-dia', text: 'Dia da semana' }), dia);
+    const campoCron = campoDe('Expressão cron', cron, el('p', { class: 'ajuda', text: 'Minuto, hora, dia do mês, mês e dia da semana. Ex.: 30 8 * * 1-5 (8:30 de segunda a sexta).' }));
+    function desenharTipo() {
+      for (const b of tipos.children) b.setAttribute('aria-checked', b.dataset.valor === tipo ? 'true' : 'false');
+      campoHora.hidden = tipo === 'cron';
+      campoDia.hidden = tipo !== 'semanal';
+      campoCron.hidden = tipo !== 'cron';
+    }
+    tipos.replaceChildren(
+      ...TIPOS_QUANDO.map(([v, t]) =>
+        el('button', {
+          class: 'botao',
+          type: 'button',
+          role: 'radio',
+          'data-valor': v,
+          text: t,
+          onclick: () => {
+            tipo = v;
+            desenharTipo();
+          },
+        }),
+      ),
+    );
+
+    const salvar = el('button', { class: 'botao principal cheio', type: 'submit', text: a ? 'Salvar' : 'Criar automação' });
+    const form = el(
+      'form',
+      { class: 'campos', noValidate: true },
+      campoDe('Nome', nome, erroDe('nome')),
+      el('div', { class: 'campo' }, el('span', { class: 'rotulo', text: 'Quando' }), tipos, erroDe('quando')),
+      campoHora,
+      campoDia,
+      campoCron,
+      el('div', { class: 'campo' }, el('label', { for: 'aut-conta', text: 'Conta' }), conta, erroDe('conta')),
+      campoDe('Pasta do projeto', caminho, recentes, erroDe('pasta')),
+      campoDe('Primeira mensagem da sessão', texto, erroDe('texto')),
+      el('div', { class: 'campo' }, salvar),
+    );
+
+    // As ações e o histórico só existem depois que a automação existe.
+    const acoes = el('div', { class: 'grupo acoes-automacao', hidden: !a });
+    const historico = el('ul', { class: 'automacao-historico' });
+    const caixaHistorico = el('section', { class: 'grupo', hidden: !a }, el('h2', { text: 'Últimas execuções' }), historico);
+
+    function lerHistorico() {
+      if (!id) return;
+      historico.replaceChildren(el('li', { class: 'sem', text: 'Carregando…' }));
+      mandar({ t: 'automacaoHistorico', id }, (erro, r) => {
+        if (erro) return historico.replaceChildren(el('li', { class: 'sem erro', text: erro }));
+        const h = r.historico || [];
+        historico.replaceChildren(
+          ...(h.length
+            ? h.map((x) =>
+                el(
+                  'li',
+                  { class: x.erro ? 'erro' : x.perdida ? 'perdida' : '' },
+                  icone(x.erro ? 'warning-circle' : x.perdida ? 'clock-counter-clockwise' : 'check-circle', 18),
+                  el('span', { text: textoDaExecucao(x) }),
+                ),
+              )
+            : [el('li', { class: 'sem', text: 'Ainda não rodou nenhuma vez.' })]),
+        );
+      });
+    }
+
+    function desenharAcoes() {
+      const x = atual();
+      if (!x) return;
+      const rodar = el('button', { class: 'botao cheio', type: 'button' }, icone('lightning', 18), 'Rodar agora');
+      rodar.addEventListener('click', () => {
+        rodar.disabled = true;
+        mandar({ t: 'automacaoRodar', id }, (erro, r) => {
+          rodar.disabled = false;
+          if (erro) return avisar(erro);
+          avisar(`${x.nome}: sessão aberta`);
+          lerHistorico();
+          if (r.instance) location.hash = `#/s/${encodeURIComponent(r.instance)}`;
+        });
+      });
+      const pausar = el('button', { class: 'botao cheio', type: 'button' }, icone(x.ativa ? 'hand-palm' : 'check', 18), x.ativa ? 'Pausar' : 'Voltar a contar');
+      pausar.addEventListener('click', () => {
+        pausar.disabled = true;
+        mandar({ t: 'automacaoPausar', id, ativa: !x.ativa }, (erro, r) => {
+          pausar.disabled = false;
+          if (erro) return avisar(erro);
+          avisar(r.automacao?.ativa ? `Ligada. Próxima: ${quandoRelativo(r.automacao.proxima)}` : 'Automação pausada');
+        });
+      });
+      const apagar = el('button', { class: 'botao perigo cheio', type: 'button' }, icone('trash', 18), 'Apagar automação');
+      apagar.addEventListener('click', async () => {
+        const ok = await confirmarNoCelular({ titulo: `Apagar ${x.nome}?`, texto: 'A automação e o histórico dela saem do computador. As sessões que ela já abriu continuam.', sim: 'Apagar', perigo: true });
+        if (!ok) return;
+        mandar({ t: 'automacaoApagar', id }, (erro) => {
+          if (erro) return avisar(erro);
+          avisar(`${x.nome} apagada`);
+          location.hash = '#/automacoes';
+        });
+      });
+      acoes.replaceChildren(rodar, pausar, apagar);
+    }
+
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      for (const e of Object.values(erros)) e.hidden = true;
+      const quando = tipo === 'cron' ? { tipo, cron: cron.value.trim() } : { tipo, hora: hora.value.trim(), ...(tipo === 'semanal' ? { dia: Number(dia.value) } : {}) };
+      const automacao = { nome: nome.value.trim(), quando, conta: conta.value || null, pasta: caminho.value.trim(), texto: texto.value.trim(), ativa: atual() ? atual().ativa : true };
+      salvar.disabled = true;
+      mandar(id ? { t: 'automacaoEditar', id, automacao } : { t: 'automacaoCriar', automacao }, (erro, r) => {
+        salvar.disabled = false;
+        if (erro) {
+          const alvo = erros[r?.campo] || erros.quando;
+          Object.assign(alvo, { hidden: false, textContent: erro });
+          return alvo.scrollIntoView({ block: 'nearest' });
+        }
+        if (id) {
+          avisar('Automação salva');
+          return lerHistorico();
+        }
+        avisar(`Automação criada. Próxima: ${quandoRelativo(r.automacao?.proxima)}`);
+        location.hash = `#/automacoes/${encodeURIComponent(r.automacao.id)}`;
+      });
+    });
+
+    desenharTipo();
+    desenharAcoes();
+    lerHistorico();
+    corpo.replaceChildren(el('div', { class: 'formulario' }, form, acoes, caixaHistorico));
+    campos = { desenharAcoes };
+  }
+
+  return {
+    raiz,
+    atualizar() {
+      if (!S.pronto) return;
+      const a = atual();
+      // Automação que não existe mais (apagada noutro aparelho, ou endereço errado).
+      if (id && !a) {
+        if (montado && campos) return; // acabou de ser apagada daqui: a tela já está saindo
+        titulo.textContent = 'Automação não encontrada';
+        apoio.textContent = 'Ela pode ter sido apagada em outro aparelho.';
+        corpo.replaceChildren(
+          el('div', { class: 'formulario' }, el('p', { class: 'ajuda', text: 'Esta automação não está mais no computador.' }), el('button', { class: 'botao cheio', type: 'button', onclick: () => (location.hash = '#/automacoes'), text: 'Ver as automações' })),
+        );
+        montado = true;
+        return;
+      }
+      if (!montado) {
+        montado = true;
+        montar(a);
+      }
+      if (!a) return;
+      titulo.textContent = a.nome;
+      apoio.textContent = a.ativa ? a.quandoTexto : `${a.quandoTexto}, pausada`;
+      campos?.desenharAcoes();
+    },
+    id: `automacao:${id || 'nova'}`,
+  };
 }
 
 // ------------------------------------------------------------ avisos (push)
@@ -2348,6 +2776,9 @@ function rota() {
   try {
     if (m) return { tipo: 'sessao', id: decodeURIComponent(m[1]), aba: m[2] === 'ajustes' ? 'controles' : m[2] || 'conversa' };
     if (h === '#/opcoes') return { tipo: 'opcoes' };
+    if (h === '#/automacoes') return { tipo: 'automacoes' };
+    m = /^#\/automacoes\/([^/]+)$/.exec(h);
+    if (m) return { tipo: 'automacao', id: m[1] === 'nova' ? null : decodeURIComponent(m[1]) };
     m = /^#\/nova\/([^/]+)$/.exec(h);
     if (m) return { tipo: 'nova', conta: decodeURIComponent(m[1]) };
   } catch {
@@ -2373,7 +2804,7 @@ function desenhar() {
     return;
   }
   const r = rota();
-  const chave = r.tipo === 'sessao' ? `s:${r.id}` : r.tipo === 'nova' ? `n:${r.conta}` : r.tipo;
+  const chave = r.tipo === 'sessao' ? `s:${r.id}` : r.tipo === 'nova' ? `n:${r.conta}` : r.tipo === 'automacao' ? `a:${r.id || 'nova'}` : r.tipo;
   if (chave !== chaveAtual) {
     telaAtual?.fechar?.();
     if (S.aberta) mandar({ t: 'close' });
@@ -2393,6 +2824,14 @@ function desenhar() {
       window.scrollTo(0, 0);
     } else if (r.tipo === 'opcoes') {
       telaAtual = criarOpcoes();
+      tela.replaceChildren(telaAtual.raiz);
+      window.scrollTo(0, 0);
+    } else if (r.tipo === 'automacoes') {
+      telaAtual = criarAutomacoesTela();
+      tela.replaceChildren(telaAtual.raiz);
+      window.scrollTo(0, 0);
+    } else if (r.tipo === 'automacao') {
+      telaAtual = criarAutomacao(r.id);
       tela.replaceChildren(telaAtual.raiz);
       window.scrollTo(0, 0);
     } else {

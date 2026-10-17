@@ -991,3 +991,89 @@ dialog.folha { border-top: 0; border-radius: var(--r-folha) var(--r-folha) 0 0; 
 /* tres abas cabem em 360 px: cada uma divide a largura */
 .abas { gap: 0; }
 .abas button { flex: 1 1 0; justify-content: center; padding: 0 6px; min-width: 0; }
+/* ------------------------------------------------------------ o que cada pato fez
+   Dentro do mesmo cartao da equipe (nada de cartao dentro de cartao): uma linha que abre, e embaixo o
+   branch de cada pato, o que ele fez e o botao de juntar. */
+.equipe-fim { display: grid; gap: 8px; }
+.equipe-nota { padding: 0 6px; font-size: 13px; line-height: 1.4; color: var(--apoio); }
+.equipe-resultado-caixa { display: grid; border-top: 1.5px solid var(--linha); margin: 2px 4px 0; }
+.equipe-abrir {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 18px;
+  gap: 10px;
+  align-items: center;
+  min-height: var(--toque);
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--texto);
+  font: 600 15px/1.3 var(--ui);
+  text-align: left;
+}
+.equipe-abrir .icone { color: var(--apoio); transition: transform var(--rapido); }
+.equipe-abrir[aria-expanded='true'] .icone:last-child { transform: rotate(180deg); }
+.equipe-resultado { display: grid; gap: 12px; padding: 4px 6px 10px; }
+.equipe-resultado .sem { font-size: 13px; line-height: 1.45; color: var(--apoio); }
+.equipe-aviso { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; font-size: 14px; line-height: 1.4; color: var(--realce); }
+/* Uma linha por pato, separada por um fio: nada de cartao dentro do cartao da equipe. */
+.equipe-patos { display: grid; }
+.equipe-patos li { display: grid; gap: 8px; padding: 12px 0; }
+.equipe-patos li + li { border-top: 1px solid var(--linha); }
+.equipe-patos .t { display: grid; gap: 3px; min-width: 0; }
+.equipe-pato-nome { display: flex; align-items: center; gap: 7px; }
+.equipe-pato-nome i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--cor, var(--laranja)); }
+.equipe-pato-nome b { font: 600 15px/1.3 var(--ui); }
+.equipe-patos code { font: 13px/1.4 var(--mono); color: var(--apoio); overflow-wrap: anywhere; }
+.equipe-patos .apoio { font-size: 14px; line-height: 1.4; color: var(--apoio); }
+.equipe-patos .erro { font-size: 14px; line-height: 1.4; }
+.equipe-patos .botao { justify-self: start; min-height: var(--toque); }
+
+/* ------------------------------------------------------------ automacoes agendadas
+   A lista e uma linha por automacao (nome, quando, proxima e ultima execucao); tocar abre a tela dela,
+   com os campos, as acoes e o historico. O estado vem sempre escrito, nunca so pela cor. */
+.automacoes { display: grid; gap: 16px; }
+.lista-automacoes { display: grid; gap: 10px; }
+.automacao {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 18px;
+  gap: 12px;
+  align-items: start;
+  width: 100%;
+  min-height: var(--toque);
+  padding: 12px;
+  border: 1.5px solid var(--linha);
+  border-radius: var(--r-cartao);
+  background: var(--superficie);
+  color: var(--texto);
+  text-align: left;
+}
+.automacao:hover { border-color: var(--apoio); }
+.automacao:active { transform: scale(0.995); }
+.automacao .automacao-ic { display: grid; place-items: center; margin-top: 2px; color: var(--apoio); }
+.automacao .t { display: grid; gap: 3px; min-width: 0; }
+.automacao .t b { font: 600 16px/1.3 var(--ui); }
+.automacao .apoio { font-size: 14px; line-height: 1.4; color: var(--apoio); overflow-wrap: anywhere; }
+.automacao-proxima { font-size: 14px; line-height: 1.4; font-weight: 600; color: var(--realce); }
+.automacao-ultima { font-size: 13px; line-height: 1.4; color: var(--apoio); }
+.automacao-ultima.erro { color: var(--perigo); font-weight: 500; }
+.lista-automacoes li.pausada .automacao { background: var(--fundo); }
+.lista-automacoes li.pausada .automacao-proxima { color: var(--apoio); font-weight: 500; }
+.automacao-historico { display: grid; gap: 2px; }
+.automacao-historico li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; align-items: start; padding: 9px 2px; font-size: 14px; line-height: 1.4; }
+.automacao-historico li + li { border-top: 1px solid var(--linha); }
+.automacao-historico li .icone { margin-top: 1px; color: var(--ok); }
+.automacao-historico li.erro { color: var(--perigo); }
+.automacao-historico li.erro .icone { color: var(--perigo); }
+.automacao-historico li.perdida { color: var(--apoio); }
+.automacao-historico li.perdida .icone { color: var(--apoio); }
+.automacao-historico li.sem { grid-template-columns: minmax(0, 1fr); color: var(--apoio); }
+/* "Uma cópia por pato" na tela de abrir sessão: a caixa de marcar com o rótulo e o que ela faz. */
+.campo-copia { align-items: start; }
+.campo-copia .t { display: grid; gap: 3px; min-width: 0; }
+.campo-copia .t b { font: 600 15px/1.3 var(--ui); }
+.campo-copia .ajuda { font-size: 14px; line-height: 1.4; color: var(--apoio); }
+.campo input[type='time'] { font: 500 17px/1.2 var(--ui); font-variant-numeric: tabular-nums; }
+.campo input.mono { font: 15px/1.4 var(--mono); }
+.acoes-automacao { gap: 8px; }
+/* Os campos da automação, as ações e o histórico numa coluna só, com o mesmo respiro entre eles. */
+.campos { display: grid; gap: 24px; align-content: start; }

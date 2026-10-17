@@ -33,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import io.github.duckv.app.ui.Inicio
+import io.github.duckv.app.ui.TelaAutomacao
+import io.github.duckv.app.ui.TelaAutomacoes
 import io.github.duckv.app.ui.TelaHistorico
 import io.github.duckv.app.ui.LocalAviso
 import io.github.duckv.app.ui.TelaNova
@@ -51,6 +53,9 @@ sealed interface Rota {
     data class Nova(val conta: String?, val cwd: String = "", val texto: String = "") : Rota
     data object Opcoes : Rota
     data class Historico(val conta: String) : Rota
+    data object Automacoes : Rota
+    /** Uma automacao: [id] nulo e uma automacao nova. */
+    data class UmaAutomacao(val id: String?) : Rota
 
     companion object {
         // A pilha vai para o estado salvo da Activity como lista de textos: trocar o tema do sistema (ou
@@ -63,6 +68,8 @@ sealed interface Rota {
                 is Nova -> "n$SEP${it.conta.orEmpty()}$SEP${it.cwd}$SEP${it.texto}"
                 Opcoes -> "o"
                 is Historico -> "h$SEP${it.conta}"
+                Automacoes -> "a"
+                is UmaAutomacao -> "u$SEP${it.id.orEmpty()}"
             }
         })
         fun ler(lista: List<String>?): List<Rota> = lista.orEmpty().mapNotNull {
@@ -73,6 +80,8 @@ sealed interface Rota {
                 "n" -> Nova(p.getOrNull(1)?.ifEmpty { null }, p.getOrNull(2).orEmpty(), p.getOrNull(3).orEmpty())
                 "o" -> Opcoes
                 "h" -> p.getOrNull(1)?.let(::Historico)
+                "a" -> Automacoes
+                "u" -> UmaAutomacao(p.getOrNull(1)?.ifEmpty { null })
                 else -> null
             }
         }.takeIf { it.firstOrNull() == Inicio } ?: listOf(Inicio)
@@ -150,7 +159,9 @@ class MainActivity : ComponentActivity() {
                                         pilha.removeAt(pilha.lastIndex)
                                         pilha.add(Rota.Sessao(id))
                                     }
-                                    Rota.Opcoes -> TelaOpcoes(e) { voltar() }
+                                    Rota.Opcoes -> TelaOpcoes(e, { pilha.add(Rota.Automacoes) }) { voltar() }
+                                    Rota.Automacoes -> TelaAutomacoes(e, { voltar() }) { id -> pilha.add(Rota.UmaAutomacao(id)) }
+                                    is Rota.UmaAutomacao -> TelaAutomacao(e, rota.id, { voltar() }) { id -> pilha.add(Rota.Sessao(id)) }
                                     is Rota.Historico -> TelaHistorico(e, rota.conta, { voltar() }) { id -> pilha.add(Rota.Sessao(id)) }
                                 }
                             }

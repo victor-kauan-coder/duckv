@@ -95,6 +95,8 @@ fun TelaNova(e: Estado?, contaInicial: String?, pastaInicial: String, tarefaInic
     var ajustar by rememberSaveable { mutableStateOf(false) }
     // Onde roda: neste computador (o de sempre) ou na nuvem da Anthropic (so contas do Claude Code)
     var naNuvem by rememberSaveable { mutableStateOf(false) }
+    // Uma copia por pato (um worktree do git): cada conta no seu branch, e voce junta o melhor no fim.
+    var isolar by rememberSaveable { mutableStateOf(true) }
     // A tarefa: a primeira mensagem neste computador, a tarefa da nuvem ou a da equipe. Um campo so, para o
     // texto seguir quem troca de conta ou de lugar.
     var tarefa by rememberSaveable { mutableStateOf(tarefaInicial) }
@@ -170,9 +172,13 @@ fun TelaNova(e: Estado?, contaInicial: String?, pastaInicial: String, tarefaInic
                     )
                 }
                 if (todas) Text(
-                    "${daEquipe.dropLast(1).joinToString(", ") { it.nome }} e ${daEquipe.last().nome} abrem uma sessão cada, na mesma pasta, e dividem a tarefa entre si.",
+                    "${daEquipe.dropLast(1).joinToString(", ") { it.nome }} e ${daEquipe.last().nome} abrem uma sessão cada, nesta pasta, e dividem a tarefa entre si.",
                     style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(top = 10.dp),
                 )
+                if (todas) Chave(
+                    "Uma cópia por pato", isolar,
+                    "Num repositório git, cada conta trabalha no seu branch, numa cópia da pasta, e você junta o melhor depois. Sem git, todas usam a mesma pasta.",
+                ) { isolar = it }
                 // qual agente vai abrir: sem duvida antes de tocar em Abrir sessao
                 if (!todas) SeloAgente(ag, Modifier.padding(top = 10.dp), completo = true)
                 if (!instalado) Text("O ${ag.nome} não está instalado no computador. Rode o instalador do duckV de novo.", style = Texto.apoio, color = c.perigo, modifier = Modifier.padding(top = 6.dp))
@@ -351,7 +357,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, pastaInicial: String, tarefaInic
                             }
                             abrindo = true
                             abrirEquipe(e, cwd.trim(), tarefa.trim(), {
-                                put("model", modelo).put("effort", esforco.ifEmpty { JSONObject.NULL }).put("mode", modo)
+                                put("model", modelo).put("effort", esforco.ifEmpty { JSONObject.NULL }).put("mode", modo).put("isolar", isolar)
                             }) { er, id, falhas ->
                                 abrindo = false
                                 if (er != null || id == null) erro = er

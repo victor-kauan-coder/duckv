@@ -15,8 +15,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -136,7 +147,9 @@ private fun fazAgora(s: Sessao) = when {
 fun CartaoEquipe(e: Estado, sessoes: List<Sessao>, pato: String, modifier: Modifier = Modifier, aoAbrir: (String) -> Unit) {
     val c = cores
     val (resumo, pede) = resumoEquipe(sessoes)
-    val pastaDela = io.github.duckv.app.pasta(sessoes.firstOrNull()?.cwd)
+    // Isolada, cada sessao abre na copia dela: a pasta que o cartao mostra e sempre a do projeto.
+    val primeira = sessoes.firstOrNull()
+    val pastaDela = io.github.duckv.app.pasta(primeira?.equipe?.principal ?: primeira?.cwd)
     val total = sessoes.maxOfOrNull { it.equipe?.total ?: 0 }?.coerceAtLeast(sessoes.size) ?: sessoes.size
     Column(modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.cartao).padding(top = 14.dp, bottom = 12.dp)) {
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -187,6 +200,157 @@ fun CartaoEquipe(e: Estado, sessoes: List<Sessao>, pato: String, modifier: Modif
                         )
                     }
                 }
+            }
+        }
+        ResultadoDaEquipe(e, primeira?.equipe, sessoes.joinToString { it.status })
+    }
+}
+
+/** Por que os patos nao ganharam uma copia cada: a mesma frase da janela do computador. */
+private val MOTIVO_SEM_COPIA = mapOf(
+    "nao-git" to "A pasta não é um repositório git: os patos trabalham todos nos mesmos arquivos.",
+    "sem-commits" to "O repositório ainda não tem nenhum commit: os patos trabalham todos nos mesmos arquivos.",
+    "desligado" to "As cópias foram desligadas ao abrir: os patos trabalham todos nos mesmos arquivos.",
+    "erro" to "Não deu para criar as cópias: os patos trabalham todos nos mesmos arquivos.",
+)
+
+private data class PatoFeito(
+    val conta: String,
+    val nome: String,
+    val branch: String,
+    val commits: Int,
+    val mais: Int,
+    val menos: Int,
+    val pendentes: Int,
+    val juntado: Boolean,
+    val erro: String?,
+)
+
+private data class Resultado(val patos: List<PatoFeito>, val principalLimpa: Boolean)
+
+/**
+ * O que cada pato fez: com uma copia por pato, o branch, os commits a frente da base e as linhas de
+ * cada um, "Juntar este" (merge na pasta principal) e "Limpar a equipe" no fim. Le so quando aberto:
+ * cada leitura roda git no computador. Sem copias, uma frase diz por que todos usam os mesmos arquivos.
+ */
+@Composable
+private fun ResultadoDaEquipe(e: Estado, eq: io.github.duckv.app.Equipe?, marcaDosEstados: String) {
+    val c = cores
+    val aviso = LocalAviso.current
+    val id = eq?.id ?: return
+    if (!eq.isolado) {
+        val porque = MOTIVO_SEM_COPIA[eq.motivo] ?: return
+        Text(porque, style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
+        return
+    }
+    var aberto by rememberSaveable(id) { mutableStateOf(false) }
+    var r by remember(id) { mutableStateOf<Resultado?>(null) }
+    var erro by remember(id) { mutableStateOf<String?>(null) }
+    var lendo by remember(id) { mutableStateOf(false) }
+    var juntando by remember(id) { mutableStateOf<String?>(null) }
+
+    fun ler() {
+        if (lendo) return
+        lendo = true
+        Hub.mandar(JSONObject().put("t", "equipeResultado").put("equipe", id)) { er, resp ->
+            lendo = false
+            erro = er
+            if (er != null) return@mandar
+            val a = resp?.optJSONArray("patos")
+            r = Resultado(
+                List(a?.length() ?: 0) { i ->
+                    val o = a!!.getJSONObject(i)
+                    val conta = o.optString("conta")
+                    PatoFeito(
+                        conta, o.optString("nome").ifEmpty { e.conta(conta).nome }, o.optString("branch"),
+                        o.optInt("commits"), o.optInt("mais"), o.optInt("menos"), o.optInt("pendentes"),
+                        !o.isNull("juntado") && o.optString("juntado").isNotEmpty(),
+                        o.optString("erro").takeIf { !o.isNull("erro") && it.isNotEmpty() },
+                    )
+                },
+                resp?.optBoolean("principalLimpa") == true,
+            )
+        }
+    }
+    // um pato terminou o turno: com o resultado aberto, le de novo (os commits podem ter mudado)
+    LaunchedEffect(aberto, marcaDosEstados) { if (aberto) ler() }
+
+    Column(Modifier.padding(top = 4.dp)) {
+        Divisoria(Modifier.padding(horizontal = 16.dp))
+        Row(
+            Modifier.fillMaxWidth().clickable(role = Role.Button) { aberto = !aberto }.heightIn(min = 48.dp).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("O que cada pato fez", style = Texto.rotulo, color = c.texto, modifier = Modifier.weight(1f))
+            Icon(
+                if (aberto) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                if (aberto) "Esconder o que cada pato fez" else "Ver o que cada pato fez",
+                Modifier.size(20.dp), tint = c.apoio,
+            )
+        }
+        if (!aberto) return@Column
+        val res = r
+        val erroAgora = erro
+        when {
+            erroAgora != null -> Text(erroAgora, style = Texto.apoio, color = c.perigo, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            res == null -> Text("Lendo os branches…", style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            else -> Column(Modifier.padding(horizontal = 16.dp)) {
+                if (!res.principalLimpa) Text(
+                    "A pasta principal tem mudanças sem commit. Faça um commit (ou guarde as mudanças) antes de juntar um pato.",
+                    style = Texto.apoio, color = c.realce, modifier = Modifier.padding(vertical = 8.dp),
+                )
+                for ((i, p) in res.patos.withIndex()) {
+                    if (i > 0) Divisoria()
+                    val feito = when {
+                        p.erro != null -> p.erro
+                        p.commits > 0 -> plural(p.commits, "commit", "commits") + ", +" + p.mais + " −" + p.menos
+                        else -> "Ainda não commitou nada"
+                    }
+                    val extra = when {
+                        p.juntado -> "Já juntado na pasta principal"
+                        p.pendentes > 0 -> plural(p.pendentes, "arquivo", "arquivos") + " ainda sem commit"
+                        else -> null
+                    }
+                    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Marca(Color(e.conta(p.conta).cor), tamanho = 8.dp)
+                            Text(p.nome, style = Texto.rotulo, color = c.texto, modifier = Modifier.padding(start = 8.dp))
+                        }
+                        Text(p.branch, style = Texto.codigo, color = c.apoio, modifier = Modifier.padding(top = 2.dp))
+                        Text(listOfNotNull(feito, extra).joinToString(". "), style = Texto.apoio, color = if (p.erro != null) c.perigo else c.apoio)
+                        Botao(
+                            if (p.juntado) "Juntado" else if (juntando == p.conta) "Juntando…" else "Juntar este",
+                            {
+                                juntando = p.conta
+                                Hub.mandar(JSONObject().put("t", "equipeJuntar").put("equipe", id).put("conta", p.conta)) { er, resp ->
+                                    juntando = null
+                                    if (er != null) {
+                                        aviso(er)
+                                    } else {
+                                        aviso(resp?.optString("msg")?.takeIf { it.isNotEmpty() } ?: ("O trabalho de " + p.nome + " foi juntado na pasta principal"))
+                                        ler()
+                                    }
+                                }
+                            },
+                            Modifier.padding(top = 8.dp), null, Peso.Quieto,
+                            habilitado = p.commits > 0 && !p.juntado && res.principalLimpa && juntando == null,
+                        )
+                    }
+                }
+                Text(
+                    "Juntar traz o branch do pato para a pasta principal com um merge. Limpar apaga as cópias e os branches, depois que as sessões terminam.",
+                    style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 10.dp, bottom = 8.dp),
+                )
+                BotaoConfirma("Limpar a equipe", Icons.Rounded.Delete, {
+                    Hub.mandar(JSONObject().put("t", "equipeLimpar").put("equipe", id)) { er, _ ->
+                        if (er != null) {
+                            aviso(er)
+                        } else {
+                            aviso("Cópias e branches da equipe removidos")
+                            ler()
+                        }
+                    }
+                }, Modifier.fillMaxWidth().padding(bottom = 10.dp), Peso.Perigo)
             }
         }
     }
