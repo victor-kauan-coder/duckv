@@ -253,14 +253,16 @@ async function abrirJanela(pasta, chave) {
       setTimeout(async () => {
         if (process.env.DUCKV_ROTEIRO_RAPIDO) await rapido.webContents.executeJavaScript(process.env.DUCKV_ROTEIRO_RAPIDO).catch((e) => console.error(e));
         setTimeout(async () => {
-          fs.writeFileSync(process.env.DUCKV_FOTO_RAPIDO, (await rapido.webContents.capturePage()).toPNG());
+          // com DUCKV_FOTO tambem: a janela grande depois do que o popup fez (sessao aberta, equipe)
+          if (process.env.DUCKV_FOTO) fs.writeFileSync(process.env.DUCKV_FOTO, (await janela.webContents.capturePage()).toPNG());
+          if (rapido?.isVisible()) fs.writeFileSync(process.env.DUCKV_FOTO_RAPIDO, (await rapido.webContents.capturePage()).toPNG());
           sair();
         }, Number(process.env.DUCKV_FOTO_ESPERA) || 1500);
       }, 2500);
     }, 3000);
   }
   // So para conferir as telas durante o desenvolvimento: DUCKV_FOTO=arquivo.png tira uma foto e fecha.
-  if (process.env.DUCKV_FOTO && !app.isPackaged) {
+  if (process.env.DUCKV_FOTO && !process.env.DUCKV_FOTO_RAPIDO && !app.isPackaged) {
     const roteiro = process.env.DUCKV_ROTEIRO || '';
     setTimeout(async () => {
       if (roteiro) await janela.webContents.executeJavaScript(roteiro).catch((e) => console.error(e));
