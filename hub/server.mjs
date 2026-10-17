@@ -21,7 +21,9 @@ import { agenteDe, ehAgente, catalogo, instalado, sairDaConta } from './agentes.
 import { listarComandos } from './comandos.mjs';
 import { criarAtualizacao } from './atualizacao.mjs';
 import { hostPermitido } from './rede.mjs';
-import { novoIdEquipe, briefingEquipe, criarArquivoDaEquipe } from './equipe.mjs';
+import { novoIdEquipe, briefingEquipe, criarArquivoDaEquipe, arquivoDaEquipe } from './equipe.mjs';
+import * as wt from './worktrees.mjs';
+import { criarAutomacoes } from './automacoes.mjs';
 import { semBlocos } from '../lib/texto.mjs';
 import { textoPerigoso as filtrarTexto } from './filtro.mjs';
 import { terminalLinux, comandoMac } from '../lib/atalhos.mjs';
@@ -430,6 +432,8 @@ function snapshot() {
     arquivos: arquivos.slice(-50).reverse().map(pubArquivo),
     github: github.publico(),
     app: atualizacao.publico(),
+    // Automacoes agendadas: a lista inteira (sem o historico de cada uma, que vem quando a tela pede).
+    automacoes: automacoes.listar(),
     accounts: [...accounts.values()].map((a) => ({
       id: a.id,
       nome: nomeDe(a),
@@ -854,12 +858,49 @@ async function onPhoneMessage(c, m) {
       else send(c, { t: 'ack', ref: m.ref, instance: r.id });
       break;
     }
-    // "Todas as contas": { t: 'equipe', cwd, texto, contas?, model?, effort?, mode?, ref } abre uma sessao
-    // por conta na mesma pasta e devolve o id da equipe, as sessoes abertas e as contas que falharam.
+    // "Todas as contas": { t: 'equipe', cwd, texto, contas?, isolar?, model?, effort?, mode?, ref } abre
+    // uma sessao por conta (cada uma no seu worktree, quando a pasta e um repositorio git) e devolve o id
+    // da equipe, as sessoes abertas, as contas que falharam e como ficou o isolamento.
     case 'equipe': {
-      const r = abrirEquipe(m);
+      const r = await abrirEquipe(m);
       if (r.err) send(c, { t: 'err', ref: m.ref, msg: r.err });
-      else send(c, { t: 'ack', ref: m.ref, equipe: r.equipe, instances: r.instances, falhas: r.falhas || undefined });
+      else send(c, { t: 'ack', ref: m.ref, equipe: r.equipe, instances: r.instances, falhas: r.falhas || undefined, isolamento: r.isolamento });
+      break;
+    }
+    // Comparar: por pato, o branch, os commits a frente da base e as linhas somadas e tiradas.
+    case 'equipeResultado': {
+      const r = await wt.resultadoDaEquipe(String(m.equipe || ''));
+      if (r.err) send(c, { t: 'err', ref: m.ref, msg: r.err });
+      else send(c, { t: 'ack', ref: m.ref, ...r, patos: r.patos.map((p) => ({ ...p, nome: pubAccount(p.conta).nome })) });
+      break;
+    }
+    // Juntar o branch de um pato na pasta principal, com `git merge --no-ff`.
+    case 'equipeJuntar': {
+      const conta = String(m.conta || '');
+      const r = await wt.juntarPato(String(m.equipe || ''), conta, { nome: accounts.has(conta) ? pubAccount(conta).nome : conta });
+      if (r.err) send(c, { t: 'err', ref: m.ref, msg: r.err, conflitos: r.conflitos || undefined });
+      else send(c, { t: 'ack', ref: m.ref, ...r });
+      break;
+    }
+    // Limpar: tira os worktrees e os branches da equipe. As sessoes dela precisam estar encerradas.
+    case 'equipeLimpar': {
+      const id = String(m.equipe || '');
+      const vivas = [...instances.values()].filter((i) => i.equipe?.id === id && i.status !== 'ended');
+      if (vivas.length) {
+        send(c, {
+          t: 'err',
+          ref: m.ref,
+          msg: `Encerre ${vivas.length === 1 ? 'a sessão' : `as ${vivas.length} sessões`} desta equipe antes de limpar: as pastas delas vão sair.`,
+        });
+        break;
+      }
+      const r = await wt.limparEquipe(id);
+      if (r.err) send(c, { t: 'err', ref: m.ref, msg: r.err });
+      else {
+        for (const i of instances.values()) if (i.equipe?.id === id) i.equipe = { ...i.equipe, limpa: true };
+        dirty();
+        send(c, { t: 'ack', ref: m.ref, ...r });
+      }
       break;
     }
     case 'stop': {
@@ -1041,6 +1082,40 @@ async function onPhoneMessage(c, m) {
         const err = await sairConta(String(m.id || ''));
         send(c, err ? { t: 'err', ref: m.ref, msg: err } : { t: 'ack', ref: m.ref });
       }
+      break;
+    }
+    // Automacoes agendadas. O corpo de criar e editar e o mesmo: { nome, quando, conta, pasta, texto, ativa }.
+    case 'automacoes':
+      send(c, { t: 'ack', ref: m.ref, itens: automacoes.listar() });
+      break;
+    case 'automacaoCriar': {
+      const r = automacoes.criar(m.automacao || m);
+      send(c, r.err ? { t: 'err', ref: m.ref, msg: r.err, campo: r.campo } : { t: 'ack', ref: m.ref, automacao: r.automacao });
+      break;
+    }
+    case 'automacaoEditar': {
+      const r = automacoes.editar(m.id, m.automacao || m);
+      send(c, r.err ? { t: 'err', ref: m.ref, msg: r.err, campo: r.campo } : { t: 'ack', ref: m.ref, automacao: r.automacao });
+      break;
+    }
+    case 'automacaoApagar': {
+      const r = automacoes.apagar(m.id);
+      send(c, r.err ? { t: 'err', ref: m.ref, msg: r.err } : { t: 'ack', ref: m.ref });
+      break;
+    }
+    case 'automacaoPausar': {
+      const r = automacoes.pausar(m.id, m.ativa);
+      send(c, r.err ? { t: 'err', ref: m.ref, msg: r.err } : { t: 'ack', ref: m.ref, automacao: r.automacao });
+      break;
+    }
+    case 'automacaoRodar': {
+      const r = automacoes.rodarAgora(m.id);
+      send(c, r.err ? { t: 'err', ref: m.ref, msg: r.err } : { t: 'ack', ref: m.ref, automacao: r.automacao, instance: r.instancia });
+      break;
+    }
+    case 'automacaoHistorico': {
+      const r = automacoes.historico(m.id);
+      send(c, r.err ? { t: 'err', ref: m.ref, msg: r.err } : { t: 'ack', ref: m.ref, automacao: r.automacao, historico: r.historico });
       break;
     }
     case 'ping':
@@ -1378,10 +1453,12 @@ function startSession(m) {
 // demonstracao, o terminal de mentira faz o papel do Claude Code).
 const contaInstalada = (a) => (!!testCommand && (process.env.PAINEL_DEMO === '1' || (a.agente || 'claude') === 'claude')) || instalado(agenteDe(a.agente));
 
-// "Todas as contas": uma sessao por conta, todas na mesma pasta, cada uma comecando pelo briefing de
-// equipe (hub/equipe.mjs) com a tarefa no fim. As sessoes nao se falam: a divisao do trabalho e
-// combinada no arquivo .duckv/equipe-<id>.md da pasta. Uma conta que falha nao impede as outras.
-function abrirEquipe(m) {
+// "Todas as contas": uma sessao por conta, cada uma comecando pelo briefing de equipe (hub/equipe.mjs)
+// com a tarefa no fim. As sessoes nao se falam: a divisao do trabalho e combinada no arquivo
+// .duckv/equipe-<id>.md da pasta principal. Numa pasta com git, cada conta abre no proprio worktree, num
+// branch so dela (hub/worktrees.mjs); sem git, todas ficam na mesma pasta. Uma conta que falha nao
+// impede as outras.
+async function abrirEquipe(m) {
   const tarefa = String(m.texto ?? '').trim();
   if (tarefa.length < 3) return { err: 'Escreva o que as contas devem fazer (pelo menos 3 caracteres).' };
   if (tarefa.length > 8000) return { err: 'Tarefa longa demais (máximo de 8000 caracteres).' };
@@ -1405,23 +1482,32 @@ function abrirEquipe(m) {
   }
   const id = novoIdEquipe();
   const nomes = ids.map((x) => (accounts.has(x) ? pubAccount(x).nome : x));
-  // O arquivo onde a divisao e combinada nasce antes das sessoes: nenhum pato comeca sem nada se o
-  // pato 1 nao abrir. Falhar aqui nao impede a equipe, so muda o que o briefing manda fazer.
+  // O arquivo onde a divisao e combinada nasce antes das sessoes, na pasta principal: nenhum pato comeca
+  // sem nada se o pato 1 nao abrir. Falhar aqui nao impede a equipe, so muda o que o briefing manda fazer.
   const doc = criarArquivoDaEquipe(cwd, { id, nomes, tarefa });
   if (doc.erro) console.error(`Nao consegui criar o ${doc.arquivo}:`, doc.erro);
+  // Cada pato no seu worktree: num repositorio git, cada conta ganha um branch e uma copia da pasta.
+  // Sem git (ou com "isolar" desligado), todas continuam na mesma pasta, como antes.
+  const iso =
+    m.isolar === false
+      ? { isolado: false, motivo: 'desligado', raiz: null, base: null, patos: [] }
+      : await wt.prepararWorktrees(cwd, { equipe: id, contas: ids });
+  const equipe = wt.guardarEquipe({ id, cwd, tarefa, nomes, arquivo: doc.arquivo, ...iso });
+  const pastaDe = (conta) => equipe.patos.find((p) => p.conta === conta && !p.erro)?.dir || cwd;
+  const branchDe = (conta) => equipe.patos.find((p) => p.conta === conta && !p.erro)?.branch || null;
   const instancias = [];
   const ordens = [];
   const falhas = [];
   for (const [i, conta] of ids.entries()) {
     const r = accounts.has(conta)
-      ? startSession({ account: conta, cwd, model: m.model, effort: m.effort, mode: m.mode, cols: m.cols, rows: m.rows, name: cortar(tarefa, 50) })
+      ? startSession({ account: conta, cwd: pastaDe(conta), model: m.model, effort: m.effort, mode: m.mode, cols: m.cols, rows: m.rows, name: cortar(tarefa, 50) })
       : { err: 'Conta não encontrada.' };
     if (r.err) {
       falhas.push({ conta, erro: r.err });
       continue;
     }
     const inst = instances.get(r.id);
-    if (inst) inst.equipe = { id, ordem: i + 1, total: ids.length };
+    if (inst) inst.equipe = { id, ordem: i + 1, total: ids.length, branch: branchDe(conta), isolado: equipe.isolado, motivo: equipe.motivo || undefined };
     instancias.push(r.id);
     ordens.push(i + 1);
   }
@@ -1429,11 +1515,67 @@ function abrirEquipe(m) {
   // O briefing vai depois de todas abrirem: assim ele diz quem abriu de verdade e quem propoe a divisao.
   // Ele e a primeira mensagem de cada sessao, digitada quando a caixa de mensagem do agente aparecer.
   for (const [k, inst] of instancias.map((x) => instances.get(x)).entries()) {
-    inst?.hosted?.send(briefingEquipe({ id, ordem: ordens[k], nomes, tarefa, abertos: ordens, arquivo: !doc.erro }));
+    inst?.hosted?.send(
+      briefingEquipe({
+        id,
+        ordem: ordens[k],
+        nomes,
+        tarefa,
+        abertos: ordens,
+        arquivo: !doc.erro,
+        // Isolada, a sessao abre no worktree dela: o arquivo da divisao fica na pasta principal, e o
+        // briefing diz o caminho inteiro dele e em que branch este pato trabalha.
+        caminho: inst?.equipe?.branch ? path.join(cwd, ...doc.arquivo.split('/')) : null,
+        branch: inst?.equipe?.branch || null,
+        principal: cwd,
+      }),
+    );
   }
   dirty();
-  return { equipe: id, instances: instancias, falhas: falhas.length ? falhas : null };
+  return {
+    equipe: id,
+    instances: instancias,
+    falhas: falhas.length ? falhas : null,
+    isolamento: {
+      isolado: equipe.isolado,
+      motivo: equipe.motivo || null,
+      porque: equipe.isolado ? null : wt.motivoEmTexto(equipe.motivo),
+      raiz: equipe.raiz,
+      branches: equipe.patos.map((p) => ({ conta: p.conta, branch: p.branch, dir: p.erro ? null : p.dir, erro: p.erro || null })),
+    },
+  };
 }
+
+// ---------------------------------------------------------------- automacoes agendadas
+// A hora marcada chega e o duckV abre uma sessao como a tela "Nova sessão" abriria, com o texto da
+// automacao como primeira mensagem. Quem conta as horas e guarda o historico e o hub/automacoes.mjs.
+
+// A conta que uma automacao em "Automática" pega: a de mais limite livre, a mesma regra do app.
+function contaDaVez() {
+  const prontas = [...accounts.values()].filter(contaInstalada);
+  if (!prontas.length) return null;
+  const nota = (a) => {
+    const u5 = a.usage?.five_hour?.pct ?? 50;
+    const u7 = a.usage?.seven_day?.pct ?? 0;
+    if (u5 >= 100 || u7 >= 100) return 1000 + u5;
+    return u5 + Math.max(0, u7 - 70) + [...instances.values()].filter((i) => i.account === a.id && i.status !== 'ended').length * 4;
+  };
+  return prontas.sort((x, y) => nota(x) - nota(y))[0].id;
+}
+
+const automacoes = criarAutomacoes({
+  arquivo: path.join(DATA, 'automacoes.json'),
+  // A pasta passa pelo mesmo folderAllowed das sessoes, na hora de salvar e de novo na hora de rodar.
+  pastaOk: (p) => folderAllowed(String(p || ''), cfg.pastasPermitidas || [], folders),
+  contas: () => [...accounts.keys()],
+  aoMudar: () => dirty(),
+  abrir: ({ conta, cwd, texto, nome }) => {
+    const account = conta || contaDaVez();
+    if (!account) return { err: 'Nenhuma conta deste computador está pronta para abrir sessão.' };
+    const r = startSession({ account, cwd, texto, name: nome, cols: 100, rows: 32 });
+    return r.err ? { err: r.err } : { id: r.id, conta: account };
+  },
+});
 
 // Saida crua do terminal virtual para os terminais abertos na janela do notebook, juntada a cada
 // ~16 ms para nao mandar uma mensagem por byte.

@@ -72,7 +72,7 @@ export function criarArquivoDaEquipe(cwd, { id, nomes, tarefa }) {
 // `nomes` vem na ordem dos patos (o primeiro e o pato 1); `ordem` comeca em 1.
 // `abertos` sao as ordens dos patos que abriram de verdade (sem as contas que falharam) e
 // `arquivo` diz se o arquivo da equipe ja esta na pasta.
-export function briefingEquipe({ id, ordem, nomes, tarefa, abertos, arquivo = true }) {
+export function briefingEquipe({ id, ordem, nomes, tarefa, abertos, arquivo = true, caminho = null, branch = null, principal = null }) {
   // Sem a lista de quem abriu, a equipe e a lista inteira de nomes.
   const time = abertos?.length ? [...new Set(abertos)].sort((a, b) => a - b) : nomes.map((_, i) => i + 1);
   const total = time.length;
@@ -82,17 +82,26 @@ export function briefingEquipe({ id, ordem, nomes, tarefa, abertos, arquivo = tr
   const propoe = quemPropoe(time);
   const propositor = propoe === ordem ? 'você' : `o pato ${propoe} (${nomes[propoe - 1]})`;
   const faltou = total === 1 || time.includes(1) ? '' : ' (o pato 1 não abriu nesta rodada, então propõe o pato de menor número que abriu)';
+  // Isolada, cada sessao abre no worktree dela: o arquivo da divisao fica na pasta principal, e o pato
+  // precisa do caminho inteiro dele e do nome do seu branch.
+  const onde = caminho || `${arquivoDaEquipe(id)} desta pasta`;
+  const sobreOBranch = branch
+    ? `Você trabalha na sua própria cópia desta pasta, no branch ${branch}, tirado do que a pasta principal (${principal}) tinha quando a equipe abriu: os outros patos têm cada um a sua cópia e o seu branch, então ninguém atropela o arquivo de ninguém. Commite o seu trabalho nesse branch; quem junta os branches na pasta principal é a pessoa, pelo duckV, quando a equipe terminar.`
+    : null;
   const sobreOArquivo = arquivo
-    ? `A divisão do trabalho é combinada no arquivo ${arquivoDaEquipe(id)} desta pasta, que o duckV já criou com a tarefa, a lista dos patos e as seções para preencher: quem preenche a seção "Divisão (o pato 1 propõe)", com as partes e os arquivos de cada um, é ${propositor}${faltou}; os outros leem a proposta e pegam a sua parte; cada um anota ali o que pegou, em "Quem pegou o quê", e o que já terminou, em "Feito"; ninguém mexe nos arquivos de outro pato sem combinar antes no arquivo.`
-    : `A divisão do trabalho é combinada no arquivo ${arquivoDaEquipe(id)} desta pasta, que o duckV não conseguiu criar: quem cria o arquivo e propõe ali a divisão por partes e arquivos é ${propositor}${faltou}, nas seções "Divisão (o pato 1 propõe)", "Quem pegou o quê" e "Feito"; os outros leem a proposta e pegam a sua parte; cada um anota ali o que pegou e o que já terminou; ninguém mexe nos arquivos de outro pato sem combinar antes no arquivo.`;
+    ? `A divisão do trabalho é combinada no arquivo ${onde}, que o duckV já criou com a tarefa, a lista dos patos e as seções para preencher: quem preenche a seção "Divisão (o pato 1 propõe)", com as partes e os arquivos de cada um, é ${propositor}${faltou}; os outros leem a proposta e pegam a sua parte; cada um anota ali o que pegou, em "Quem pegou o quê", e o que já terminou, em "Feito"; ninguém mexe nos arquivos de outro pato sem combinar antes no arquivo.`
+    : `A divisão do trabalho é combinada no arquivo ${onde}, que o duckV não conseguiu criar: quem cria o arquivo e propõe ali a divisão por partes e arquivos é ${propositor}${faltou}, nas seções "Divisão (o pato 1 propõe)", "Quem pegou o quê" e "Feito"; os outros leem a proposta e pegam a sua parte; cada um anota ali o que pegou e o que já terminou; ninguém mexe nos arquivos de outro pato sem combinar antes no arquivo.`;
   return [
     total === 1
       ? 'Você é o único pato do duckV que conseguiu abrir nesta tarefa, nesta pasta.'
-      : `Você é um dos ${total} patos do duckV trabalhando juntos, ao mesmo tempo, nesta mesma pasta.`,
+      : branch
+        ? `Você é um dos ${total} patos do duckV trabalhando juntos, ao mesmo tempo, nesta mesma tarefa, cada um na sua cópia da pasta.`
+        : `Você é um dos ${total} patos do duckV trabalhando juntos, ao mesmo tempo, nesta mesma pasta.`,
     total === 1
       ? `Você é o pato ${ordem}, da conta ${nomes[ordem - 1]}. Nenhuma outra conta abriu, então a tarefa inteira é sua.`
       : `Você é o pato ${ordem}, da conta ${nomes[ordem - 1]}. ${outros.length === 1 ? 'O outro é' : 'Os outros são'} ${quem}.`,
     sobreOArquivo,
+    sobreOBranch,
     `A tarefa da equipe: ${tarefa}`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
