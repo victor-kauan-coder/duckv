@@ -1285,3 +1285,84 @@ body.corpo-aviso { background: transparent; overflow: hidden; padding: 0; user-s
 @keyframes entra { from { opacity: 0; transform: translateY(-4px); } }
 .conta-cartao .acoes { align-items: center; }
 .conta-cartao .acoes .espaco { flex: 1; }
+
+/* ------------------------------------------------------------ painel estreito: as abas ficam so com o icone */
+.painel { container-type: inline-size; }
+@container (max-width: 560px) {
+  .segmentos button { padding: 0 10px; }
+  .segmentos .rot { display: none; }
+}
+
+/* ------------------------------------------------------------ busca na conversa (Ctrl+F) */
+.busca-conversa { display: flex; align-items: center; gap: 4px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--contorno-v); background: var(--surface); color: var(--tinta-v); }
+.busca-conversa input { flex: 1; min-width: 0; height: 32px; margin-left: 6px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--c-low); color: var(--tinta); box-shadow: inset 0 0 0 1px var(--contorno-v); outline: none; caret-color: var(--laranja); font-size: 13.5px; }
+.busca-conversa input:focus { box-shadow: inset 0 0 0 1.5px var(--tinta); }
+.busca-conversa input::placeholder { color: var(--tinta-v); }
+.busca-conversa input::-webkit-search-cancel-button { display: none; }
+.busca-contador { min-width: 92px; padding: 0 6px; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.busca-contador[data-vazio='true'] { color: var(--erro); }
+::highlight(busca) { background-color: color-mix(in srgb, var(--laranja) 32%, transparent); color: inherit; }
+::highlight(busca-atual) { background-color: var(--laranja); color: var(--no-laranja); }
+
+/* ------------------------------------------------------------ mensagens na fila */
+.fila-msgs { display: grid; gap: 6px; }
+.na-fila { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'rotulo acoes' 'texto texto'; align-items: center; gap: 0 8px; padding: 6px 6px 10px 14px; border-radius: 16px; background: var(--c); }
+.na-fila-rotulo { grid-area: rotulo; display: inline-flex; align-items: center; gap: 6px; font: 500 12px/16px var(--ui); color: var(--tinta-v); }
+.na-fila p { grid-area: texto; font-size: 13.5px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; padding-right: 8px; }
+.na-fila-acoes { grid-area: acoes; display: flex; justify-content: flex-end; align-items: center; gap: 2px; }
+.na-fila .botao.pequeno { min-height: 30px; padding: 0 10px; gap: 6px; }
+.na-fila.editando { grid-template-areas: 'rotulo rotulo' 'texto texto' 'acoes acoes'; gap: 6px; padding: 10px 10px 8px 14px; }
+.na-fila.editando label { grid-area: rotulo; font: 500 12px/16px var(--ui); color: var(--tinta-v); }
+.na-fila.editando textarea, .mud-comentar textarea { grid-area: texto; width: 100%; min-height: 56px; resize: vertical; padding: 8px 12px; border: 0; border-radius: 12px; background: var(--c-low); box-shadow: inset 0 0 0 1px var(--contorno-v); outline: none; caret-color: var(--laranja); font: 400 13.5px/20px var(--ui); }
+.na-fila.editando textarea:focus, .mud-comentar textarea:focus { box-shadow: inset 0 0 0 1.5px var(--tinta); }
+
+/* ------------------------------------------------------------ mudancas (diff da pasta)
+   Somadas e tiradas usam os papeis Ok e Erro do tema bem diluidos, sempre com + e - escritos ao lado. */
+.mudancas { background: var(--surface); }
+.mud-topo { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 8px 6px 16px; border-bottom: 1px solid var(--contorno-v); }
+.mud-resumo { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--tinta-v); white-space: nowrap; overflow: hidden; }
+.mud-resumo b { color: var(--tinta); font-weight: 500; }
+.mud-ramo { overflow: hidden; text-overflow: ellipsis; }
+.mud-num { display: inline-flex; gap: 8px; font: 500 12px/16px var(--mono); font-variant-numeric: tabular-nums; flex: none; }
+.mud-num .mais { color: var(--ok); }
+.mud-num .menos { color: var(--erro); }
+.mud-num [data-zero='true'] { color: var(--tinta-v); }
+.mud-corpo { flex: 1; min-height: 0; overflow: auto; padding: 12px max(16px, calc((100% - 1100px) / 2)) 24px; display: flex; flex-direction: column; outline: none; }
+.mud-corpo > .vazio { margin: auto; max-width: 400px; display: grid; justify-items: center; gap: 8px; text-align: center; color: var(--tinta-v); font-size: 13px; line-height: 20px; }
+.mud-corpo > .vazio b { color: var(--tinta); font-weight: 500; font-size: 14px; }
+.mud-corpo > .vazio .icone { opacity: 0.55; margin-bottom: 4px; }
+.mud-corpo > .vazio .botao { margin-top: 8px; }
+.mud-lista { list-style: none; margin: 0 0 12px; padding: 4px; border-radius: 16px; background: var(--c); display: grid; flex: none; }
+.mud-lista button { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 12px; border: 0; border-radius: 12px; background: transparent; text-align: left; color: var(--tinta); }
+.mud-lista button:hover { background: color-mix(in srgb, var(--tinta) 6%, transparent); }
+.mud-lista .caminho, .mud-arquivo-cab .caminho { flex: 1; min-width: 0; font: 400 12.5px/18px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mud-estado { flex: none; padding: 2px 6px; border-radius: 6px; background: var(--c-highest); color: var(--tinta-v); font: 500 11px/14px var(--ui); }
+.mud-aviso { margin: 0 0 12px; font-size: 12px; color: var(--tinta-v); }
+.mud-arquivo { flex: none; margin-top: 12px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--contorno-v); overflow: clip; }
+.mud-arquivo-cab { position: sticky; top: -12px; z-index: 1; width: 100%; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 0; background: var(--c-low); box-shadow: inset 0 -1px 0 var(--contorno-v); text-align: left; color: var(--tinta); }
+.mud-arquivo-cab[aria-expanded='false'] { box-shadow: none; }
+.mud-arquivo-cab .icone { color: var(--tinta-v); }
+.mud-grande { padding: 12px 14px; font-size: 13px; color: var(--tinta-v); }
+.mud-trechos { overflow-x: auto; font: 400 12.5px/19px var(--mono); padding-bottom: 4px; }
+.mud-cab { padding: 4px 12px; background: var(--c); color: var(--tinta-v); white-space: pre; font: 500 12px/18px var(--ui); min-width: max-content; }
+.mud-linha { display: grid; grid-template-columns: 3.4em 3.4em 1.6em auto; min-width: max-content; cursor: pointer; }
+.mud-linha .n { padding-right: 8px; text-align: right; color: var(--tinta-v); font-variant-numeric: tabular-nums; user-select: none; }
+.mud-linha .s { text-align: center; font-weight: 600; user-select: none; }
+.mud-linha code { font: inherit; white-space: pre; padding-right: 24px; }
+.mud-linha[data-t='+'] { background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.mud-linha[data-t='+'] .s { color: var(--ok); }
+.mud-linha[data-t='-'] { background: color-mix(in srgb, var(--erro) 10%, transparent); }
+.mud-linha[data-t='-'] .s { color: var(--erro); }
+.mud-linha:hover { background-image: linear-gradient(color-mix(in srgb, var(--tinta) 7%, transparent), color-mix(in srgb, var(--tinta) 7%, transparent)); }
+.mud-linha:focus-visible { outline: 2px solid var(--laranja-texto); outline-offset: -2px; border-radius: 4px; }
+.mud-comentar, .mud-comentario { position: sticky; left: 0; width: min(560px, calc(100cqw - 56px)); margin: 6px 12px 10px; font-family: var(--ui); }
+.mud-comentar { display: grid; grid-template-areas: 'rotulo' 'texto' 'acoes'; gap: 8px; padding: 12px; border-radius: 12px; background: var(--c-high); }
+.mud-comentar label { grid-area: rotulo; font: 500 12px/16px var(--ui); color: var(--tinta-v); }
+.mud-comentar-acoes { grid-area: acoes; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.mud-comentar-acoes .dica { flex: 1; font-size: 12px; color: var(--tinta-v); }
+.mud-comentario { display: flex; align-items: flex-start; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 12px; background: var(--pessego); color: var(--no-pessego); }
+.mud-comentario > .icone { margin-top: 8px; }
+.mud-comentario p { flex: 1; min-width: 0; padding: 6px 0; font-size: 13px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mud-comentario .so-icone { color: var(--no-pessego); }
+.mud-rodape { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--contorno-v); background: var(--surface); }
+.mud-pronto { flex: 1; min-width: 0; font-size: 13px; color: var(--tinta-v); }

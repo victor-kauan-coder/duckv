@@ -21,7 +21,7 @@ function el(tag, props, ...kids) {
       else node[k] = v;
     }
   }
-  for (const kid of kids.flat()) {
+  for (const kid of kids.flat(Infinity)) {
     if (kid == null || kid === false) continue;
     node.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   }
@@ -1494,16 +1494,387 @@ window.duckvApp?.aoAbrirNova?.((o) => S.pronto && abrirNova({ conta: o.conta || 
 
 // ------------------------------------------------------------ painel de uma sessao
 // Um painel mostra uma sessao: a conversa (com os pedidos e a caixa de mensagem) ou o terminal de verdade.
+// ------------------------------------------------------------ mudancas (o diff da pasta da sessao)
+// A aba "Mudancas" de cada painel: a lista de arquivos com as linhas somadas e tiradas e, abaixo, o
+// diff de cada um. Clicar numa linha abre um campo de comentario; os comentarios juntados vao para a
+// sessao numa mensagem so, pela mesma rota das mensagens (que passa pelo filtro do servidor).
+const ESTADO_ARQUIVO = { novo: 'Novo', apagado: 'Apagado', renomeado: 'Renomeado' };
+const linhaDoComentario = (c) => `No arquivo ${c.caminho}, linha ${c.num} (${c.t === ' ' ? '' : `${c.t} `}"${c.x.trim().slice(0, 200)}"): ${c.texto}`;
+// "@@ -12,7 +12,9 @@ function x" vira "Linhas 12 a 20 · function x" (as de depois; num arquivo apagado, as de antes).
+function tituloDoTrecho(cab) {
+  const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$/.exec(cab);
+  if (!m) return cab;
+  const [ini, qtd] = Number(m[4] ?? 1) ? [Number(m[3]), Number(m[4] ?? 1)] : [Number(m[1]), Number(m[2] ?? 1)];
+  const faixa = qtd > 1 ? `Linhas ${ini} a ${ini + qtd - 1}` : `Linha ${ini}`;
+  return m[5] ? `${faixa} · ${m[5].trim()}` : faixa;
+}
+function numeros(f) {
+  return el('span', { class: 'mud-num' }, el('span', { class: 'mais', 'data-zero': String(!f.somadas), text: `+${f.somadas}` }), el('span', { class: 'menos', 'data-zero': String(!f.tiradas), text: `−${f.tiradas}` }));
+}
+function vistaDeMudancas(id, enviarTexto) {
+  let dados = null;
+  let carregando = false;
+  let erro = '';
+  const comentarios = new Map(); // "caminho|t|num" -> { caminho, t, num, x, texto }
+  const fechados = new Set(); // arquivos recolhidos
+  const resumo = el('div', { class: 'mud-resumo', role: 'status', 'aria-live': 'polite' });
+  const atualizarBotao = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Ler as mudanças de novo', title: 'Ler de novo', onclick: () => carregar() }, icone('arrows-clockwise', 18));
+  const topo = el('header', { class: 'mud-topo' }, resumo, atualizarBotao);
+  const corpo = el('div', { class: 'mud-corpo', tabIndex: 0, 'aria-label': 'Mudanças' });
+  const contagem = el('span', { class: 'mud-pronto' });
+  const descartar = el('button', { class: 'botao texto', type: 'button', text: 'Descartar', onclick: () => (comentarios.clear(), desenhar()) });
+  const enviar = el('button', { class: 'botao principal', type: 'button' }, icone('paper-plane-right', 18), el('span'));
+  const rodape = el('footer', { class: 'mud-rodape', hidden: true }, contagem, descartar, enviar);
+  const raiz = el('div', { class: 'p-corpo mudancas' }, topo, corpo, rodape);
+
+  enviar.addEventListener('click', () => {
+    const lista = [...comentarios.values()];
+    if (!lista.length) return;
+    enviar.disabled = true;
+    enviarTexto(lista.map(linhaDoComentario).join('\n\n'), (falhou) => {
+      enviar.disabled = false;
+      if (falhou) return;
+      comentarios.clear();
+      desenhar();
+    });
+  });
+
+  function carregar() {
+    if (carregando) return;
+    carregando = true;
+    erro = '';
+    if (!dados) desenhar();
+    atualizarBotao.disabled = true;
+    mandar({ t: 'diff', instance: id }, (e, r) => {
+      carregando = false;
+      if (e) erro = e;
+      else dados = r;
+      desenhar();
+    });
+  }
+
+  function vazio(iconeNome, titulo, texto, acao) {
+    return el('div', { class: 'vazio mud-vazio' }, icone(iconeNome, 28), el('b', { text: titulo }), texto ? el('p', { text: texto }) : null, acao);
+  }
+
+  function editor(chave, base, linhaNo, rascunho) {
+    corpo.querySelector('.mud-comentar')?.remove();
+    const atual = comentarios.get(chave);
+    const campoId = `mud-c-${Math.random().toString(36).slice(2, 8)}`;
+    const campo = el('textarea', { id: campoId, rows: 2, value: rascunho ?? atual?.texto ?? '' });
+    const fechar = () => (caixa.remove(), linhaNo.focus());
+    const salvar = () => {
+      const texto = campo.value.trim();
+      if (texto) comentarios.set(chave, { ...base, texto });
+      else comentarios.delete(chave);
+      caixa.remove();
+      desenhar();
+    };
+    campo.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') return ev.preventDefault(), fechar();
+      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) return ev.preventDefault(), salvar();
+    });
+    const caixa = el(
+      'div',
+      { class: 'mud-comentar', 'data-chave': chave },
+      el('label', { for: campoId, text: `Comentário sobre a linha ${base.num}` }),
+      campo,
+      el('div', { class: 'mud-comentar-acoes' }, el('span', { class: 'dica', text: `${CTRL}+Enter adiciona` }), el('button', { class: 'botao texto', type: 'button', text: 'Cancelar', onclick: fechar }), el('button', { class: 'botao', type: 'button', text: atual ? 'Salvar' : 'Adicionar', onclick: salvar })),
+    );
+    linhaNo.after(caixa);
+    if (rascunho == null) {
+      animarEntrada(caixa);
+      caixa.scrollIntoView({ block: 'nearest', behavior: semMovimento.matches ? 'auto' : 'smooth' });
+    }
+    campo.focus({ preventScroll: true });
+  }
+
+  function linhaDoDiff(f, l) {
+    const num = l.t === '-' ? l.a : l.n;
+    const chave = `${f.caminho}|${l.t}|${num}`;
+    const base = { caminho: f.caminho, t: l.t, num, x: l.x };
+    const sinal = l.t === ' ' ? '' : l.t === '+' ? '+' : '−';
+    const no = el(
+      'div',
+      { class: 'mud-linha', 'data-t': l.t, 'data-chave': chave, role: 'button', tabIndex: 0, 'aria-label': `${l.t === '+' ? 'Somada' : l.t === '-' ? 'Tirada' : 'Linha'} ${num}: ${l.x.trim() || 'vazia'}. Comentar` },
+      el('span', { class: 'n', text: l.a ?? '' }),
+      el('span', { class: 'n', text: l.n ?? '' }),
+      el('span', { class: 's', 'aria-hidden': 'true', text: sinal }),
+      el('code', { text: l.x || ' ' }),
+    );
+    const abrir = () => editor(chave, base, no);
+    no.reabrir = (texto) => editor(chave, base, no, texto);
+    no.addEventListener('click', abrir);
+    no.addEventListener('keydown', (ev) => (ev.key === 'Enter' || ev.key === ' ') && (ev.preventDefault(), abrir()));
+    const feito = comentarios.get(chave);
+    if (!feito) return no;
+    const tirar = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Tirar este comentário', title: 'Tirar', onclick: () => (comentarios.delete(chave), desenhar()) }, icone('x', 16));
+    const editar = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Editar este comentário', title: 'Editar', onclick: () => editor(chave, base, no) }, icone('pencil-simple', 16));
+    return [no, el('div', { class: 'mud-comentario' }, icone('chat-text', 16), el('p', { text: feito.texto }), editar, tirar)];
+  }
+
+  function arquivo(f) {
+    const fechado = fechados.has(f.caminho);
+    const cab = el(
+      'button',
+      { class: 'mud-arquivo-cab', type: 'button', 'aria-expanded': String(!fechado) },
+      icone(fechado ? 'caret-right' : 'caret-down', 16),
+      el('span', { class: 'caminho', text: f.caminho, title: f.antes ? `Antes: ${f.antes}` : f.caminho }),
+      ESTADO_ARQUIVO[f.estado] ? el('span', { class: 'mud-estado', text: ESTADO_ARQUIVO[f.estado] }) : null,
+      numeros(f),
+    );
+    cab.addEventListener('click', () => {
+      if (fechado) fechados.delete(f.caminho);
+      else fechados.add(f.caminho);
+      desenhar();
+    });
+    let conteudo = null;
+    if (!fechado) {
+      if (f.grande) conteudo = el('p', { class: 'mud-grande', text: f.binario ? 'Arquivo binário: mudou, mas não dá para mostrar as linhas.' : 'Mudou, grande demais para mostrar aqui.' });
+      else if (!f.trechos.length) conteudo = el('p', { class: 'mud-grande', text: f.estado === 'novo' ? 'Arquivo novo, vazio.' : 'Só mudou a permissão ou o nome do arquivo.' });
+      else conteudo = el('div', { class: 'mud-trechos' }, f.trechos.map((h) => [el('div', { class: 'mud-cab', text: tituloDoTrecho(h.cab) }), h.linhas.map((l) => linhaDoDiff(f, l))]));
+    }
+    return el('section', { class: 'mud-arquivo', 'data-caminho': f.caminho }, cab, conteudo);
+  }
+
+  // So o rodape depende do estado da sessao: o resto so muda com um diff novo ou um comentario.
+  function rodapeDe() {
+    const n = comentarios.size;
+    const s = sessaoPorId(id);
+    rodape.hidden = !n;
+    contagem.textContent = s && !s.canSend ? 'Esta sessão não recebe mensagens agora.' : n ? `${plural(n, 'comentário pronto', 'comentários prontos')} para mandar` : '';
+    enviar.lastChild.textContent = n === 1 ? 'Enviar 1 comentário' : `Enviar ${n} comentários`;
+    enviar.disabled = !s?.canSend;
+  }
+  function desenhar() {
+    const rolagem = corpo.scrollTop;
+    // O comentario sendo escrito sobrevive a um diff novo (o agente terminou um turno no meio).
+    const aberto = corpo.querySelector('.mud-comentar');
+    const escrevendo = aberto && { chave: aberto.dataset.chave, texto: aberto.querySelector('textarea').value };
+    const n = comentarios.size;
+    const s = sessaoPorId(id);
+    rodape.hidden = !n;
+    contagem.textContent = s && !s.canSend ? 'Esta sessão não recebe mensagens agora.' : n ? `${plural(n, 'comentário pronto', 'comentários prontos')} para mandar` : '';
+    enviar.lastChild.textContent = n === 1 ? 'Enviar 1 comentário' : `Enviar ${n} comentários`;
+    enviar.disabled = !s?.canSend;
+    atualizarBotao.disabled = carregando;
+    if (!dados) {
+      resumo.textContent = carregando ? 'Lendo as mudanças' : '';
+      const semRede = erro === 'Sem conexão com o duckV.';
+      corpo.replaceChildren(
+        erro
+          ? vazio('warning-circle', semRede ? 'Sem conexão com o duckV' : 'Não deu para ler as mudanças', semRede ? 'Assim que a janela reconectar, tente de novo.' : erro, el('button', { class: 'botao quieto', type: 'button', onclick: () => carregar() }, icone('arrows-clockwise', 18), 'Tentar de novo'))
+          : vazio('git-diff', 'Lendo as mudanças', 'Comparando a pasta da sessão com o último commit.'),
+      );
+      return;
+    }
+    if (erro) avisar(erro);
+    if (!dados.git) {
+      resumo.textContent = 'Sem repositório git';
+      corpo.replaceChildren(vazio('folder', 'Esta pasta não usa git', dados.msg || 'Sem git não dá para saber o que o agente mudou.'));
+      return;
+    }
+    const fs = dados.arquivos || [];
+    resumo.replaceChildren(
+      el('b', { text: fs.length ? plural(fs.length, 'arquivo mudou', 'arquivos mudaram') : 'Nada mudou' }),
+      fs.length ? numeros(dados) : null,
+      dados.ramo && dados.ramo !== 'HEAD' ? el('span', { class: 'mud-ramo', text: `no ramo ${dados.ramo}` }) : null,
+    );
+    if (dados.erro) return corpo.replaceChildren(vazio('warning-circle', 'O git não respondeu', dados.erro));
+    if (!fs.length) return corpo.replaceChildren(vazio('check-circle', 'Nada mudou desde o último commit', 'Quando o agente mexer em algum arquivo desta pasta, a mudança aparece aqui.'));
+    const irPara = (f) => {
+      fechados.delete(f.caminho);
+      desenhar();
+      corpo.querySelector(`.mud-arquivo[data-caminho="${CSS.escape(f.caminho)}"]`)?.scrollIntoView({ block: 'start', behavior: semMovimento.matches ? 'auto' : 'smooth' });
+    };
+    const lista = el(
+      'ul',
+      { class: 'mud-lista', 'aria-label': 'Arquivos que mudaram' },
+      fs.map((f) => el('li', null, el('button', { type: 'button', onclick: () => irPara(f) }, el('span', { class: 'caminho', text: f.caminho }), ESTADO_ARQUIVO[f.estado] ? el('span', { class: 'mud-estado', text: ESTADO_ARQUIVO[f.estado] }) : null, numeros(f)))),
+    );
+    corpo.replaceChildren(...[lista, dados.grande ? el('p', { class: 'mud-aviso', text: 'O diff inteiro é grande demais: alguns arquivos aparecem só com os números.' }) : null, ...fs.map(arquivo)].filter(Boolean));
+    corpo.scrollTop = rolagem;
+    if (escrevendo) [...corpo.querySelectorAll('.mud-linha')].find((x) => x.dataset.chave === escrevendo.chave)?.reabrir(escrevendo.texto);
+  }
+
+  return {
+    raiz,
+    carregar,
+    desenhar,
+    rodape: rodapeDe,
+    get carregado() {
+      return !!dados;
+    },
+  };
+}
+
+// ------------------------------------------------------------ busca na conversa (Ctrl+F)
+// Marca os achados com a Custom Highlight API (o texto da conversa nao muda); so uma busca por vez.
+let buscaAberta = null;
+function buscaNaConversa(conversa) {
+  const campo = el('input', { type: 'search', placeholder: 'Buscar na conversa', 'aria-label': 'Buscar na conversa', spellcheck: false });
+  const contador = el('span', { class: 'busca-contador', role: 'status', 'aria-live': 'polite' });
+  const anterior = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Achado anterior', title: 'Anterior (Shift+Enter)', onclick: () => ir(-1) }, icone('caret-up', 18));
+  const proximo = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Próximo achado', title: 'Próximo (Enter)', onclick: () => ir(1) }, icone('caret-down', 18));
+  const fechar = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Fechar a busca', title: 'Fechar (Esc)', onclick: () => obj.fechar() }, icone('x', 18));
+  const raiz = el('div', { class: 'busca-conversa', role: 'search', hidden: true }, icone('magnifying-glass', 18), campo, contador, anterior, proximo, fechar);
+  let achados = [];
+  let atual = -1;
+  const temApi = typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight === 'function';
+  const visivel = (no) => (no.checkVisibility ? no.checkVisibility() : !!no.offsetParent);
+  function procurar(manter) {
+    const q = campo.value.trim().toLocaleLowerCase('pt-BR');
+    const antes = achados[atual];
+    achados = [];
+    if (q) {
+      const andar = document.createTreeWalker(conversa, NodeFilter.SHOW_TEXT);
+      for (let no = andar.nextNode(); no; no = andar.nextNode()) {
+        const pai = no.parentElement;
+        if (!pai || pai.closest('button, .vazio') || !visivel(pai)) continue;
+        const t = no.data.toLocaleLowerCase('pt-BR');
+        for (let i = t.indexOf(q); i >= 0; i = t.indexOf(q, i + q.length)) {
+          const r = new Range();
+          r.setStart(no, i);
+          r.setEnd(no, i + q.length);
+          achados.push(r);
+        }
+      }
+    }
+    // Com mensagens chegando, o achado de agora continua o mesmo; numa busca nova, comeca pelo mais recente.
+    const mesmo = manter && antes ? achados.findIndex((r) => r.startContainer === antes.startContainer && r.startOffset === antes.startOffset) : -1;
+    atual = mesmo >= 0 ? mesmo : achados.length - 1;
+    pintar(mesmo < 0);
+  }
+  function pintar(rolar) {
+    const tem = achados.length > 0;
+    const digitado = !!campo.value.trim();
+    contador.textContent = !digitado ? '' : tem ? `${atual + 1} de ${achados.length}` : 'Nenhum achado';
+    contador.dataset.vazio = String(digitado && !tem);
+    anterior.disabled = proximo.disabled = !tem;
+    if (temApi) {
+      CSS.highlights.set('busca', new Highlight(...achados));
+      CSS.highlights.set('busca-atual', new Highlight(...(tem ? [achados[atual]] : [])));
+    }
+    if (rolar && tem) achados[atual].startContainer.parentElement?.scrollIntoView({ block: 'center', behavior: semMovimento.matches ? 'auto' : 'smooth' });
+  }
+  function ir(passo) {
+    if (!achados.length) return;
+    atual = (atual + passo + achados.length) % achados.length;
+    pintar(true);
+  }
+  let espera = null;
+  campo.addEventListener('input', () => {
+    clearTimeout(espera);
+    espera = setTimeout(() => procurar(false), 90);
+  });
+  campo.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') return ev.preventDefault(), ir(ev.shiftKey ? -1 : 1);
+    if (ev.key === 'Escape') return ev.preventDefault(), obj.fechar();
+  });
+  const obj = {
+    raiz,
+    abrir() {
+      if (buscaAberta && buscaAberta !== obj) buscaAberta.fechar(false);
+      buscaAberta = obj;
+      const era = raiz.hidden;
+      raiz.hidden = false;
+      if (era) animarEntrada(raiz);
+      campo.focus();
+      campo.select();
+      if (campo.value) procurar(false);
+    },
+    fechar(focar = true) {
+      if (raiz.hidden) return;
+      raiz.hidden = true;
+      achados = [];
+      atual = -1;
+      if (temApi && buscaAberta === obj) {
+        CSS.highlights.delete('busca');
+        CSS.highlights.delete('busca-atual');
+      }
+      if (buscaAberta === obj) buscaAberta = null;
+      if (focar) conversa.focus();
+    },
+    // A conversa mudou (mensagem nova, conversa redesenhada): refaz os achados sem pular.
+    refazer() {
+      if (!raiz.hidden && campo.value.trim()) procurar(true);
+    },
+  };
+  return obj;
+}
+
+// ------------------------------------------------------------ mensagens na fila
+// Enquanto o agente trabalha, o que voce manda espera no duckV: cada mensagem vira um cartao "Na fila"
+// acima da caixa, com editar e tirar. Elas saem sozinhas quando o turno acaba.
+function cartoesDaFila(id) {
+  const raiz = el('div', { class: 'fila-msgs', role: 'list', 'aria-label': 'Mensagens na fila', hidden: true });
+  let editando = null;
+  let marca = '';
+  const redesenhar = () => ((marca = ''), desenhar(sessaoPorId(id)));
+  function cartao(item) {
+    if (editando === item.id) {
+      const campoId = `fila-${id}-${item.id}`;
+      const campo = el('textarea', { id: campoId, rows: 2, value: item.texto });
+      const salvar = () => {
+        const texto = campo.value.trim();
+        if (!texto) return avisar('A mensagem ficou vazia. Para desistir dela, use Tirar da fila.');
+        mandar({ t: 'filaEditar', instance: id, id: item.id, text: texto }, (erro) => {
+          if (erro) return avisar(erro);
+          editando = null;
+          redesenhar();
+        });
+      };
+      campo.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') return ev.preventDefault(), (editando = null), redesenhar();
+        if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) return ev.preventDefault(), salvar();
+      });
+      requestAnimationFrame(() => (campo.focus(), campo.setSelectionRange(campo.value.length, campo.value.length)));
+      return el(
+        'div',
+        { class: 'na-fila editando', role: 'listitem' },
+        el('label', { for: campoId, text: 'Editar a mensagem na fila' }),
+        campo,
+        el('div', { class: 'na-fila-acoes' }, el('button', { class: 'botao texto pequeno', type: 'button', text: 'Cancelar', onclick: () => ((editando = null), redesenhar()) }), el('button', { class: 'botao pequeno', type: 'button', text: 'Salvar', onclick: salvar })),
+      );
+    }
+    return el(
+      'div',
+      { class: 'na-fila', role: 'listitem' },
+      el('span', { class: 'na-fila-rotulo' }, icone('hourglass-medium', 14), 'Na fila'),
+      el('p', { text: item.texto }),
+      el(
+        'div',
+        { class: 'na-fila-acoes' },
+        el('button', { class: 'botao texto pequeno', type: 'button', onclick: () => ((editando = item.id), redesenhar()) }, icone('pencil-simple', 16), 'Editar'),
+        el('button', { class: 'botao texto pequeno', type: 'button', onclick: () => mandar({ t: 'filaTirar', instance: id, id: item.id }, (erro) => avisar(erro || 'Tirada da fila')) }, icone('x', 16), 'Tirar da fila'),
+      ),
+    );
+  }
+  function desenhar(s) {
+    const itens = s?.fila || [];
+    if (editando && !itens.some((x) => x.id === editando)) editando = null;
+    const m = JSON.stringify([itens, editando]);
+    if (m === marca) return;
+    const tinha = raiz.childElementCount;
+    marca = m;
+    raiz.hidden = !itens.length;
+    raiz.replaceChildren(...itens.map(cartao));
+    if (itens.length > tinha && raiz.lastElementChild) animarEntrada(raiz.lastElementChild);
+  }
+  return { raiz, desenhar };
+}
+
 function criarPainel(id, opts = {}) {
-  let modo = opts.modo === 'terminal' ? 'terminal' : 'conversa';
+  let modo = opts.modo === 'terminal' || opts.modo === 'mudancas' ? opts.modo : 'conversa';
   const corConta = el('span', { class: 'p-cor', 'aria-hidden': 'true' });
   const titulo = el('h2');
   const linha = el('p');
-  const segConversa = el('button', { type: 'button', role: 'tab', onclick: () => trocarModo('conversa') }, icone('chat-text', 16), 'Conversa');
-  const segTerminal = el('button', { type: 'button', role: 'tab', onclick: () => trocarModo('terminal') }, icone('terminal-window', 16), 'Terminal');
+  const segConversa = el('button', { type: 'button', role: 'tab', 'aria-label': 'Conversa', onclick: () => trocarModo('conversa') }, icone('chat-text', 16), el('span', { class: 'rot', text: 'Conversa' }));
+  const segMudancas = el('button', { type: 'button', role: 'tab', 'aria-label': 'Mudanças', onclick: () => trocarModo('mudancas') }, icone('git-diff', 16), el('span', { class: 'rot', text: 'Mudanças' }));
+  const segTerminal = el('button', { type: 'button', role: 'tab', 'aria-label': 'Terminal', onclick: () => trocarModo('terminal') }, icone('terminal-window', 16), el('span', { class: 'rot', text: 'Terminal' }));
   const mais = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Mais ações desta sessão', title: 'Mais ações', onclick: () => abrirMenu(mais, menuDaSessao()) }, icone('dots-three', 20));
   const fechar = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Fechar painel', title: `Fechar painel (${CTRL}+W)`, onclick: () => area.fechar(raiz) }, icone('x', 18));
-  const topo = el('header', { class: 'p-topo' }, corConta, el('div', { class: 'p-titulo' }, titulo, linha), el('div', { class: 'segmentos', role: 'tablist', 'aria-label': 'Ver' }, segConversa, segTerminal), mais, fechar);
+  const topo = el('header', { class: 'p-topo' }, corConta, el('div', { class: 'p-titulo' }, titulo, linha), el('div', { class: 'segmentos', role: 'tablist', 'aria-label': 'Ver' }, segConversa, segMudancas, segTerminal), mais, fechar);
 
   // --- conversa
   const ctxTexto = el('span');
@@ -1538,8 +1909,20 @@ function criarPainel(id, opts = {}) {
   const leitura = el('div', { class: 'leitura', hidden: true });
   const doca = el('div', { class: 'doca' }, el('div', { class: 'doca-pato' }, pato), form, leitura);
   const nota = el('p', { class: 'p-nota' });
-  const baixo = el('div', { class: 'p-baixo' }, pedidos, rapidas, nota, doca);
-  const vistaConversa = el('div', { class: 'p-corpo' }, info, conversa, baixo);
+  const filaMsgs = cartoesDaFila(id);
+  const baixo = el('div', { class: 'p-baixo' }, pedidos, rapidas, nota, filaMsgs.raiz, doca);
+  const busca = buscaNaConversa(conversa);
+  const vistaConversa = el('div', { class: 'p-corpo' }, info, busca.raiz, conversa, baixo);
+
+  // --- mudancas: o diff da pasta, lido de novo ao abrir a aba e quando o agente termina um turno
+  const mudancas = vistaDeMudancas(id, (texto, pronto) =>
+    mandar({ t: 'send', instance: id, text: texto }, (erro) => {
+      avisar(erro || 'Comentários enviados para a sessão');
+      pronto(!!erro);
+    }),
+  );
+  const vistaMudancas = mudancas.raiz;
+  let statusAntes = null;
 
   // --- terminal de verdade (xterm.js com a saida crua do terminal virtual)
   const caixaTerminal = el('div', { class: 'terminal-caixa' });
@@ -1600,29 +1983,31 @@ function criarPainel(id, opts = {}) {
     });
   }
 
-  // --- composer: Enter envia, Shift+Enter quebra linha, "/" lista os comandos
+  // --- composer: Enter envia, Shift+Enter quebra linha, "/" lista os comandos, "@" cita um arquivo
+  // da pasta da sessao e, com a caixa vazia, as setas para cima e para baixo trazem o que ja foi mandado.
   let comandos = null;
   let selecionado = 0;
+  let arquivosAchados = { q: null, itens: [] };
+  let esperaArquivos = null;
   const ajustarAltura = () => {
     campo.style.height = 'auto';
     campo.style.height = `${Math.min(campo.scrollHeight, 240)}px`;
     enviar.dataset.pronto = campo.value.trim() || anexos.some((a) => a.caminho) ? 'sim' : 'nao';
   };
-  function filtrarComandos() {
-    const v = campo.value;
-    if (!/^\/\S*$/.test(v) || !comandos) {
+  // O "@palavra" que esta sendo digitado agora, logo antes do cursor.
+  const citacao = () => {
+    const antes = campo.value.slice(0, campo.selectionStart);
+    const m = /(^|\s)@([^\s@]*)$/.exec(antes);
+    return m ? { ini: antes.length - m[2].length - 1, q: m[2] } : null;
+  };
+  function mostrarLista(itens) {
+    if (!itens.length) {
       listaComandos.hidden = true;
       return;
     }
-    const q = v.slice(1).toLowerCase();
-    const achados = comandos.filter((c) => c.nome.toLowerCase().startsWith(q)).slice(0, 40);
-    if (!achados.length) {
-      listaComandos.hidden = true;
-      return;
-    }
-    selecionado = Math.min(selecionado, achados.length - 1);
+    selecionado = Math.min(selecionado, itens.length - 1);
     listaComandos.replaceChildren(
-      ...achados.map((c, i) =>
+      ...itens.map((c, i) =>
         el(
           'li',
           {
@@ -1630,17 +2015,45 @@ function criarPainel(id, opts = {}) {
             'aria-selected': String(i === selecionado),
             onmousedown: (ev) => {
               ev.preventDefault();
-              completar(c);
+              c.aplicar();
             },
           },
-          el('b', { text: `/${c.nome}` }),
-          el('span', { text: c.descricao || '' }),
+          el('b', { text: c.rotulo }),
+          el('span', { text: c.desc || '' }),
         ),
       ),
     );
     listaComandos.hidden = false;
-    listaComandos.achados = achados;
+    listaComandos.achados = itens;
     listaComandos.children[selecionado]?.scrollIntoView({ block: 'nearest' });
+  }
+  function filtrarComandos() {
+    const v = campo.value;
+    const cit = citacao();
+    if (cit) {
+      if (arquivosAchados.q !== cit.q) {
+        clearTimeout(esperaArquivos);
+        esperaArquivos = setTimeout(() => {
+          const q = cit.q;
+          mandar({ t: 'arquivos', instance: id, q }, (erro, r) => {
+            arquivosAchados = { q, itens: erro ? [] : r.itens || [] };
+            if (citacao()?.q === q) filtrarComandos();
+          });
+        }, 120);
+        if (arquivosAchados.q == null) return;
+      }
+      const itens = arquivosAchados.itens.slice(0, 40).map((c) => {
+        const corte = c.lastIndexOf('/');
+        return { rotulo: corte >= 0 ? c.slice(corte + 1) : c, desc: corte >= 0 ? c.slice(0, corte) : 'na raiz da pasta', aplicar: () => citar(cit, c) };
+      });
+      return mostrarLista(itens);
+    }
+    if (!/^\/\S*$/.test(v) || !comandos) {
+      listaComandos.hidden = true;
+      return;
+    }
+    const q = v.slice(1).toLowerCase();
+    mostrarLista(comandos.filter((c) => c.nome.toLowerCase().startsWith(q)).slice(0, 40).map((c) => ({ rotulo: `/${c.nome}`, desc: c.descricao, nome: c.nome, aplicar: () => completar(c) })));
   }
   function completar(c) {
     campo.value = `/${c.nome} `;
@@ -1648,8 +2061,42 @@ function criarPainel(id, opts = {}) {
     ajustarAltura();
     campo.focus();
   }
+  function citar(cit, caminho) {
+    const fim = campo.selectionStart;
+    const texto = `@${caminho} `;
+    campo.value = campo.value.slice(0, cit.ini) + texto + campo.value.slice(fim);
+    const pos = cit.ini + texto.length;
+    campo.setSelectionRange(pos, pos);
+    listaComandos.hidden = true;
+    arquivosAchados = { q: null, itens: [] };
+    ajustarAltura();
+    campo.focus();
+  }
+  // Historico: as mensagens que voce mandou nesta sessao, da mais nova para a mais velha.
+  let passoHistorico = -1;
+  let rascunho = '';
+  const historico = () => {
+    const lista = [];
+    for (const m of conversas.get(id) || []) {
+      const t = m.role === 'user' ? anexosDoTexto(m.text).texto.trim() : '';
+      if (t && lista[lista.length - 1] !== t) lista.push(t);
+    }
+    return lista.reverse();
+  };
+  function andarNoHistorico(passo) {
+    const lista = historico();
+    const novo = Math.max(-1, Math.min(lista.length - 1, passoHistorico + passo));
+    if (novo === passoHistorico) return false;
+    if (passoHistorico === -1) rascunho = campo.value;
+    passoHistorico = novo;
+    campo.value = novo === -1 ? rascunho : lista[novo];
+    ajustarAltura();
+    campo.setSelectionRange(campo.value.length, campo.value.length);
+    return true;
+  }
   campo.addEventListener('input', () => {
     ajustarAltura();
+    passoHistorico = -1;
     if (campo.value.startsWith('/') && !comandos) {
       comandos = [];
       mandar({ t: 'comandos', instance: id }, (erro, r) => {
@@ -1665,17 +2112,23 @@ function criarPainel(id, opts = {}) {
       const n = listaComandos.achados?.length || 0;
       if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
         selecionado = (selecionado + (ev.key === 'ArrowDown' ? 1 : -1) + n) % n;
-        filtrarComandos();
+        mostrarLista(listaComandos.achados);
         return ev.preventDefault();
       }
-      if (ev.key === 'Tab' || (ev.key === 'Enter' && !ev.shiftKey && campo.value.trim() !== `/${listaComandos.achados[selecionado]?.nome}`)) {
-        completar(listaComandos.achados[selecionado]);
+      const escolhido = listaComandos.achados[selecionado];
+      if (ev.key === 'Tab' || (ev.key === 'Enter' && !ev.shiftKey && !(escolhido?.nome && campo.value.trim() === `/${escolhido.nome}`))) {
+        escolhido?.aplicar();
         return ev.preventDefault();
       }
       if (ev.key === 'Escape') {
         listaComandos.hidden = true;
         return ev.preventDefault();
       }
+    }
+    // Setas no historico so com a caixa vazia (ou ja mostrando um item dele), para nao roubar o cursor do texto.
+    if ((ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && !ev.shiftKey && !ev.altKey && !ev.ctrlKey && !ev.metaKey) {
+      const navegando = passoHistorico >= 0 && campo.value === historico()[passoHistorico];
+      if ((!campo.value || navegando) && andarNoHistorico(ev.key === 'ArrowUp' ? 1 : -1)) return ev.preventDefault();
     }
     if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
       ev.preventDefault();
@@ -1696,6 +2149,7 @@ function criarPainel(id, opts = {}) {
       enviar.disabled = false;
       if (erro) return avisar(erro);
       campo.value = '';
+      passoHistorico = -1;
       anexos = anexos.filter((a) => !prontosAgora.includes(a));
       desenharAnexos();
       ajustarAltura();
@@ -1835,6 +2289,7 @@ function criarPainel(id, opts = {}) {
       if (itens.length) for (const m of itens.slice(-600)) anexarItem(m, false);
       else conversa.append(vazioDaConversa(sessao()));
       conversa.scrollTop = conversa.scrollHeight;
+      busca.refazer();
       return;
     }
     const itens = visiveis(novas);
@@ -1842,6 +2297,7 @@ function criarPainel(id, opts = {}) {
     conversa.querySelector(':scope > .vazio')?.remove();
     for (const m of itens) anexarItem(m, true);
     if (noFim) conversa.scrollTo({ top: conversa.scrollHeight, behavior: semMovimento.matches ? 'auto' : 'smooth' });
+    busca.refazer();
   }
   const largarConversa = ouvir('conversa', id, desenharConversa);
 
@@ -1961,6 +2417,7 @@ function criarPainel(id, opts = {}) {
     area.salvar();
     atualizar();
     if (modo === 'terminal') ligarCru();
+    else if (modo === 'mudancas') mudancas.carregar();
     else {
       conversa.scrollTop = conversa.scrollHeight;
       campo.focus();
@@ -2011,13 +2468,14 @@ function criarPainel(id, opts = {}) {
 
   function atualizar() {
     const s = sessao();
-    const vista = modo === 'terminal' ? vistaTerminal : vistaConversa;
+    const vista = modo === 'terminal' ? vistaTerminal : modo === 'mudancas' ? vistaMudancas : vistaConversa;
     if (corpo.firstChild !== vista) {
       const tinha = !!corpo.firstChild;
       corpo.replaceChildren(vista);
       if (tinha) animarEntrada(vista, 'entra-modo');
     }
     segConversa.setAttribute('aria-selected', String(modo === 'conversa'));
+    segMudancas.setAttribute('aria-selected', String(modo === 'mudancas'));
     segTerminal.setAttribute('aria-selected', String(modo === 'terminal'));
     if (!s) {
       titulo.textContent = S.pronto ? 'Sessão encerrada' : 'Carregando';
@@ -2066,6 +2524,16 @@ function criarPainel(id, opts = {}) {
 
     sincronizarPedidos(pedidos, pedidosDe([s], false));
     desenharRapidas(s);
+    filaMsgs.desenhar(s);
+    segMudancas.disabled = !s.cwd;
+    dicaEm(segMudancas, s.cwd ? 'O que mudou na pasta desta sessão' : 'Esta sessão não tem pasta');
+    // O agente terminou um turno: a aba Mudancas le o diff de novo (e, fora dela, na proxima vez que abrir).
+    const terminouTurno = (statusAntes === 'working' || statusAntes === 'waiting') && s.status !== 'working' && s.status !== 'waiting';
+    statusAntes = s.status;
+    if (modo === 'mudancas') {
+      if (terminouTurno || !mudancas.carregado) mudancas.carregar();
+      else mudancas.rodape();
+    }
     const viva = s.status !== 'ended';
     baixo.hidden = false;
     // Sessao que o duckV so le: no lugar da caixa, o que da para fazer com ela (o pato continua em cima).
@@ -2092,6 +2560,11 @@ function criarPainel(id, opts = {}) {
     },
     atualizar,
     focar: () => (modo === 'terminal' ? term?.focus() : campo.focus()),
+    // Ctrl+F: a busca fica na Conversa; de outra aba, volta para ela antes.
+    buscar() {
+      if (modo !== 'conversa') trocarModo('conversa');
+      busca.abrir();
+    },
     iniciar() {
       mandar({ t: 'open', instance: id, junto: true });
       desenharConversa(true);
@@ -3825,6 +4298,7 @@ document.addEventListener('keydown', (ev) => {
   else if (k === 'j') fila.alternar();
   else if (k === 'b') alternarLateral();
   else if (k === 'w' && vista.atual === 'paineis' && area.focado()) area.fechar(area.focado().raiz);
+  else if (k === 'f' && !ev.shiftKey && vista.atual === 'paineis' && area.focado()) area.focado().buscar();
   else if (k === 'tab') area.proximo(ev.shiftKey ? -1 : 1);
   else if (/^[1-5]$/.test(k)) {
     area.layout(LAYOUTS[Number(k) - 1][0]);
