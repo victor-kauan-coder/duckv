@@ -1,7 +1,7 @@
 {
   "name": "duckv-desktop",
   "productName": "duckV",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "duckV no computador: todas as contas e sessoes de agentes de codigo numa janela",
   "private": true,
   "main": "main.cjs",
