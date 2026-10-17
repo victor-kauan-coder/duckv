@@ -66,6 +66,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.graphicsLayer
@@ -161,6 +162,15 @@ fun Inicio(
         snapshotFlow { pager.currentPage }.collect { p -> Hub.estado.value?.contas?.getOrNull(p)?.id?.let { Hub.contaVista = it } }
     }
 
+    // equipe aberta agora: vai para a pagina de uma conta dela, onde o cartao da equipe aparece
+    val focoEquipe by Hub.equipeFoco.collectAsState()
+    // (as sessoes da equipe podem chegar do computador um pouco depois da resposta)
+    val membros = focoEquipe?.let { eq -> e?.sessoes?.filter { it.equipe?.id == eq }?.map { it.conta }?.distinct() }.orEmpty()
+    LaunchedEffect(focoEquipe, membros) {
+        if (membros.isEmpty() || contas.getOrNull(pager.currentPage)?.id in membros) return@LaunchedEffect
+        val i = contas.indexOfFirst { it.id in membros }
+        if (i >= 0) pager.animateScrollToPage(i)
+    }
     Box(Modifier.fillMaxSize().background(c.fundo)) {
         Column(Modifier.fillMaxSize()) {
             // barra do app: logo e opcoes
@@ -259,6 +269,21 @@ fun Inicio(
                         "Entrar nesta conta", { entrando = conta },
                         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp), Icons.AutoMirrored.Rounded.Login, Peso.Principal,
                     )
+                    // equipes desta conta: os patos de todas as contas juntos, acima das sessoes
+                    val foco by Hub.equipeFoco.collectAsState()
+                    for ((eqId, membros) in equipesVivas(e).filter { (_, ss) -> ss.any { it.conta == conta.id } }.take(2)) {
+                        val trazer = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+                        LaunchedEffect(foco, eqId) {
+                            if (foco != eqId) return@LaunchedEffect
+                            delay(250)
+                            trazer.bringIntoView()
+                            Hub.equipeFoco.value = null
+                        }
+                        CartaoEquipe(
+                            e, membros, pato,
+                            Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp).bringIntoViewRequester(trazer),
+                        ) { aoAbrirSessao(it) }
+                    }
                     val minhas = e.sessoes.filter { it.conta == conta.id }
                     val ss = minhas.sortedWith(compareByDescending<Sessao> { it.precisa }.thenByDescending { it.status == "working" }.thenBy { it.inicio })
                     // cabecalho das sessoes, com a contagem e o atalho para todas as conversas
@@ -684,7 +709,7 @@ private fun EstadoPilula(est: EstadoConta, cor: Color, modifier: Modifier = Modi
 
 /** O chao de pixels onde o pato pisa: tijolinhos na cor da conta, sumindo nas pontas. */
 @Composable
-private fun Chao(cor: Color, modifier: Modifier) {
+fun Chao(cor: Color, modifier: Modifier) {
     androidx.compose.foundation.Canvas(modifier.height(6.dp)) {
         val lado = 3.dp.toPx()
         val n = (size.width / lado).toInt()

@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,6 +55,8 @@ sealed interface Rota {
 
 class MainActivity : ComponentActivity() {
     private val pilha = mutableStateListOf<Rota>(Rota.Inicio)
+    /** Contas que nao entraram na equipe aberta pela folha rapida: o app avisa ao abrir. */
+    private var falhasDaEquipe by androidx.compose.runtime.mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,6 +77,12 @@ class MainActivity : ComponentActivity() {
                 val escopo = rememberCoroutineScope()
                 val aviso: (String) -> Unit = { t -> escopo.launch { snack.currentSnackbarData?.dismiss(); snack.showSnackbar(t) } }
 
+                falhasDaEquipe?.let { f ->
+                    androidx.compose.runtime.LaunchedEffect(f) {
+                        aviso("Não entraram na equipe: $f")
+                        falhasDaEquipe = null
+                    }
+                }
                 CompositionLocalProvider(LocalAviso provides aviso) {
                     Box(Modifier.fillMaxSize()) {
                         if (!pareado) TelaParear(opcoes.pato)
@@ -103,7 +112,12 @@ class MainActivity : ComponentActivity() {
                                         pilha.removeAt(pilha.lastIndex)
                                         pilha.add(Rota.Sessao(id))
                                     }) { pilha.add(Rota.Nova(it)) }
-                                    is Rota.Nova -> TelaNova(e, rota.conta, { voltar() }) { id ->
+                                    is Rota.Nova -> TelaNova(e, rota.conta, { voltar() }, aoAbriuEquipe = { id ->
+                                        // a equipe aparece no inicio, no cartao com os patos de todas as contas
+                                        pilha.clear()
+                                        pilha.add(Rota.Inicio)
+                                        Hub.equipeFoco.value = id
+                                    }) { id ->
                                         pilha.removeAt(pilha.lastIndex)
                                         pilha.add(Rota.Sessao(id))
                                     }
@@ -130,11 +144,27 @@ class MainActivity : ComponentActivity() {
         abrirDoAviso(intent)
     }
 
-    // Toque numa notificacao: abre a sessao dela (ou a folha da versao nova).
+    // Toque numa notificacao ou na folha rapida: abre a sessao, a equipe, a tela Nova (ou a folha da versao nova).
     private fun abrirDoAviso(i: Intent?) {
         if (i?.getBooleanExtra("atualizar", false) == true) {
             i.removeExtra("atualizar")
             Atualizacao.folha.value = true
+        }
+        i?.getStringExtra("equipe")?.let { eq ->
+            i.removeExtra("equipe")
+            pilha.clear()
+            pilha.add(Rota.Inicio)
+            Hub.equipeFoco.value = eq
+            i.getStringArrayExtra("falhas")?.takeIf { it.isNotEmpty() }?.let { falhasDaEquipe = it.joinToString("; ") }
+            i.removeExtra("falhas")
+            return
+        }
+        i?.getStringExtra("nova")?.let { conta ->
+            i.removeExtra("nova")
+            pilha.clear()
+            pilha.add(Rota.Inicio)
+            pilha.add(Rota.Nova(conta.ifEmpty { null }))
+            return
         }
         val id = i?.getStringExtra("sessao") ?: return
         i.removeExtra("sessao")

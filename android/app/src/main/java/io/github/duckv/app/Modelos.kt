@@ -88,6 +88,8 @@ data class Sessao(
     val origem: String = "terminal",
     val link: String? = null,
     val arquivada: Boolean = false,
+    /** Sessao de uma equipe ("Todas as contas"): as contas dividem a mesma tarefa na mesma pasta. */
+    val equipe: Equipe? = null,
 ) {
     val viva get() = status != "ended"
     val precisa get() = status == "waiting" || perms.isNotEmpty()
@@ -95,6 +97,9 @@ data class Sessao(
     /** Roda fora deste computador: na nuvem da Anthropic ou no Cowork do app Claude. */
     val remota get() = origem == "nuvem" || origem == "cowork"
 }
+
+/** Lugar da sessao numa equipe: [ordem] de 1 a [total]. */
+data class Equipe(val id: String, val ordem: Int, val total: Int)
 
 data class Host(
     val disponivel: Boolean,
@@ -226,6 +231,7 @@ fun lerEstado(m: JSONObject): Estado {
             links = i.optJSONArray("links").strings(),
             previas = i.optJSONObject("previas")?.let { pv -> Previas(pv.optJSONArray("portas").let { a -> List(a?.length() ?: 0) { a!!.optInt(it) } }, pv.optJSONArray("arquivos").strings(), pv.optJSONArray("artefatos").strings()) } ?: Previas(),
             login = i.optBoolean("login"),
+            equipe = i.optJSONObject("equipe")?.let { q -> q.s("id")?.takeIf { it.isNotEmpty() }?.let { Equipe(it, q.optInt("ordem"), q.optInt("total")) } },
         )
     }
     val h = m.optJSONObject("host") ?: JSONObject()

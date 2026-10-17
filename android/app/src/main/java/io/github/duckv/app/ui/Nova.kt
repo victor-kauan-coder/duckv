@@ -72,13 +72,17 @@ private data class Listagem(val caminho: String, val pai: String?, val pastas: L
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (String) -> Unit) {
+fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriuEquipe: (String) -> Unit = {}, aoAbriu: (String) -> Unit) {
     val c = cores
     if (e == null) {
         Column(Modifier.fillMaxSize().background(c.fundo)) { Topo("Abrir sessão", null, aoVoltar) }
         return
     }
-    var conta by rememberSaveable { mutableStateOf(e.contas.find { it.id == contaInicial }?.id ?: e.contas.firstOrNull()?.id) }
+    // "Todas as contas" (TODAS): uma sessao por conta, que dividem a mesma tarefa
+    val daEquipe = contasDaEquipe(e)
+    var conta by rememberSaveable { mutableStateOf(if (contaInicial == TODAS && daEquipe.size >= 2) TODAS else e.contas.find { it.id == contaInicial }?.id ?: e.contas.firstOrNull()?.id) }
+    val todas = conta == TODAS
+    val aviso = LocalAviso.current
     var cwd by rememberSaveable { mutableStateOf("") }
     var nome by rememberSaveable { mutableStateOf("") }
     var modelo by rememberSaveable { mutableStateOf("default") }
@@ -116,7 +120,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
     // O agente da conta escolhida define modelos, esforcos e modos.
     val ag = e.agenteDa(conta.orEmpty())
     val instalado = e.contas.find { it.id == conta }?.instalado != false
-    val nuvemPode = ag.id == "claude"
+    val nuvemPode = ag.id == "claude" && !todas
     LaunchedEffect(nuvemPode) { if (!nuvemPode) naNuvem = false }
     // Preenche com o jeito de comecar que a conta tem nas Opcoes.
     LaunchedEffect(conta) {
@@ -152,9 +156,22 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                 CabecalhoAjuste("Conta", null)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (ct in e.contas) Escolha(ct.nome, ct.id == conta, { conta = ct.id }, marca = androidx.compose.ui.graphics.Color(ct.cor))
+                    if (daEquipe.size >= 2) androidx.compose.material3.FilterChip(
+                        todas, { io.github.duckv.app.Sons.clique(); conta = TODAS }, { Text("Todas as contas", style = Texto.rotulo) }, Modifier.heightIn(min = 32.dp),
+                        leadingIcon = { Patinhos(daEquipe) },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = c.invFundo, selectedLabelColor = c.invTexto, labelColor = c.texto, containerColor = Color.Transparent,
+                        ),
+                        border = androidx.compose.material3.FilterChipDefaults.filterChipBorder(true, todas, borderColor = c.vazio, selectedBorderColor = Color.Transparent),
+                    )
                 }
+                if (todas) Text(
+                    "${daEquipe.joinToString(", ") { it.nome }} abrem uma sessão cada, na mesma pasta, e dividem a tarefa entre si.",
+                    style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(top = 10.dp),
+                )
                 // qual agente vai abrir: sem duvida antes de tocar em Abrir sessao
-                SeloAgente(ag, Modifier.padding(top = 10.dp), completo = true)
+                if (!todas) SeloAgente(ag, Modifier.padding(top = 10.dp), completo = true)
                 if (!instalado) Text("O ${ag.nome} não está instalado no computador. Rode o instalador do duckV de novo.", style = Texto.apoio, color = c.perigo, modifier = Modifier.padding(top = 6.dp))
             }
             if (nuvemPode) Column {
@@ -243,8 +260,8 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                     for (f in e.host.pastas.take(6)) LinhaPasta(Icons.Rounded.History, io.github.duckv.app.pasta(f), f.dropLast(io.github.duckv.app.pasta(f).length).trimEnd('\\', '/')) { cwd = f; lista = null; erroPasta = null }
                 }
             }
-            if (naNuvem) OutlinedTextField(
-                tarefa, { tarefa = it.take(4000) }, Modifier.fillMaxWidth(), label = { Text("O que a sessão deve fazer") },
+            if (naNuvem || todas) OutlinedTextField(
+                tarefa, { tarefa = it.take(if (todas) 8000 else 4000) }, Modifier.fillMaxWidth(), label = { Text(if (todas) "O que a equipe deve fazer" else "O que a sessão deve fazer") },
                 placeholder = { Text("Ex.: corrija o teste que está falhando e abra um pull request", color = c.apoio) },
                 minLines = 3, maxLines = 8, shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
             )
@@ -298,9 +315,31 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriu: (
                 val aviso = if (!e.host.disponivel && !naNuvem) "O computador não conseguiu carregar o terminal virtual, então não dá para abrir sessões por aqui. Rode a instalação de novo." else erro
                 aviso?.let { Text(it, style = Texto.apoio, color = c.perigo) }
                 Botao(
-                    if (abrindo) (if (naNuvem) "Criando na nuvem" else "Abrindo") else if (naNuvem) "Criar na nuvem" else "Abrir sessão",
+                    if (abrindo) (if (naNuvem) "Criando na nuvem" else if (todas) "Abrindo as contas" else "Abrindo") else if (naNuvem) "Criar na nuvem" else if (todas) "Abrir com ${daEquipe.size} contas" else "Abrir sessão",
                     {
                         erro = null
+                        if (todas) {
+                            if (cwd.isBlank()) {
+                                erroPasta = "Escolha a pasta do projeto."
+                                return@Botao
+                            }
+                            if (tarefa.trim().length < 3) {
+                                erro = "Escreva o que a equipe deve fazer."
+                                return@Botao
+                            }
+                            abrindo = true
+                            abrirEquipe(e, cwd.trim(), tarefa.trim(), {
+                                put("model", modelo).put("effort", esforco.ifEmpty { JSONObject.NULL }).put("mode", modo)
+                            }) { er, id, falhas ->
+                                abrindo = false
+                                if (er != null || id == null) erro = er
+                                else {
+                                    if (falhas.isNotEmpty()) aviso("Não entraram na equipe: ${falhas.joinToString("; ")}")
+                                    aoAbriuEquipe(id)
+                                }
+                            }
+                            return@Botao
+                        }
                         if (naNuvem) {
                             if (repo == null) {
                                 erro = "Escolha o repositório do GitHub."
