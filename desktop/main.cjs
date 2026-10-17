@@ -514,7 +514,11 @@ ipcMain.on('duckv:rapido', (ev, acao, valor) => {
     rapido.hide();
     mostrar();
     const o = valor && typeof valor === 'object' ? valor : {};
-    janela?.webContents.send('duckv:abrirNova', { conta: /^[\w.-]{1,60}$/.test(String(o.conta)) ? String(o.conta) : null, cwd: typeof o.cwd === 'string' ? o.cwd.slice(0, 1000) : '' });
+    janela?.webContents.send('duckv:abrirNova', {
+      conta: /^[\w.-]{1,60}$/.test(String(o.conta)) ? String(o.conta) : null,
+      cwd: typeof o.cwd === 'string' ? o.cwd.slice(0, 1000) : '',
+      texto: typeof o.texto === 'string' ? o.texto.slice(0, 8000) : '',
+    });
   }
 });
 

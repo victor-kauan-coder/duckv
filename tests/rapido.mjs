@@ -35,6 +35,9 @@ const canal = main.slice(main.indexOf("ipcMain.on('duckv:rapido'"), main.indexOf
 ok(/ev\.sender !== rapido\.webContents/.test(canal) && /ehDoDuckV\(ev\.senderFrame\?\.url/.test(canal), 'o canal do popup so aceita a pagina do proprio popup, servida pelo duckV');
 ok(/\/\^\[\\w\.:-\]\{1,120\}\$\/\.test\(id\)/.test(canal) && /\.slice\(0, 4\)/.test(canal), 'os ids de sessao sao conferidos e no maximo 4 abrem lado a lado');
 ok(/\/\^\[\\w\.-\]\{1,60\}\$\/\.test\(String\(o\.conta\)\)/.test(canal), 'a conta de "Mais opcoes" e conferida');
+ok(/cwd: typeof o\.cwd === 'string' \? o\.cwd\.slice\(0, 1000\)/.test(canal) && /texto: typeof o\.texto === 'string' \? o\.texto\.slice\(0, 8000\) : ''/.test(canal), '"Mais opcoes" leva a pasta e o texto, com tamanho conferido no main');
+ok(/rapidoNova: \(conta, cwd, texto\) =>[^\n]*texto: String\(texto \|\| ''\)\.slice\(0, 8000\)/.test(preload) && /aoAbrirNova:[^\n]*texto: String\(o\?\.texto/.test(preload), 'a ponte passa o texto nos dois sentidos, ja cortado');
+ok(/app\.rapidoNova\?\.\(escolha\.conta === 'todas' \? 'todas' : contaReal\(\)\?\.id \|\| '', escolha\.pasta, texto\.value\)/.test(js) && !/mais\.hidden = todas/.test(js), '"Mais opcoes" manda a conta (ou Todas), a pasta e o texto, e aparece tambem com Todas');
 
 // a ponte: so mensagens, nada de disco ou programas
 ok(['rapidoTamanho', 'rapidoFechar', 'rapidoAbrir', 'rapidoAbrirTodas', 'rapidoNova', 'aoMostrarRapido', 'aoAbrirNova'].every((f) => preload.includes(`${f}:`)), 'a ponte expoe as funcoes do popup');

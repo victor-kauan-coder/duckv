@@ -200,7 +200,11 @@ const tituloSessoes = el('h2', { class: 'r-secao', id: 'r-sessoes-titulo' });
 const sessoes = el('ul', { class: 'r-sessoes', role: 'listbox', 'aria-labelledby': 'r-sessoes-titulo' });
 const blocoSessoes = el('section', { class: 'r-bloco-sessoes' }, tituloSessoes, sessoes);
 const abrir = el('button', { class: 'botao principal', type: 'submit' });
-const mais = el('button', { class: 'botao texto', type: 'button', text: 'Mais opções', onclick: () => app.rapidoNova?.(contaReal()?.id || '', escolha.pasta) });
+const mais = el('button', { class: 'botao texto', type: 'button', text: 'Mais opções', onclick: maisOpcoes });
+// "Mais opcoes" leva o que ja foi escolhido e escrito; a pessoa so ajusta modelo, esforco, permissoes ou nuvem.
+function maisOpcoes() {
+  app.rapidoNova?.(escolha.conta === 'todas' ? 'todas' : contaReal()?.id || '', escolha.pasta, texto.value);
+}
 const estadoGeral = el('div', { class: 'r-estado', hidden: true });
 const dicas = el(
   'div',
@@ -393,7 +397,6 @@ function desenhar() {
   texto.placeholder = todas ? 'Obrigatório. Ex.: implemente a tela de pagamento e escreva os testes' : 'Opcional. Ex.: rode os testes e corrija o que estiver falhando';
   abrir.replaceChildren(todas ? `Abrir com ${n} contas` : 'Abrir sessão', el('kbd', { class: 'atalho r-enter', text: 'Enter' }));
   abrir.disabled = semTerminal || !n || enviando;
-  mais.hidden = todas;
   // O pato ao lado do campo e o da conta que vai abrir (na automatica, a que ela escolheria agora).
   const c = contaReal();
   const marcaPato = todas ? `todas:${disponiveis().map((x) => x.id + x.pato).join()}` : `${c?.id}:${c?.pato}:${c?.cor}`;

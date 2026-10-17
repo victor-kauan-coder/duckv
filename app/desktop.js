@@ -1489,8 +1489,8 @@ function contarParaOApp() {
 // estado: o area.abrir guarda so uma sessao esperando.
 const abrirQuandoChegar = (id, aoLado, vez = 0) => (sessaoPorId(id) || vez >= 30 ? area.abrir(id, { aoLado }) : setTimeout(() => abrirQuandoChegar(id, aoLado, vez + 1), 200));
 window.duckvApp?.aoAbrirSessao?.((id, aoLado) => S.pronto && abrirQuandoChegar(id, aoLado));
-// "Mais opcoes" no popup rapido: o dialogo completo de nova sessao, ja com a conta escolhida.
-window.duckvApp?.aoAbrirNova?.((o) => S.pronto && abrirNova({ conta: o.conta || undefined }));
+// "Mais opcoes" no popup rapido: o dialogo completo de nova sessao, ja com a conta, a pasta e o texto.
+window.duckvApp?.aoAbrirNova?.((o) => S.pronto && abrirNova({ conta: o.conta || undefined, cwd: o.cwd, texto: o.texto }));
 
 // ------------------------------------------------------------ painel de uma sessao
 // Um painel mostra uma sessao: a conversa (com os pedidos e a caixa de mensagem) ou o terminal de verdade.
@@ -2915,17 +2915,22 @@ function cartaoGithub({ compacto = false, aoMudarLogin } = {}) {
 function abrirNova(opts = {}) {
   if (!S.host.available) return avisar('Este computador não conseguiu carregar o terminal virtual. Rode a instalação de novo.');
   const { d, corpo, pe, form } = dialogo('Nova sessão', 'Abre no computador. Você acompanha e comanda daqui, do celular ou pelo terminal.');
-  let contaId = opts.conta || 'auto';
+  // "todas" vem do popup rapido: e o "Todas as contas" daqui
+  let contaId = opts.conta === 'todas' ? 'equipe' : opts.conta || 'auto';
   let onde = opts.onde === 'sistema' && S.desktop ? 'sistema' : opts.onde === 'nuvem' ? 'nuvem' : 'duckv';
-  // Na nuvem: so a tarefa e a pasta (o repositorio do GitHub dela); o resto a nuvem decide.
-  const tarefa = el('textarea', { id: 'nova-tarefa', class: 'campo-texto', rows: 3, maxLength: 4000, placeholder: 'Ex.: Corrija o teste de pagamento que está falhando e abra um pull request.' });
-  const rotuloTarefa = el('label', { for: 'nova-tarefa', text: 'O que a sessão deve fazer' });
-  const campoTarefa = el('div', { class: 'campo', hidden: true }, rotuloTarefa, tarefa);
+  // O texto da sessao: a primeira mensagem neste computador, a tarefa na nuvem (so ela e o repositorio; o
+  // resto a nuvem decide) ou a tarefa da equipe. Um campo so, para o texto seguir quem troca de lugar.
+  const tarefa = el('textarea', { id: 'nova-tarefa', class: 'campo-texto', rows: 3, maxLength: 8000, 'aria-describedby': 'nova-tarefa-ajuda' });
+  tarefa.value = String(opts.texto || '').slice(0, 8000);
+  const rotuloTarefa = el('label', { for: 'nova-tarefa' });
+  const ajudaTarefa = el('p', { class: 'ajuda', id: 'nova-tarefa-ajuda', text: 'Em branco, a sessão abre esperando você.' });
+  const campoTarefa = el('div', { class: 'campo' }, rotuloTarefa, tarefa, ajudaTarefa);
   const ajudaNuvem = el('p', { class: 'ajuda nuvem-ajuda', hidden: true }, icone('cloud', 16), el('span', { text: 'Roda nos servidores da Anthropic, a partir do repositório escolhido, e continua mesmo com o computador desligado. Repositório que não está no computador ganha uma cópia leve na pasta do duckV. Você acompanha por aqui; para responder, abra no claude.ai.' }));
   // "Todas as contas": uma sessao em cada conta, na mesma pasta, dividindo a tarefa.
   const ajudaEquipe = el('p', { class: 'ajuda equipe-ajuda', hidden: true }, icone('stack', 16), el('span', { text: 'Cada conta abre uma sessão nesta pasta, todas ao mesmo tempo. A divisão do trabalho é combinada num arquivo da pasta: o primeiro pato propõe as partes e cada um anota ali o que pegou e o que terminou.' }));
   const contas = el('div', { class: 'escolhas', role: 'radiogroup', 'aria-label': 'Conta' });
   const caminho = el('input', { id: 'nova-pasta', type: 'text', autocomplete: 'off', spellcheck: false, placeholder: S.host.home || '' });
+  caminho.value = String(opts.cwd || '').slice(0, 1000);
   const procurar = el('button', { class: 'botao quieto', type: 'button' }, icone('folder-open', 18), 'Procurar');
   const navegador = el('div', { class: 'navegador', hidden: true });
   const recentes = el('div', { class: 'chips' });
@@ -3007,6 +3012,7 @@ function abrirNova(opts = {}) {
   // As contas que entram no "Todas as contas": as que tem o agente instalado.
   const contasDoTime = () => S.contas.filter((c) => c.instalado !== false);
   const ehTime = () => contaId === 'equipe';
+  if (ehTime() && contasDoTime().length < 2) contaId = 'auto';
   function desenharContas() {
     const auto = contaAutomatica('claude') || contaAutomatica();
     const linhaEscolha = (id, rotulo, apoio, cor, uso) => {
@@ -3083,9 +3089,16 @@ function abrirNova(opts = {}) {
     campoPasta.hidden = nuvem;
     campoRepo.hidden = !nuvem;
     if (nuvem) carregarRepos();
-    campoTarefa.hidden = !nuvem && !time;
-    rotuloTarefa.textContent = time ? 'O que as contas devem fazer' : 'O que a sessão deve fazer';
-    tarefa.placeholder = time ? 'Ex.: Revise o app inteiro e corrija o que estiver fora do padrão.' : 'Ex.: Corrija o teste de pagamento que está falhando e abra um pull request.';
+    // o terminal do sistema abre o agente cru, sem primeira mensagem
+    campoTarefa.hidden = onde === 'sistema';
+    rotuloTarefa.textContent = time ? 'O que as contas devem fazer' : nuvem ? 'O que a sessão deve fazer' : 'Primeira mensagem';
+    tarefa.placeholder = time
+      ? 'Ex.: Revise o app inteiro e corrija o que estiver fora do padrão.'
+      : nuvem
+        ? 'Ex.: Corrija o teste de pagamento que está falhando e abra um pull request.'
+        : 'Opcional. Ex.: Rode os testes e corrija o que estiver falhando.';
+    tarefa.maxLength = nuvem ? 4000 : 8000;
+    ajudaTarefa.hidden = nuvem || time;
     ajudaNuvem.hidden = !nuvem;
     ajudaEquipe.hidden = !time;
     ajudaModo.textContent = MODOS_AJUDA[modo.value] || '';
@@ -3181,7 +3194,8 @@ function abrirNova(opts = {}) {
         d.close();
       });
     }
-    mandar({ t: 'start', account: c.id, cwd, name: nome.value.trim(), model: modelo.value, effort: esforco.value || null, mode: modo.value, cols: 110, rows: 34 }, (erro, r) => {
+    const primeira = tarefa.value.trim();
+    mandar({ t: 'start', account: c.id, cwd, name: nome.value.trim(), texto: primeira || undefined, model: modelo.value, effort: esforco.value || null, mode: modo.value, cols: 110, rows: 34 }, (erro, r) => {
       abrir.disabled = false;
       if (erro) return falhou(erro);
       d.close();
@@ -3192,7 +3206,7 @@ function abrirNova(opts = {}) {
   desenharOnde();
   aplicarAgente(true);
   d.showModal();
-  (caminho.value ? nome : caminho).focus();
+  (!caminho.value ? caminho : ehTime() ? tarefa : nome).focus();
 }
 
 // ------------------------------------------------------------ historico de conversas
