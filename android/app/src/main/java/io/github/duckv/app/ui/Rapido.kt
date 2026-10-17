@@ -128,6 +128,7 @@ private fun Escolhas(e: Estado, pato: String, ir: (Destino?) -> Unit) {
     }
     val todas = escolha == TODAS
     var texto by rememberSaveable { mutableStateOf("") }
+    var isolar by rememberSaveable { mutableStateOf(true) }
     var cwd by rememberSaveable { mutableStateOf("") }
     var erro by remember { mutableStateOf<String?>(null) }
     var erroTexto by remember { mutableStateOf<String?>(null) }
@@ -171,7 +172,7 @@ private fun Escolhas(e: Estado, pato: String, ir: (Destino?) -> Unit) {
                 return
             }
             abrindo = true
-            abrirEquipe(e, cwd, t) { er, id, falhas ->
+            abrirEquipe(e, cwd, t, { put("isolar", isolar) }) { er, id, falhas ->
                 abrindo = false
                 if (er != null || id == null) erro = er else ir(Destino.Equipe(id, falhas))
             }
@@ -241,6 +242,11 @@ private fun Escolhas(e: Estado, pato: String, ir: (Destino?) -> Unit) {
                     Patinhos(equipe)
                 }
             }
+            // a mesma escolha da tela Nova: num repositorio git, cada pato no seu branch
+            if (todas) Chave(
+                "Uma cópia por pato", isolar,
+                "Num repositório git, cada conta trabalha no seu branch, numa cópia da pasta, e você junta o melhor depois. Sem git, todas usam a mesma pasta.",
+            ) { isolar = it }
         }
 
         // 3. a pasta

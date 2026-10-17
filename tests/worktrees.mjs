@@ -136,5 +136,13 @@ ws.close();
 hub.kill();
 await new Promise((r) => hub.once('exit', r));
 await sleep(300);
-for (const p of [repo, semGit, TMP]) fs.rmSync(p, { recursive: true, force: true });
+// No Windows, o terminal de mentira recem-encerrado ainda segura a pasta por um instante: tenta de novo e,
+// se mesmo assim nao der, a pasta temporaria fica para tras (o teste nao falha por isso).
+for (const p of [repo, semGit, TMP]) {
+  try {
+    fs.rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  } catch (e) {
+    console.log(`(nao consegui apagar ${p}: ${e.code}; fica para o sistema limpar)`);
+  }
+}
 console.log(process.exitCode ? '\nAlgum teste falhou.' : '\nWorktrees no Todas as contas: tudo certo.');
