@@ -1011,8 +1011,345 @@ function duasVezes(botao, texto, acao) {
   return botao;
 }
 
+// ------------------------------------------------------------ mudancas (o diff da pasta da sessao)
+// A aba "Mudancas" da sessao: a lista de arquivos com as linhas somadas e tiradas e, abaixo, o diff de
+// cada um. Tocar numa linha abre um campo de comentario; os comentarios juntados vao para a sessao numa
+// mensagem so, pela mesma rota das mensagens (que passa pelo filtro do computador).
+const ESTADO_ARQUIVO = { novo: 'Novo', apagado: 'Apagado', renomeado: 'Renomeado' };
+const linhaDoComentario = (c) => `No arquivo ${c.caminho}, linha ${c.num} (${c.t === ' ' ? '' : `${c.t} `}"${c.x.trim().slice(0, 200)}"): ${c.texto}`;
+// "@@ -12,7 +12,9 @@ function x" vira "Linhas 12 a 20 · function x" (as de depois; num arquivo apagado, as de antes).
+function tituloDoTrecho(cab) {
+  const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$/.exec(cab);
+  if (!m) return cab;
+  const [ini, qtd] = Number(m[4] ?? 1) ? [Number(m[3]), Number(m[4] ?? 1)] : [Number(m[1]), Number(m[2] ?? 1)];
+  const faixa = qtd > 1 ? `Linhas ${ini} a ${ini + qtd - 1}` : `Linha ${ini}`;
+  return m[5] ? `${faixa} · ${m[5].trim()}` : faixa;
+}
+const numerosDoDiff = (f) =>
+  el('span', { class: 'mud-num' }, el('span', { class: 'mais', 'data-zero': String(!f.somadas), text: `+${f.somadas}` }), el('span', { class: 'menos', 'data-zero': String(!f.tiradas), text: `−${f.tiradas}` }));
+
+function vistaDeMudancas(id) {
+  let dados = null;
+  let carregando = false;
+  let erro = '';
+  const comentarios = new Map(); // "caminho|t|num" -> { caminho, t, num, x, texto }
+  const fechados = new Set();
+  const resumo = el('div', { class: 'mud-resumo', role: 'status', 'aria-live': 'polite' });
+  const reler = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Ler as mudanças de novo', onclick: () => carregar() }, icone('arrows-clockwise', 22));
+  const corpo = el('div', { class: 'mud-corpo' });
+  const contagem = el('span', { class: 'mud-pronto' });
+  const enviar = el('button', { class: 'botao principal', type: 'button' }, icone('paper-plane-right', 20), el('span'));
+  const descartar = el('button', { class: 'botao quieto', type: 'button', text: 'Descartar', onclick: () => (comentarios.clear(), desenhar()) });
+  const rodape = el('div', { class: 'mud-rodape', hidden: true }, contagem, el('div', { class: 'mud-rodape-acoes' }, descartar, enviar));
+  const raiz = el('div', { class: 'painel mudancas' }, el('div', { class: 'mud-topo' }, resumo, reler), corpo, rodape);
+
+  enviar.addEventListener('click', () => {
+    const lista = [...comentarios.values()];
+    if (!lista.length) return;
+    enviar.disabled = true;
+    mandar({ t: 'send', instance: id, text: lista.map(linhaDoComentario).join('\n\n') }, (e) => {
+      enviar.disabled = false;
+      avisar(e || 'Comentários enviados para a sessão');
+      if (e) return;
+      comentarios.clear();
+      desenhar();
+    });
+  });
+
+  function carregar() {
+    if (carregando) return;
+    carregando = true;
+    erro = '';
+    reler.disabled = true;
+    if (!dados) desenhar();
+    mandar({ t: 'diff', instance: id }, (e, r) => {
+      carregando = false;
+      if (e) erro = e;
+      else dados = r;
+      desenhar();
+    });
+  }
+  const vazio = (ic, titulo, texto, acao) => el('div', { class: 'mud-vazio' }, icone(ic, 32), el('b', { text: titulo }), texto ? el('p', { text: texto }) : null, acao);
+
+  function editor(chave, base, linhaNo, rascunho) {
+    corpo.querySelector('.mud-comentar')?.remove();
+    const atual = comentarios.get(chave);
+    const campoId = `mud-c-${Math.random().toString(36).slice(2, 8)}`;
+    const campo = el('textarea', { id: campoId, rows: 3, value: rascunho ?? atual?.texto ?? '' });
+    const fechar = () => caixa.remove();
+    const salvar = () => {
+      const texto = campo.value.trim();
+      if (texto) comentarios.set(chave, { ...base, texto });
+      else comentarios.delete(chave);
+      caixa.remove();
+      desenhar();
+    };
+    const caixa = el(
+      'div',
+      { class: 'mud-comentar', 'data-chave': chave },
+      el('label', { for: campoId, text: `Comentário sobre a linha ${base.num}` }),
+      campo,
+      el('div', { class: 'mud-comentar-acoes' }, el('button', { class: 'botao quieto', type: 'button', text: 'Cancelar', onclick: fechar }), el('button', { class: 'botao principal', type: 'button', text: atual ? 'Salvar' : 'Adicionar', onclick: salvar })),
+    );
+    linhaNo.after(caixa);
+    if (rascunho == null) caixa.scrollIntoView({ block: 'nearest', behavior: semMovimento.matches ? 'auto' : 'smooth' });
+    campo.focus({ preventScroll: true });
+  }
+
+  function linhaDoDiff(f, l) {
+    const num = l.t === '-' ? l.a : l.n;
+    const chave = `${f.caminho}|${l.t}|${num}`;
+    const base = { caminho: f.caminho, t: l.t, num, x: l.x };
+    const no = el(
+      'button',
+      { class: 'mud-linha', type: 'button', 'data-t': l.t, 'data-chave': chave, 'aria-label': `${l.t === '+' ? 'Somada' : l.t === '-' ? 'Tirada' : 'Linha'} ${num}: ${l.x.trim() || 'vazia'}. Comentar` },
+      el('span', { class: 'n', text: num ?? '' }),
+      el('span', { class: 's', 'aria-hidden': 'true', text: l.t === ' ' ? '' : l.t === '+' ? '+' : '−' }),
+      el('code', { text: l.x || ' ' }),
+    );
+    no.addEventListener('click', () => editor(chave, base, no));
+    no.reabrir = (texto) => editor(chave, base, no, texto);
+    const feito = comentarios.get(chave);
+    if (!feito) return [no];
+    return [
+      no,
+      el(
+        'div',
+        { class: 'mud-comentario' },
+        el('p', { text: feito.texto }),
+        el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Editar este comentário', onclick: () => editor(chave, base, no) }, icone('pencil-simple', 20)),
+        el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Tirar este comentário', onclick: () => (comentarios.delete(chave), desenhar()) }, icone('x', 20)),
+      ),
+    ];
+  }
+
+  function arquivo(f) {
+    const fechado = fechados.has(f.caminho);
+    const cab = el(
+      'button',
+      { class: 'mud-arquivo-cab', type: 'button', 'aria-expanded': String(!fechado) },
+      icone(fechado ? 'caret-right' : 'caret-down', 18),
+      el('span', { class: 'caminho', text: f.caminho }),
+      ESTADO_ARQUIVO[f.estado] ? el('span', { class: 'mud-estado', text: ESTADO_ARQUIVO[f.estado] }) : null,
+      numerosDoDiff(f),
+    );
+    cab.addEventListener('click', () => {
+      if (fechado) fechados.delete(f.caminho);
+      else fechados.add(f.caminho);
+      desenhar();
+    });
+    let conteudo = null;
+    if (!fechado) {
+      if (f.grande) conteudo = el('p', { class: 'mud-grande', text: f.binario ? 'Arquivo binário: mudou, mas não dá para mostrar as linhas.' : 'Mudou, grande demais para mostrar aqui.' });
+      else if (!f.trechos.length) conteudo = el('p', { class: 'mud-grande', text: f.estado === 'novo' ? 'Arquivo novo, vazio.' : 'Só mudou a permissão ou o nome do arquivo.' });
+      else conteudo = el('div', { class: 'mud-trechos' }, ...f.trechos.flatMap((h) => [el('div', { class: 'mud-cab', text: tituloDoTrecho(h.cab) }), ...h.linhas.flatMap((l) => linhaDoDiff(f, l))]));
+    }
+    return el('section', { class: 'mud-arquivo', 'data-caminho': f.caminho }, cab, conteudo);
+  }
+
+  function rodapeDe() {
+    const n = comentarios.size;
+    const s = S.sessoes.find((x) => x.id === id);
+    rodape.hidden = !n;
+    contagem.textContent = s && !s.canSend ? 'Esta sessão não recebe mensagens agora.' : plural(n, 'comentário pronto', 'comentários prontos');
+    enviar.lastChild.textContent = n === 1 ? 'Enviar 1 comentário' : `Enviar ${n} comentários`;
+    enviar.disabled = !s?.canSend;
+  }
+
+  function desenhar() {
+    const rolagem = corpo.scrollTop;
+    const aberto = corpo.querySelector('.mud-comentar');
+    const escrevendo = aberto && { chave: aberto.dataset.chave, texto: aberto.querySelector('textarea').value };
+    rodapeDe();
+    reler.disabled = carregando;
+    if (!dados) {
+      resumo.textContent = carregando ? 'Lendo as mudanças' : '';
+      const semRede = /Sem conexão/.test(erro);
+      corpo.replaceChildren(
+        erro
+          ? vazio('warning', semRede ? 'Sem conexão com o computador' : 'Não deu para ler as mudanças', semRede ? 'Assim que o celular reconectar, tente de novo.' : erro, el('button', { class: 'botao', type: 'button', onclick: () => carregar() }, icone('arrows-clockwise', 20), 'Tentar de novo'))
+          : vazio('git-diff', 'Lendo as mudanças', 'Comparando a pasta da sessão com o último commit.'),
+      );
+      return;
+    }
+    if (erro) avisar(erro);
+    if (!dados.git) {
+      resumo.textContent = 'Sem repositório git';
+      corpo.replaceChildren(vazio('folder', 'Esta pasta não usa git', dados.msg || 'Sem git não dá para saber o que o agente mudou.'));
+      return;
+    }
+    const fs = dados.arquivos || [];
+    resumo.replaceChildren(el('b', { text: fs.length ? plural(fs.length, 'arquivo mudou', 'arquivos mudaram') : 'Nada mudou' }), fs.length ? numerosDoDiff(dados) : '');
+    if (dados.erro) return corpo.replaceChildren(vazio('warning', 'O git não respondeu', dados.erro));
+    if (!fs.length) return corpo.replaceChildren(vazio('check', 'Nada mudou desde o último commit', 'Quando o agente mexer em algum arquivo desta pasta, a mudança aparece aqui.'));
+    const irPara = (f) => {
+      fechados.delete(f.caminho);
+      desenhar();
+      [...corpo.querySelectorAll('.mud-arquivo')].find((x) => x.dataset.caminho === f.caminho)?.scrollIntoView({ block: 'start', behavior: semMovimento.matches ? 'auto' : 'smooth' });
+    };
+    const lista = el(
+      'ul',
+      { class: 'mud-lista', 'aria-label': 'Arquivos que mudaram' },
+      fs.map((f) => el('li', null, el('button', { type: 'button', onclick: () => irPara(f) }, el('span', { class: 'caminho', text: f.caminho }), ESTADO_ARQUIVO[f.estado] ? el('span', { class: 'mud-estado', text: ESTADO_ARQUIVO[f.estado] }) : null, numerosDoDiff(f)))),
+    );
+    corpo.replaceChildren(...[lista, dados.grande ? el('p', { class: 'mud-aviso', text: 'O diff inteiro é grande demais: alguns arquivos aparecem só com os números.' }) : null, ...fs.map(arquivo)].filter(Boolean));
+    corpo.scrollTop = rolagem;
+    if (escrevendo) [...corpo.querySelectorAll('.mud-linha')].find((x) => x.dataset.chave === escrevendo.chave)?.reabrir(escrevendo.texto);
+  }
+  return {
+    raiz,
+    carregar,
+    rodape: rodapeDe,
+    get carregado() {
+      return !!dados;
+    },
+  };
+}
+
+// ------------------------------------------------------------ busca na conversa
+// O botao de lupa da sessao abre a barra: contador e anterior/proximo. Os achados ficam marcados com a
+// Custom Highlight API onde o navegador tem; nos outros, o contador e a rolagem continuam valendo.
+function buscaNaConversa(conversa) {
+  const campo = el('input', { type: 'search', placeholder: 'Buscar na conversa', 'aria-label': 'Buscar na conversa', enterKeyHint: 'search', spellcheck: false });
+  const contador = el('span', { class: 'busca-contador', role: 'status', 'aria-live': 'polite' });
+  const anterior = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Achado anterior', onclick: () => ir(-1) }, icone('caret-up', 22));
+  const proximo = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Próximo achado', onclick: () => ir(1) }, icone('caret-down', 22));
+  const fechar = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Fechar a busca', onclick: () => obj.fechar() }, icone('x', 22));
+  const raiz = el('div', { class: 'busca-conversa', role: 'search', hidden: true }, campo, contador, anterior, proximo, fechar);
+  let achados = [];
+  let atual = -1;
+  const temApi = typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight === 'function';
+  function procurar(manter) {
+    const q = campo.value.trim().toLocaleLowerCase('pt-BR');
+    const antes = achados[atual];
+    achados = [];
+    if (q) {
+      const andar = document.createTreeWalker(conversa, NodeFilter.SHOW_TEXT);
+      for (let no = andar.nextNode(); no; no = andar.nextNode()) {
+        const pai = no.parentElement;
+        if (!pai || pai.closest('button, .vazio')) continue;
+        const t = no.data.toLocaleLowerCase('pt-BR');
+        for (let i = t.indexOf(q); i >= 0; i = t.indexOf(q, i + q.length)) {
+          const r = new Range();
+          r.setStart(no, i);
+          r.setEnd(no, i + q.length);
+          achados.push(r);
+        }
+      }
+    }
+    const mesmo = manter && antes ? achados.findIndex((r) => r.startContainer === antes.startContainer && r.startOffset === antes.startOffset) : -1;
+    atual = mesmo >= 0 ? mesmo : achados.length - 1;
+    pintarAchados(mesmo < 0);
+  }
+  function pintarAchados(rolar) {
+    const tem = achados.length > 0;
+    const digitado = !!campo.value.trim();
+    contador.textContent = !digitado ? '' : tem ? `${atual + 1} de ${achados.length}` : 'Nenhum achado';
+    contador.dataset.vazio = String(digitado && !tem);
+    anterior.disabled = proximo.disabled = !tem;
+    if (temApi) {
+      CSS.highlights.set('busca', new Highlight(...achados));
+      CSS.highlights.set('busca-atual', new Highlight(...(tem ? [achados[atual]] : [])));
+    }
+    if (rolar && tem) achados[atual].startContainer.parentElement?.scrollIntoView({ block: 'center', behavior: semMovimento.matches ? 'auto' : 'smooth' });
+  }
+  function ir(passo) {
+    if (!achados.length) return;
+    atual = (atual + passo + achados.length) % achados.length;
+    pintarAchados(true);
+  }
+  let espera = null;
+  campo.addEventListener('input', () => {
+    clearTimeout(espera);
+    espera = setTimeout(() => procurar(false), 120);
+  });
+  campo.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') return ev.preventDefault(), ir(ev.shiftKey ? -1 : 1);
+    if (ev.key === 'Escape') return ev.preventDefault(), obj.fechar();
+  });
+  const obj = {
+    raiz,
+    get aberta() {
+      return !raiz.hidden;
+    },
+    abrir() {
+      raiz.hidden = false;
+      campo.focus();
+      if (campo.value) procurar(false);
+    },
+    fechar() {
+      raiz.hidden = true;
+      achados = [];
+      atual = -1;
+      if (temApi) {
+        CSS.highlights.delete('busca');
+        CSS.highlights.delete('busca-atual');
+      }
+    },
+    refazer() {
+      if (!raiz.hidden && campo.value.trim()) procurar(true);
+    },
+  };
+  return obj;
+}
+
+// ------------------------------------------------------------ mensagens na fila
+// Enquanto o agente trabalha, o que voce manda espera no computador: cada mensagem vira um cartao
+// "Na fila" acima da caixa, com editar e tirar. Elas saem sozinhas quando o turno acaba.
+function cartoesDaFila(id) {
+  const raiz = el('div', { class: 'fila-msgs', role: 'list', 'aria-label': 'Mensagens na fila', hidden: true });
+  let editando = null;
+  let marca = '';
+  const redesenhar = () => ((marca = ''), desenhar(S.sessoes.find((x) => x.id === id)));
+  function cartao(item) {
+    if (editando === item.id) {
+      const campoId = `fila-${item.id}`;
+      const campo = el('textarea', { id: campoId, rows: 3, value: item.texto });
+      const salvar = () => {
+        const texto = campo.value.trim();
+        if (!texto) return avisar('A mensagem ficou vazia. Para desistir dela, toque em Tirar da fila.');
+        mandar({ t: 'filaEditar', instance: id, id: item.id, text: texto }, (erro) => {
+          if (erro) return avisar(erro);
+          editando = null;
+          redesenhar();
+        });
+      };
+      requestAnimationFrame(() => campo.focus());
+      return el(
+        'div',
+        { class: 'na-fila editando', role: 'listitem' },
+        el('label', { for: campoId, text: 'Editar a mensagem na fila' }),
+        campo,
+        el('div', { class: 'na-fila-acoes' }, el('button', { class: 'botao quieto', type: 'button', text: 'Cancelar', onclick: () => ((editando = null), redesenhar()) }), el('button', { class: 'botao principal', type: 'button', text: 'Salvar', onclick: salvar })),
+      );
+    }
+    return el(
+      'div',
+      { class: 'na-fila', role: 'listitem' },
+      el('span', { class: 'na-fila-rotulo' }, icone('hourglass-medium', 16), 'Na fila'),
+      el('p', { text: item.texto }),
+      el(
+        'div',
+        { class: 'na-fila-acoes' },
+        el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Editar a mensagem na fila', onclick: () => ((editando = item.id), redesenhar()) }, icone('pencil-simple', 20)),
+        el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Tirar da fila', onclick: () => mandar({ t: 'filaTirar', instance: id, id: item.id }, (erro) => avisar(erro || 'Tirada da fila')) }, icone('x', 20)),
+      ),
+    );
+  }
+  function desenhar(s) {
+    const itens = s?.fila || [];
+    if (editando && !itens.some((x) => x.id === editando)) editando = null;
+    const m = JSON.stringify([itens, editando]);
+    if (m === marca) return;
+    marca = m;
+    raiz.hidden = !itens.length;
+    raiz.replaceChildren(...itens.map(cartao));
+  }
+  return { raiz, desenhar };
+}
+
 function criarSessao(id, abaInicial) {
-  let aba = abaInicial || 'conversa'; // conversa | controles | terminal (a tela do terminal fica dentro de Controles)
+  let aba = abaInicial || 'conversa'; // conversa | mudancas | controles | terminal (a tela do terminal fica dentro de Controles)
   const pista = bicho();
   const ficha = el('div', { class: 'ficha' }, pista);
   const titulo = el('h1');
@@ -1021,7 +1358,7 @@ function criarSessao(id, abaInicial) {
   // --- abas
   const botoesAba = {};
   const abas = el('div', { class: 'abas', role: 'tablist', 'aria-label': 'Partes da sessão' });
-  for (const [chave, rotulo, ic] of [['conversa', 'Conversa', 'chat-text'], ['controles', 'Controles', 'sliders-horizontal']]) {
+  for (const [chave, rotulo, ic] of [['conversa', 'Conversa', 'chat-text'], ['mudancas', 'Mudanças', 'git-diff'], ['controles', 'Controles', 'sliders-horizontal']]) {
     const b = el('button', { type: 'button', role: 'tab', id: `aba-${chave}`, 'aria-controls': 'painel-sessao', onclick: () => trocarAba(chave) }, icone(ic, 18), rotulo);
     botoesAba[chave] = b;
     abas.append(b);
@@ -1038,7 +1375,13 @@ function criarSessao(id, abaInicial) {
   const tarefas = el('details', { class: 'tarefas' }, el('summary', null, tarefasTexto, tarefasCels), tarefasLista);
   const info = el('div', { class: 's-info' }, fazendo, contexto, ctxCels, numeros, tarefas);
   const conversa = el('div', { class: 'conversa', role: 'log', 'aria-label': 'Conversa', tabIndex: 0 });
-  const painelConversa = el('div', { class: 'painel' }, info, conversa);
+  const busca = buscaNaConversa(conversa);
+  const painelConversa = el('div', { class: 'painel' }, el('div', null, info, busca.raiz), conversa);
+  const botaoBusca = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Buscar na conversa', onclick: () => (busca.aberta ? busca.fechar() : busca.abrir()) }, icone('magnifying-glass', 22));
+
+  // --- mudancas: o diff da pasta, lido ao abrir a aba e de novo quando o agente termina um turno
+  const mudancas = vistaDeMudancas(id);
+  let statusAntes = null;
 
   // --- tela do terminal (recurso avancado, dentro de Controles)
   const pre = el('pre', { class: 'terminal', 'aria-label': 'Tela do terminal da sessão', role: 'img' });
@@ -1067,12 +1410,14 @@ function criarSessao(id, abaInicial) {
   const anexar = el('button', { class: 'botao anexar', type: 'button', 'aria-label': 'Anexar foto ou arquivo' }, icone('paperclip', 22));
   const escolherArquivo = el('input', { type: 'file', hidden: true, multiple: true });
   const prontos = el('div', { class: 'anexos-prontos', role: 'list', 'aria-label': 'Anexos desta mensagem', hidden: true });
-  const form = el('form', { class: 'escrever' }, prontos, anexar, campo, enviar, escolherArquivo);
-  const baixo = el('div', { class: 's-baixo' }, pedidos, rapidas, nota, form);
+  const sugestoes = el('ul', { class: 'sugestoes', role: 'listbox', 'aria-label': 'Arquivos da pasta', hidden: true });
+  const form = el('form', { class: 'escrever' }, sugestoes, prontos, anexar, campo, enviar, escolherArquivo);
+  const filaMsgs = cartoesDaFila(id);
+  const baixo = el('div', { class: 's-baixo' }, pedidos, rapidas, nota, filaMsgs.raiz, form);
   const raiz = el(
     'div',
     { class: 's-tela' },
-    el('header', { class: 's-topo' }, el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Voltar para as contas', onclick: () => (location.hash = '') }, icone('arrow-left', 24)), el('div', null, titulo, onde), ficha),
+    el('header', { class: 's-topo' }, el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Voltar para as contas', onclick: () => (location.hash = '') }, icone('arrow-left', 24)), el('div', null, titulo, onde), botaoBusca, ficha),
     abas,
     corpo,
     baixo,
@@ -1086,12 +1431,82 @@ function criarSessao(id, abaInicial) {
   const enviarTexto = (texto, ok) => mandar({ t: 'send', instance: id, text: texto }, (erro) => avisar(erro || ok));
   const tecla = (k, ok) => mandar({ t: 'key', instance: id, key: k }, (erro) => (erro ? avisar(erro) : ok && avisar(ok)));
 
-  campo.addEventListener('input', () => {
+  const ajustarAltura = () => {
     campo.style.height = 'auto';
     campo.style.height = `${Math.min(campo.scrollHeight + 4, window.innerHeight * 0.34)}px`;
+  };
+  // "@" cita um arquivo da pasta da sessao: a lista aparece acima da caixa enquanto se digita.
+  let pedidoArquivos = 0;
+  let esperaArquivos = null;
+  const citacao = () => {
+    const antes = campo.value.slice(0, campo.selectionStart);
+    const m = /(^|\s)@([^\s@]*)$/.exec(antes);
+    return m ? { ini: antes.length - m[2].length - 1, q: m[2] } : null;
+  };
+  function citar(caminho) {
+    const cit = citacao();
+    if (!cit) return;
+    const texto = `@${caminho} `;
+    campo.value = campo.value.slice(0, cit.ini) + texto + campo.value.slice(campo.selectionStart);
+    const pos = cit.ini + texto.length;
+    campo.focus();
+    campo.setSelectionRange(pos, pos);
+    sugestoes.hidden = true;
+    ajustarAltura();
+  }
+  function sugerirArquivos() {
+    const cit = citacao();
+    clearTimeout(esperaArquivos);
+    if (!cit) return void (sugestoes.hidden = true);
+    esperaArquivos = setTimeout(() => {
+      const n = ++pedidoArquivos;
+      mandar({ t: 'arquivos', instance: id, q: cit.q }, (erro, r) => {
+        if (n !== pedidoArquivos || !citacao()) return;
+        const itens = erro ? [] : (r.itens || []).slice(0, 8);
+        sugestoes.hidden = !itens.length;
+        sugestoes.replaceChildren(
+          ...itens.map((c) => {
+            const corte = c.lastIndexOf('/');
+            // pointerdown sem foco: a caixa de mensagem nao perde o teclado ao escolher
+            return el(
+              'li',
+              { role: 'option' },
+              el('button', { type: 'button', onpointerdown: (ev) => ev.preventDefault(), onclick: () => citar(c) }, el('b', { text: corte >= 0 ? c.slice(corte + 1) : c }), el('span', { text: corte >= 0 ? c.slice(0, corte) : 'na raiz da pasta' })),
+            );
+          }),
+        );
+      });
+    }, 150);
+  }
+  // Historico: com a caixa vazia, as setas para cima e para baixo trazem o que voce ja mandou nesta sessao.
+  let passoHistorico = -1;
+  const historico = () => {
+    const lista = [];
+    for (const m of S.conversa) {
+      const t = m.role === 'user' ? anexosDoTexto(m.text).texto.trim() : '';
+      if (t && lista[lista.length - 1] !== t) lista.push(t);
+    }
+    return lista.reverse();
+  };
+  campo.addEventListener('input', () => {
+    ajustarAltura();
+    passoHistorico = -1;
+    sugerirArquivos();
   });
+  campo.addEventListener('blur', () => setTimeout(() => (sugestoes.hidden = true), 150));
   campo.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) form.requestSubmit();
+    if (ev.key === 'Escape') sugestoes.hidden = true;
+    if ((ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && !ev.shiftKey && !ev.altKey && sugestoes.hidden) {
+      const lista = historico();
+      if (campo.value && !(passoHistorico >= 0 && campo.value === lista[passoHistorico])) return;
+      const novo = Math.max(-1, Math.min(lista.length - 1, passoHistorico + (ev.key === 'ArrowUp' ? 1 : -1)));
+      if (novo === passoHistorico) return;
+      ev.preventDefault();
+      passoHistorico = novo;
+      campo.value = novo === -1 ? '' : lista[novo];
+      ajustarAltura();
+    }
   });
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
@@ -1105,6 +1520,7 @@ function criarSessao(id, abaInicial) {
       enviar.disabled = false;
       if (erro) return avisar(erro);
       campo.value = '';
+      passoHistorico = -1;
       campo.style.height = 'auto';
       anexos = anexos.filter((a) => !vao.includes(a));
       desenharAnexos();
@@ -1223,6 +1639,7 @@ function criarSessao(id, abaInicial) {
     atualizar();
     if (aba === 'terminal') document.fonts.ready.then(pedirTela);
     if (aba === 'conversa') conversa.scrollTop = conversa.scrollHeight;
+    if (aba === 'mudancas') mudancas.carregar();
   }
 
   // --- controles
@@ -1330,9 +1747,9 @@ function criarSessao(id, abaInicial) {
 
   function atualizar() {
     const s = sessao();
-    const painel = aba === 'terminal' ? painelTerminal : aba === 'controles' ? painelControles : painelConversa;
+    const painel = aba === 'terminal' ? painelTerminal : aba === 'controles' ? painelControles : aba === 'mudancas' ? mudancas.raiz : painelConversa;
     if (corpo.firstChild !== painel) corpo.replaceChildren(painel);
-    const abaMarcada = aba === 'conversa' ? 'conversa' : 'controles';
+    const abaMarcada = aba === 'terminal' ? 'controles' : aba;
     corpo.setAttribute('aria-labelledby', `aba-${abaMarcada}`);
     for (const [chave, b] of Object.entries(botoesAba)) {
       b.setAttribute('aria-selected', chave === abaMarcada ? 'true' : 'false');
@@ -1392,12 +1809,22 @@ function criarSessao(id, abaInicial) {
 
     sincronizarPedidos(pedidos, pedidosDe([s]));
     desenharRapidas(s);
+    filaMsgs.desenhar(s);
+    if (aba !== 'conversa') filaMsgs.raiz.hidden = true;
+    botaoBusca.hidden = aba !== 'conversa';
+    // O agente terminou um turno: a aba Mudancas le o diff de novo (e, fora dela, ao abrir).
+    const terminouTurno = (statusAntes === 'working' || statusAntes === 'waiting') && s.status !== 'working' && s.status !== 'waiting';
+    statusAntes = s.status;
+    if (aba === 'mudancas') {
+      if (terminouTurno || !mudancas.carregado) mudancas.carregar();
+      else mudancas.rodape();
+    }
     baixo.hidden = false;
-    form.hidden = !viva || aba === 'controles';
+    form.hidden = !viva || aba !== 'conversa';
     campo.disabled = enviar.disabled = !s.canSend;
     campo.placeholder = s.hosted ? 'Mensagem ou /comando' : 'Escreva para o Claude';
     nota.textContent = !viva ? 'Sessão encerrada.' : s.canSend ? '' : 'Esta sessão não recebe mensagens do celular. Abra-a pelo atalho da conta, com o duckV ligado.';
-    nota.hidden = !nota.textContent || aba === 'controles';
+    nota.hidden = !nota.textContent || aba !== 'conversa';
   }
 
   function desenharConversa(tudo, novas) {
@@ -1406,6 +1833,7 @@ function criarSessao(id, abaInicial) {
       const itens = visiveis(S.conversa);
       conversa.replaceChildren(...(itens.length ? itens.map(criarMensagem) : [el('p', { class: 'vazio', text: textoVazio(sessao()) })]));
       conversa.scrollTop = conversa.scrollHeight;
+      busca.refazer();
       return;
     }
     const itens = visiveis(novas);
@@ -1413,6 +1841,7 @@ function criarSessao(id, abaInicial) {
     conversa.querySelector('.vazio')?.remove();
     conversa.append(...itens.map(criarMensagem));
     if (noFim) conversa.scrollTop = conversa.scrollHeight;
+    busca.refazer();
   }
 
   return {
@@ -1915,7 +2344,7 @@ let chaveAtual = '';
 
 function rota() {
   const h = location.hash;
-  let m = /^#\/s\/([^/]+)(?:\/(terminal|controles|ajustes))?$/.exec(h);
+  let m = /^#\/s\/([^/]+)(?:\/(terminal|controles|ajustes|mudancas))?$/.exec(h);
   try {
     if (m) return { tipo: 'sessao', id: decodeURIComponent(m[1]), aba: m[2] === 'ajustes' ? 'controles' : m[2] || 'conversa' };
     if (h === '#/opcoes') return { tipo: 'opcoes' };

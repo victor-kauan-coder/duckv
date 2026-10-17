@@ -25,6 +25,7 @@ import { novoIdEquipe, briefingEquipe, criarArquivoDaEquipe } from './equipe.mjs
 import { semBlocos } from '../lib/texto.mjs';
 import { textoPerigoso as filtrarTexto } from './filtro.mjs';
 import { terminalLinux, comandoMac } from '../lib/atalhos.mjs';
+import { lerDiff, buscarArquivos } from './diff.mjs';
 
 // O gerador de QR que o qrcode-terminal traz dentro dele: o app do notebook desenha o QR com a matriz.
 const requerer = createRequire(import.meta.url);
@@ -420,6 +421,8 @@ function pubInst(i) {
     previas: previas.publico(i),
     // "Todas as contas": a mesma tarefa dividida entre as contas. Sessao sozinha nao tem este campo.
     equipe: i.equipe || undefined,
+    // Mensagens que esperam o turno do agente acabar ("Na fila" no app).
+    fila: i.hosted ? i.fila || [] : undefined,
   };
 }
 
@@ -791,6 +794,40 @@ async function onPhoneMessage(c, m) {
       send(c, { t: 'ack', ref: m.ref, n });
       break;
     }
+    // Fila de uma sessao hospedada: { t: 'filaEditar', instance, id, text } e { t: 'filaTirar', instance, id }.
+    // O texto editado passa pelo mesmo filtro das mensagens.
+    case 'filaEditar': {
+      const inst = instances.get(m.instance);
+      const txt = typeof m.text === 'string' ? m.text.trim() : '';
+      const err = !inst?.hosted ? 'Só as sessões abertas pelo duckV têm fila.' : !txt ? 'Mensagem vazia.' : txt.length > 8000 ? 'Mensagem longa demais (máximo de 8000 caracteres).' : textoPerigoso(txt, agenteDe(getAccount(inst.account).agente), comandosDe(inst));
+      if (err) send(c, { t: 'err', ref: m.ref, msg: err });
+      else if (!inst.hosted.editarFila(String(m.id || ''), txt)) send(c, { t: 'err', ref: m.ref, msg: 'Essa mensagem já saiu da fila.' });
+      else send(c, { t: 'ack', ref: m.ref });
+      break;
+    }
+    case 'filaTirar': {
+      const inst = instances.get(m.instance);
+      if (!inst?.hosted?.tirarDaFila(String(m.id || ''))) send(c, { t: 'err', ref: m.ref, msg: 'Essa mensagem já saiu da fila.' });
+      else send(c, { t: 'ack', ref: m.ref });
+      break;
+    }
+    // Aba "Mudancas": { t: 'diff', instance } devolve o diff da pasta da propria sessao (hub/diff.mjs).
+    // A pasta nunca vem do app: um "cwd" diferente do da sessao e recusado.
+    case 'diff': {
+      const inst = instances.get(m.instance);
+      if (!inst) send(c, { t: 'err', ref: m.ref, msg: 'Sessão não encontrada.' });
+      else if (!inst.cwd) send(c, { t: 'err', ref: m.ref, msg: 'Esta sessão não tem pasta.' });
+      else if (m.cwd != null && path.resolve(String(m.cwd)) !== path.resolve(inst.cwd)) send(c, { t: 'err', ref: m.ref, msg: 'Só dá para ver as mudanças da pasta da própria sessão.' });
+      else send(c, { t: 'ack', ref: m.ref, instance: inst.id, ...(await lerDiff(inst.cwd)) });
+      break;
+    }
+    // "@" da caixa de mensagem: { t: 'arquivos', instance, q } busca arquivos na pasta da sessao.
+    case 'arquivos': {
+      const inst = instances.get(m.instance);
+      if (!inst?.cwd) send(c, { t: 'err', ref: m.ref, msg: 'Esta sessão não tem pasta.' });
+      else send(c, { t: 'ack', ref: m.ref, ...(await buscarArquivos(inst.cwd, typeof m.q === 'string' ? m.q : '')) });
+      break;
+    }
     case 'verdict': {
       const err = applyVerdict(m.instance, m.request_id, m.behavior, m.note);
       if (err) send(c, { t: 'err', ref: m.ref, msg: err });
@@ -801,7 +838,14 @@ async function onPhoneMessage(c, m) {
       const inst = instances.get(m.instance);
       if (!inst?.hosted) send(c, { t: 'err', ref: m.ref, msg: 'Teclas só funcionam em sessões abertas pelo celular.' });
       else if (!inst.hosted.key(String(m.key || ''))) send(c, { t: 'err', ref: m.ref, msg: 'Tecla desconhecida.' });
-      else send(c, { t: 'ack', ref: m.ref });
+      else {
+        // Interromper nao avisa o fim do turno: a fila segue assim que a caixa voltar.
+        if (m.key === 'esc' || m.key === 'ctrl-c') {
+          inst.emTurno = false;
+          setTimeout(() => inst.hosted?.soltar(), 800);
+        }
+        send(c, { t: 'ack', ref: m.ref });
+      }
       break;
     }
     // Modo de permissao de uma sessao aberta, trocado pelo Shift+Tab do terminal.
@@ -1115,7 +1159,14 @@ function onDesktopMessage(c, m) {
     // so o app do notebook chega aqui, e so em conexoes do proprio computador.
     case 'cruEntrada': {
       const inst = instances.get(m.instance);
-      if (inst?.hosted && c.crus.has(inst.id) && typeof m.data === 'string' && m.data.length <= 8192) inst.hosted.escrever(m.data);
+      if (inst?.hosted && c.crus.has(inst.id) && typeof m.data === 'string' && m.data.length <= 8192) {
+        inst.hosted.escrever(m.data);
+        // Esc ou Ctrl+C sozinhos interrompem o agente: a fila nao espera um fim de turno que nao vem.
+        if (m.data === '' || m.data === '') {
+          inst.emTurno = false;
+          setTimeout(() => inst.hosted?.soltar(), 800);
+        }
+      }
       return true;
     }
     // Opcao do terminal: abre a conta numa janela de terminal do sistema, fora do duckV.
@@ -1413,6 +1464,12 @@ function startSession(m) {
       command: ag.id === 'claude' || process.env.PAINEL_DEMO === '1' ? testCommand : null,
       onScreen: (snap) => telaDe(inst, snap),
       onRaw: (d) => cruDe(inst, d),
+      // No meio de um turno, as mensagens esperam na fila do duckV (e o app mostra "Na fila").
+      ocupado: () => !!inst.emTurno && (inst.status === 'working' || inst.status === 'waiting'),
+      onFila: (itens) => {
+        inst.fila = itens;
+        dirty();
+      },
       onEspera: (n, tela) => {
         const pedaco = tela.filter((l) => !/^[─━═\-_|│┃\s]+$/.test(l)).slice(-3).join(' · ');
         sysMsg(inst, `${n === 1 ? 'Sua mensagem está' : `${n} mensagens estão`} esperando: o ${ag.curto} ainda não mostrou a caixa de mensagem${pedaco ? ` (a tela diz: "${clip(pedaco, 160)}")` : ''}. Veja em Controles › Terminal. Se esta conversa estiver aberta no computador, feche-a lá.`);
@@ -1716,6 +1773,7 @@ function onHook(body) {
       clearPerm(inst);
       inst.status = 'working';
       inst.activity = 'Pensando';
+      inst.emTurno = true;
       break;
     case 'PreToolUse':
       if (ev.tool_use_id && tool) {
@@ -1753,6 +1811,8 @@ function onHook(body) {
       clearPerm(inst);
       inst.status = 'idle';
       inst.activity = '';
+      inst.emTurno = false;
+      inst.hosted?.soltar();
       if (ev.last_assistant_message) inst.lastText = clip(semMarkdown(ev.last_assistant_message), 200);
       if (prefs.avisos.fim && !anyVisiblePhone()) {
         pushNotify({
@@ -1766,6 +1826,8 @@ function onHook(body) {
     }
     case 'StopFailure':
       clearPerm(inst);
+      inst.emTurno = false;
+      inst.hosted?.soltar();
       inst.status = 'error';
       inst.activity = clip(ev.error_message || ev.error || 'A vez terminou com erro.', 200);
       break;

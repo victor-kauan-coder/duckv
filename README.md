@@ -155,11 +155,12 @@ O duckV também tem uma janela própria para o computador (Windows e Linux), par
 O que o app faz:
 
 - **Todas as contas na lateral**, cada uma com o pato, o agente, o limite de 5 horas e as sessões abertas. Clique numa sessão para abrir; **Ctrl+clique** abre ao lado; também dá para arrastar uma sessão até um painel.
-- **Painéis lado a lado**: um, dois, três ou quatro (Ctrl+1 a Ctrl+5). Cada painel mostra a **Conversa** (mensagens, pedidos, mensagens rápidas, `/` com os comandos e anexos arrastados) ou o **Terminal** de verdade da sessão, com cores, para digitar como no teclado.
+- **Painéis lado a lado**: um, dois, três ou quatro (Ctrl+1 a Ctrl+5). Cada painel mostra a **Conversa** (mensagens, pedidos, mensagens rápidas, `/` com os comandos, `@` com os arquivos e anexos arrastados), as **Mudanças** (o que o agente mudou na pasta, linha por linha) ou o **Terminal** de verdade da sessão, com cores, para digitar como no teclado. Em painéis estreitos as três abas ficam só com o ícone.
 - **Precisa de você** (Ctrl+J): os pedidos de permissão e as perguntas de todas as contas numa fila só, do mais antigo para o mais novo; **A** aceita e **R** recusa o primeiro.
 - **Aviso no canto da tela**: com a janela fora de foco ou fechada na bandeja, o pedido aparece num cartão por cima das outras janelas, com **Aceitar**, **Recusar** e **Abrir**. Ele não rouba o foco de quem está digitando.
 - **Conta automática**: em Nova sessão, "Automática" escolhe a conta com mais limite livre.
 - **Busca rápida** (Ctrl+K): sessões, terminais, contas e comandos.
+- **Buscar na conversa** (Ctrl+F no painel em foco): marca o texto achado, com contador ("2 de 5"), **Enter** para o próximo, **Shift+Enter** para o anterior e **Esc** para fechar.
 - **Barra de status** com o uso de cada conta; um clique mostra os limites e os horários de reinício.
 - Fechar a janela deixa o duckV ligado na **bandeja**, perto do relógio; para desligar, use **Sair** no menu dela.
 - **Controles próprios, no tema do duckV**: menus suspensos, interruptores, confirmações e dicas ao parar o mouse são desenhados pelo app (nada do visual cinza padrão do navegador), com o mesmo teclado dos controles do sistema: setas, Enter, Esc e digitar o começo de uma opção para pular até ela.
@@ -311,6 +312,21 @@ Para conferir o que a Anthropic deixa o duckV ler em cada conta: `node tools/son
 - **Na conversa**: o arquivo sobe para a pasta `data/anexos` do duckV no computador e o caminho vai no fim da mensagem, um por linha, para o agente ler. A conversa **não mostra o caminho**: mostra a miniatura (um clique amplia) ou um cartão para baixar o arquivo. Vale igual no computador, no navegador e no Android.
 - Imagens que o agente abriu ou gerou também aparecem no chat e abrem em tela cheia.
 
+### Ver o que o agente mudou
+
+A aba **Mudanças** (no computador, ao lado de Conversa e Terminal; no celular e na página web, entre Conversa e Controles) mostra o diff da pasta da sessão: o que mudou desde o último commit (`git diff` contra o `HEAD`) mais os arquivos novos ainda fora do git. Em cima vem a lista de arquivos com as linhas somadas (**+**) e tiradas (**−**); um toque leva ao arquivo. Embaixo, os trechos de cada arquivo, com o número da linha, o **+** ou **−** escrito e um fundo leve nas cores do tema. A aba lê de novo sozinha quando o agente termina um turno (e no botão de recarregar).
+
+- **Comentar uma linha**: toque (ou clique) na linha, escreva e toque em **Adicionar**. Dá para juntar vários comentários e mandar todos de uma vez em **Enviar 3 comentários**. Cada um chega à sessão assim: `No arquivo src/frete.js, linha 5 (+ "if (total >= GRATIS_ACIMA) return 0;"): use a constante no teste também`. A mensagem vai pela mesma rota das outras, com o mesmo filtro.
+- Pasta fora de um repositório git: a aba diz isso. Arquivo binário ou diff gigante aparece só como "mudou, grande demais para mostrar", com os números.
+- O diff é sempre o da pasta da própria sessão, decidida pelo computador; o app não escolhe pasta.
+
+### Na caixa de mensagem: fila, histórico e @
+
+- **Mensagens na fila**: enquanto o agente trabalha numa sessão aberta pelo duckV, o que você manda espera no computador e aparece como cartão **Na fila** acima da caixa, com **Editar** e **Tirar da fila**. Quando o turno acaba, elas seguem sozinhas, na ordem. Interromper (Esc) também solta a fila.
+- **Histórico**: com a caixa vazia, **↑** e **↓** trazem o que você já mandou naquela sessão (no computador e na página web). No Android, o botão de relógio ao lado do clipe abre a lista.
+- **@ para citar arquivos**: digite `@` e o começo do nome; a lista mostra os arquivos da pasta da sessão (os do git, ou uma listagem limitada fora dele, sem `node_modules`). Escolher insere `@caminho/do/arquivo`.
+- **Buscar na conversa**: Ctrl+F no computador; no Android e na página web, a lupa no topo da sessão.
+
 ### Pedidos de permissão
 
 Aparecem no topo da conta e como notificação, com o comando inteiro e três saídas: **aceitar**, **recusar** ou **recusar dizendo ao agente o que fazer no lugar**. Nas sessões abertas no computador, o pedido aparece também na janela, e vale a primeira resposta.
@@ -369,7 +385,8 @@ O duckV comanda o seu computador, então a segurança foi pensada em camadas:
 
 **O que o celular pode fazer**
 - Não dá para abrir sessão em modos que pulam as permissões (veja as regras de cada agente em [Agentes](#agentes)), nem mandar comandos com `!` ou comandos de barra fora da lista do agente. No Claude Code valem `/model`, `/effort`, `/compact`, `/clear`, `/login`, `/status`, `/cost`, `/usage`, `/context`, `/help`, `/init`, `/resume`, `/rename` e `/review`, além das skills e comandos personalizados que não liberam o terminal sozinhos.
-- O texto digitado na tela do terminal passa pelo mesmo filtro.
+- O texto digitado na tela do terminal passa pelo mesmo filtro, e também o texto de uma mensagem editada na fila.
+- A aba Mudanças e a lista do `@` rodam o `git` com argumentos separados (nada montado num texto de comando) e só na pasta da própria sessão: um pedido com outra pasta é recusado.
 - Sessões só abrem dentro da sua pasta pessoal, em pastas que já tiveram sessão no computador, ou nas listadas em `pastasPermitidas` no arquivo `data/config.json`. Exemplo: `"pastasPermitidas": ["D:\\projetos"]`.
 - Aceitar um pedido ou responder uma sessão pela notificação exige desbloquear o celular. "Não perguntar de novo" pede um segundo toque.
 - Anexos vão só para aparelhos pareados, com até 25 MB cada, para a pasta `data/anexos`. A miniatura volta por uma rota que só aceita nomes no formato que o próprio duckV cria, dentro dessa pasta (nada de `../`), só para aparelhos pareados; imagem comum abre como imagem e qualquer outro arquivo (inclusive SVG e HTML) só baixa, nunca abre como página.
@@ -499,12 +516,12 @@ Cada conta tem o seu patinho (Clássico, De borracha, Marreco, Pêssego, Chocola
 duckv/
 ├── hub/            servidor do duckV (HTTP + WebSocket), sessões, histórico, uso das contas
 ├── agent/          ganchos, linha de status e canal MCP que ligam cada Claude Code ao duckV
-│                   (hub/agentes.mjs: o adaptador de cada agente)
+│                   (hub/agentes.mjs: o adaptador de cada agente; hub/diff.mjs: a aba Mudanças e o @)
 ├── android/        app nativo (Kotlin + Jetpack Compose, Material 3)
 ├── app/            versão web (PWA) do app e a interface do app do computador (desktop.*)
 ├── desktop/        app do computador (Electron): liga o servidor, janela, bandeja e aviso de pedidos
 ├── lib/            configuração e contas
-├── tests/          bateria de testes (unidade, portabilidade, servidor, pareamento, sessões, segurança)
+├── tests/          bateria de testes (unidade, portabilidade, servidor, pareamento, sessões, diff e fila, segurança)
 ├── tools/          modo demonstração (simular.mjs) e gerador dos ícones (icones.mjs)
 ├── .github/        testes automáticos no Windows, Linux e macOS a cada envio
 ├── setup.mjs       instalação: pastas das contas, ganchos, canal, atalhos e login

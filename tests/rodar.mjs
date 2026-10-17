@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 // Da mais rapida para a mais lenta; cada uma usa uma porta propria, entao nao se atrapalham.
-const SUITES = ['unidade', 'portabilidade', 'previas', 'nuvem', 'github', 'servidor', 'pareamento', 'sessoes', 'equipe', 'seguranca', 'desktop', 'rapido', 'retomar', 'servico'];
+const SUITES = ['unidade', 'portabilidade', 'previas', 'nuvem', 'github', 'servidor', 'pareamento', 'sessoes', 'equipe', 'seguranca', 'desktop', 'rapido', 'retomar', 'servico', 'diff'];
 const LIMITE = 5 * 60_000;
 const filtro = process.argv.slice(2);
 const escolhidas = filtro.length ? SUITES.filter((s) => filtro.some((f) => s.includes(f))) : SUITES;

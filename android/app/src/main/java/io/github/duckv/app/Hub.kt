@@ -412,6 +412,20 @@ object Hub {
         }
     }
 
+    /** Fila de uma sessao aberta pelo duckV: troca o texto de uma mensagem que espera, ou a tira. */
+    fun filaEditar(sessao: String, id: String, texto: String, r: Retorno) =
+        mandar(JSONObject().put("t", "filaEditar").put("instance", sessao).put("id", id).put("text", texto), r)
+
+    fun filaTirar(sessao: String, id: String, r: Retorno) =
+        mandar(JSONObject().put("t", "filaTirar").put("instance", sessao).put("id", id), r)
+
+    /** Arquivos da pasta da sessao para o "@" da caixa de mensagem. */
+    fun arquivos(sessao: String, q: String, r: (List<String>) -> Unit) =
+        mandar(JSONObject().put("t", "arquivos").put("instance", sessao).put("q", q)) { erro, m ->
+            val a = m?.optJSONArray("itens")
+            r(if (erro != null || a == null) emptyList() else List(a.length()) { a.optString(it) })
+        }
+
     fun tecla(sessao: String, k: String, r: Retorno) =
         mandar(JSONObject().put("t", "key").put("instance", sessao).put("key", k), r)
 

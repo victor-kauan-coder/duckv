@@ -90,6 +90,8 @@ data class Sessao(
     val arquivada: Boolean = false,
     /** Sessao de uma equipe ("Todas as contas"): as contas dividem a mesma tarefa na mesma pasta. */
     val equipe: Equipe? = null,
+    /** Mensagens que esperam o turno do agente acabar ("Na fila"), so nas sessoes abertas pelo duckV. */
+    val fila: List<NaFila> = emptyList(),
 ) {
     val viva get() = status != "ended"
     val precisa get() = status == "waiting" || perms.isNotEmpty()
@@ -100,6 +102,7 @@ data class Sessao(
 
 /** Lugar da sessao numa equipe: [ordem] de 1 a [total]. */
 data class Equipe(val id: String, val ordem: Int, val total: Int)
+data class NaFila(val id: String, val texto: String)
 
 data class Host(
     val disponivel: Boolean,
@@ -236,6 +239,7 @@ fun lerEstado(m: JSONObject): Estado {
             previas = i.optJSONObject("previas")?.let { pv -> Previas(pv.optJSONArray("portas").let { a -> List(a?.length() ?: 0) { a!!.optInt(it) } }, pv.optJSONArray("arquivos").strings(), pv.optJSONArray("artefatos").strings()) } ?: Previas(),
             login = i.optBoolean("login"),
             equipe = i.optJSONObject("equipe")?.let { q -> q.s("id")?.takeIf { it.isNotEmpty() }?.let { Equipe(it, q.optInt("ordem"), q.optInt("total")) } },
+            fila = i.optJSONArray("fila").mapa { NaFila(it.optString("id"), it.optString("texto")) },
         )
     }
     val h = m.optJSONObject("host") ?: JSONObject()
