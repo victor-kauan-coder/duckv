@@ -24,7 +24,7 @@ import { hostPermitido } from './rede.mjs';
 import { novoIdEquipe, briefingEquipe, criarArquivoDaEquipe } from './equipe.mjs';
 import { semBlocos } from '../lib/texto.mjs';
 import { textoPerigoso as filtrarTexto } from './filtro.mjs';
-import { terminalLinux } from '../lib/atalhos.mjs';
+import { terminalLinux, comandoMac } from '../lib/atalhos.mjs';
 
 // O gerador de QR que o qrcode-terminal traz dentro dele: o app do notebook desenha o QR com a matriz.
 const requerer = createRequire(import.meta.url);
@@ -1152,7 +1152,11 @@ function abrirTerminalDoSistema(acc, dir) {
       // "." e a pasta em que a janela abre (cwd): o cmd.exe nunca le o nome da pasta.
       spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', script, '.'], { cwd: dir, detached: true, stdio: 'ignore', windowsHide: false }).unref();
     } else if (process.platform === 'darwin') {
-      return 'No macOS, abra a conta pelo atalho dela no Terminal.';
+      // O Terminal abre um .command (feito so para isto, com permissao so do dono) e o apaga depois.
+      const arq = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'duckv-')), `${acc.id}.command`);
+      fs.writeFileSync(arq, comandoMac(script, dir), { mode: 0o700 });
+      spawn('open', ['-a', 'Terminal', arq], { detached: true, stdio: 'ignore' }).unref();
+      setTimeout(() => fs.rm(path.dirname(arq), { recursive: true, force: true }, () => {}), 60_000).unref();
     } else {
       const term = terminalLinux();
       if (!term) return 'Nenhum terminal encontrado neste Linux (instale o gnome-terminal, o konsole ou o xterm).';

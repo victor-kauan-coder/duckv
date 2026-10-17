@@ -84,6 +84,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, pastaInicial: String, tarefaInic
     val todas = conta == TODAS
     val aviso = LocalAviso.current
     var cwd by rememberSaveable { mutableStateOf(pastaInicial) }
+    var verRecentes by rememberSaveable { mutableStateOf(false) }
     var nome by rememberSaveable { mutableStateOf("") }
     var modelo by rememberSaveable { mutableStateOf("default") }
     var esforco by rememberSaveable { mutableStateOf("") }
@@ -257,9 +258,16 @@ fun TelaNova(e: Estado?, contaInicial: String?, pastaInicial: String, tarefaInic
                         if (l.pastas.isEmpty()) Text("Esta pasta não tem subpastas. Ela já está escolhida no campo acima.", style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(12.dp))
                     }
                 }
+                // Com a pasta ja escolhida (vinda da folha rapida ou de um toque), as recentes recolhem atras de
+                // "Trocar pasta": a primeira mensagem fica logo abaixo, sem rolar.
                 if (e.host.pastas.isNotEmpty()) {
-                    Text("Usadas há pouco", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
-                    for (f in e.host.pastas.take(6)) LinhaPasta(Icons.Rounded.History, io.github.duckv.app.pasta(f), f.dropLast(io.github.duckv.app.pasta(f).length).trimEnd('\\', '/')) { cwd = f; lista = null; erroPasta = null }
+                    if (cwd.isBlank() || verRecentes) {
+                        Text("Usadas há pouco", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(top = 4.dp))
+                        for (f in e.host.pastas.take(6)) LinhaPasta(Icons.Rounded.History, io.github.duckv.app.pasta(f), f.dropLast(io.github.duckv.app.pasta(f).length).trimEnd('\\', '/')) { cwd = f; lista = null; erroPasta = null; verRecentes = false }
+                    } else androidx.compose.material3.TextButton({ verRecentes = true }, Modifier.heightIn(min = 48.dp)) {
+                        Icon(Icons.Rounded.History, null, Modifier.size(18.dp), tint = c.realce)
+                        Text("Pastas usadas há pouco", style = Texto.rotulo, color = c.realce, modifier = Modifier.padding(start = 8.dp))
+                    }
                 }
             }
             if (naNuvem || todas) OutlinedTextField(

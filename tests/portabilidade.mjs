@@ -130,4 +130,22 @@ if (process.platform === 'linux' && !process.report.getReport().header.glibcVers
   }
 }
 
+// ---------------------------------------------------------------- "Terminal do sistema" no macOS
+// O .command que o Terminal abre: roda aqui no sh (Git Bash no Windows) com uma pasta de nome perigoso.
+{
+  const { comandoMac } = await import(new URL('../lib/atalhos.mjs', import.meta.url));
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'duckv-mac-'));
+  const pasta = path.join(base, `a b'c;$(touch PWNED)`);
+  fs.mkdirSync(pasta);
+  const atalho = path.join(base, 'conta1.sh');
+  fs.writeFileSync(atalho, 'printf "%s|%s" "$1" "$(pwd)"\n');
+  const cmd = path.join(base, 'conta1.command');
+  fs.writeFileSync(cmd, comandoMac(atalho, pasta));
+  const r = spawnSync('sh', [cmd], { encoding: 'utf8', cwd: base });
+  const [arg] = (r.stdout || '').split('|');
+  ok(r.status === 0 && arg === pasta,'macOS: o .command entrega ao atalho da conta a pasta inteira, como um argumento só');
+  ok(!fs.existsSync(path.join(base, 'PWNED')) && !fs.existsSync(path.join(pasta, 'PWNED')) && !fs.existsSync('PWNED'), 'macOS: nada escondido no nome da pasta vira comando');
+  fs.rmSync(base, { recursive: true, force: true });
+}
+
 console.log(process.exitCode ? '\nAlgum teste falhou.' : `\nPortabilidade (${sistema}): tudo certo.`);

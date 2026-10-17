@@ -51,6 +51,32 @@ sealed interface Rota {
     data class Nova(val conta: String?, val cwd: String = "", val texto: String = "") : Rota
     data object Opcoes : Rota
     data class Historico(val conta: String) : Rota
+
+    companion object {
+        // A pilha vai para o estado salvo da Activity como lista de textos: trocar o tema do sistema (ou
+        // girar a tela) recria a Activity, e quem estava na tela Nova ou numa conversa volta para ela.
+        private const val SEP = '\u0000'
+        fun guardar(pilha: List<Rota>): ArrayList<String> = ArrayList(pilha.map {
+            when (it) {
+                Inicio -> "i"
+                is Sessao -> "s$SEP${it.id}"
+                is Nova -> "n$SEP${it.conta.orEmpty()}$SEP${it.cwd}$SEP${it.texto}"
+                Opcoes -> "o"
+                is Historico -> "h$SEP${it.conta}"
+            }
+        })
+        fun ler(lista: List<String>?): List<Rota> = lista.orEmpty().mapNotNull {
+            val p = it.split(SEP)
+            when (p[0]) {
+                "i" -> Inicio
+                "s" -> p.getOrNull(1)?.let(::Sessao)
+                "n" -> Nova(p.getOrNull(1)?.ifEmpty { null }, p.getOrNull(2).orEmpty(), p.getOrNull(3).orEmpty())
+                "o" -> Opcoes
+                "h" -> p.getOrNull(1)?.let(::Historico)
+                else -> null
+            }
+        }.takeIf { it.firstOrNull() == Inicio } ?: listOf(Inicio)
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -60,7 +86,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        abrirDoAviso(intent)
+        if (savedInstanceState != null) {
+            pilha.clear()
+            pilha.addAll(Rota.ler(savedInstanceState.getStringArrayList("pilha")))
+        } else abrirDoAviso(intent)
         setContent {
             val opcoes by Hub.opcoes.collectAsState()
             TemaClaudeV(opcoes.tema) {
@@ -137,6 +166,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putStringArrayList("pilha", Rota.guardar(pilha))
     }
 
     override fun onNewIntent(intent: Intent) {
