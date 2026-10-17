@@ -1387,7 +1387,12 @@ function abrirEquipe(m) {
   // O limite de sessoes abertas pelo duckV vale para a equipe toda, conferido antes de abrir qualquer uma.
   const cabem = 8 - [...instances.values()].filter((i) => i.hosted).length;
   if (ids.length > cabem) {
-    return { err: cabem < 2 ? 'O duckV já está com as 8 sessões que ele mantém abertas. Encerre algumas antes de abrir uma equipe.' : `Só cabem mais ${cabem} sessões agora, e esta equipe precisa de ${ids.length}. Encerre algumas sessões ou escolha menos contas.` };
+    return {
+      err:
+        cabem <= 0
+          ? 'O duckV já está com as 8 sessões que ele mantém abertas. Encerre alguma antes de abrir uma equipe.'
+          : `Só cabe${cabem === 1 ? '' : 'm'} mais ${cabem} ${cabem === 1 ? 'sessão' : 'sessões'} agora, e esta equipe precisa de ${ids.length}. Encerre algumas sessões ou escolha menos contas.`,
+    };
   }
   const id = novoIdEquipe();
   const nomes = ids.map((x) => (accounts.has(x) ? pubAccount(x).nome : x));

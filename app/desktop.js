@@ -585,7 +585,7 @@ function sincronizarEquipes(caixa, blocos, opts) {
       b = blocoEquipe(opts);
       blocos.set(g.id, b);
     }
-    caixa.append(b.raiz);
+    if (b.raiz.parentElement !== caixa) caixa.append(b.raiz);
     b.atualizar(g);
   }
   for (const [id, b] of blocos) {
@@ -2395,18 +2395,18 @@ const area = (() => {
 function blocoEquipe({ compacto = false } = {}) {
   const apoio = el('span');
   const tarefa = el('p', { class: 'equipe-tarefa' });
-  const juntas = el('button', { class: 'botao texto pequeno', type: 'button' }, icone('square-split-horizontal', 16), 'Abrir lado a lado');
+  const botaoJuntas = el('button', { class: 'botao texto pequeno', type: 'button' }, icone('square-split-horizontal', 16), 'Abrir lado a lado');
   const pista = el('div', { class: 'equipe-pista', role: 'list' });
   const raiz = el(
     'section',
     { class: `equipe${compacto ? ' compacta' : ''}` },
-    el('div', { class: 'equipe-cabeca' }, el('div', { class: 'equipe-quem' }, el('b', { text: 'Equipe' }), apoio), juntas),
+    el('div', { class: 'equipe-cabeca' }, el('div', { class: 'equipe-quem' }, el('b', { text: 'Equipe' }), apoio), botaoJuntas),
     compacto ? null : tarefa,
     pista,
   );
   const colunas = new Map();
   let ids = [];
-  juntas.addEventListener('click', () => area.juntas(ids));
+  botaoJuntas.addEventListener('click', () => area.juntas(ids));
 
   // Uma coluna por pato: a pista dele, o nome da conta e o que ele faz agora.
   function coluna() {
@@ -2449,7 +2449,7 @@ Clique para abrir; ${CTRL}+clique abre ao lado.`);
           col = coluna();
           colunas.set(s.id, col);
         }
-        pista.append(col.raiz);
+        if (col.raiz.parentElement !== pista) pista.append(col.raiz);
         col.atualizar(s);
       }
       for (const [id, col] of colunas) {
