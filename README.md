@@ -263,6 +263,16 @@ Toque em **Abrir sessão**, escolha a conta (o selo mostra qual agente vai abrir
 
 Se você já escrever a tarefa na hora de abrir, ela é mandada sozinha assim que o agente mostrar a caixa de mensagem, e dá nome à sessão.
 
+**Sessão rápida, de qualquer lugar do celular** (app 2.21). Uma folha abre por cima do app que estiver na tela, já com o teclado: escreva o que a sessão deve fazer (opcional, vira a primeira mensagem), escolha a conta (**Automática** pega a de mais limite livre, a mesma regra do computador) e a pasta, e toque em **Abrir sessão**. Embaixo ficam as sessões vivas da conta escolhida, as que pedem você primeiro, e **Mais opções** leva à tela completa. A folha lembra a última conta. Três caminhos até ela:
+
+- **Configurações rápidas:** edite os blocos da barra de notificações e arraste o bloco **duckV**. Ele mostra quantas sessões pedem você.
+- **Atalho do ícone:** toque longo no ícone do duckV, **Nova sessão**.
+- **Widget:** toque longo na tela inicial, **Widgets**, **duckV**. No Android 12 ou mais novo ele segue as cores do sistema.
+
+Sem o computador, a folha mostra as sessões da nuvem que o duckV viu por último e o botão **Nova sessão na nuvem**.
+
+**Todas as contas (equipe).** Na folha rápida ou em **Abrir sessão**, o chip **Todas as contas** abre uma sessão por conta, na mesma pasta, que dividem a mesma tarefa (o campo da tarefa vira obrigatório e o botão mostra quantas contas entram). Entram as contas instaladas, com login e com limite sobrando. No início aparece o cartão **Equipe**: os patos de cada conta andam juntos numa pista (trabalhando anda, pedindo pula, parado respira, terminou dorme), com o nome da conta e o que ela faz embaixo. Tocar num pato abre a sessão dele.
+
 ### Todas as contas na mesma tarefa
 
 Na escolha da conta existe também **Todas as contas**: o duckV abre uma sessão em cada conta instalada, todas na mesma pasta, e cada uma começa por um briefing de equipe que diz quantos patos são, qual é o dele, quais são os outros e que todos trabalham ali ao mesmo tempo. As sessões não se falam: a divisão do trabalho é combinada no arquivo `.duckv/equipe-<id>.md` da pasta, onde o primeiro pato propõe a divisão por partes e arquivos, os outros pegam a sua parte e cada um anota o que pegou e o que já terminou.

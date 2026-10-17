@@ -51,6 +51,12 @@ object Hub {
     var contaVista: String?
         get() = prefs.getString("contaVista", null)
         set(v) = prefs.edit().putString("contaVista", v).apply()
+    /** Conta escolhida na folha rapida ("auto", "todas" ou o id da conta): a proxima vez abre nela. */
+    var contaRapida: String
+        get() = prefs.getString("contaRapida", null) ?: "auto"
+        set(v) = prefs.edit().putString("contaRapida", v).apply()
+    /** Equipe que acabou de abrir: o inicio rola ate o cartao dela. */
+    val equipeFoco = MutableStateFlow<String?>(null)
     /** Pular para a conta que pede atencao so na primeira vez que o app abre. */
     var pulouPede = false
 

@@ -34,7 +34,12 @@ class App : Application() {
         Hub.iniciar(this)
         Sons.iniciar(this)
         Avisos.iniciar(this)
-        Hub.aoMudarEstado = Avisos::observar
+        // o widget refaz o toque dele a cada vez que o app liga (um "forcar parada" cancela o anterior)
+        WidgetRapido.atualizarTodos(this, 0)
+        Hub.aoMudarEstado = { e ->
+            Avisos.observar(e)
+            Atalhos.estadoMudou(this, e)
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 Avisos.appVisivel = true

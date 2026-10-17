@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">duckV</string>
+    <string name="atalho_curto">Nova sessão</string>
+    <string name="atalho_longo">Nova sessão</string>
+    <string name="widget_titulo">Nova sessão</string>
+    <string name="widget_apoio">Toque para abrir</string>
+    <string name="widget_descricao">Nova sessão no duckV</string>
+    <string name="widget_sobre">Abre uma sessão nova em um toque.</string>
 </resources>
