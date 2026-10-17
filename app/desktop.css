@@ -760,7 +760,7 @@ dialog.ampliada[open]::backdrop { background: rgba(10, 6, 4, 0.82); }
 .equipe-pato { display: grid; gap: 1px; padding: 0 0 6px; border: 0; background: transparent; border-radius: 12px; color: var(--tinta); text-align: center; transition: background var(--rapido); }
 .equipe-pato b, .equipe-faz { padding: 0 4px; }
 .equipe-pato:hover { background: color-mix(in srgb, var(--tinta) 6%, transparent); }
-.equipe-pato b { font: 500 13px/18px var(--ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equipe-pato b { font: 500 14px/20px var(--ui); letter-spacing: 0.1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .equipe-faz { font-size: 12px; line-height: 16px; color: var(--tinta-v); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .equipe-faz.pede { color: var(--laranja-texto); font-weight: 500; }
 .equipe-trilha { display: block; position: relative; height: 54px; margin-bottom: 7px; border-bottom: 1px solid var(--contorno-v); }
