@@ -244,6 +244,16 @@ Toque em **Abrir sessão**, escolha a conta (o selo mostra qual agente vai abrir
 - **Controles:** interromper, compactar, limpar e encerrar. No Claude Code, também trocar modelo, esforço e modo no meio da sessão.
 - **Tela do terminal:** a tela crua do agente, com setas, Enter, Esc, os links tocáveis e um campo para digitar. Serve para o que não virar botão.
 
+**Sessão rápida, de qualquer lugar do celular** (app 2.21). Uma folha abre por cima do app que estiver na tela, já com o teclado: escreva o que a sessão deve fazer (opcional, vira a primeira mensagem), escolha a conta (**Automática** pega a de mais limite livre, a mesma regra do computador) e a pasta, e toque em **Abrir sessão**. Embaixo ficam as sessões vivas da conta escolhida, as que pedem você primeiro, e **Mais opções** leva à tela completa. A folha lembra a última conta. Três caminhos até ela:
+
+- **Configurações rápidas:** edite os blocos da barra de notificações e arraste o bloco **duckV**. Ele mostra quantas sessões pedem você.
+- **Atalho do ícone:** toque longo no ícone do duckV, **Nova sessão**.
+- **Widget:** toque longo na tela inicial, **Widgets**, **duckV**. No Android 12 ou mais novo ele segue as cores do sistema.
+
+Sem o computador, a folha mostra as sessões da nuvem que o duckV viu por último e o botão **Nova sessão na nuvem**.
+
+**Todas as contas (equipe).** Na folha rápida ou em **Abrir sessão**, o chip **Todas as contas** abre uma sessão por conta, na mesma pasta, que dividem a mesma tarefa (o campo da tarefa vira obrigatório e o botão mostra quantas contas entram). Entram as contas instaladas, com login e com limite sobrando. No início aparece o cartão **Equipe**: os patos de cada conta andam juntos numa pista (trabalhando anda, pedindo pula, parado respira, terminou dorme), com o nome da conta e o que ela faz embaixo. Tocar num pato abre a sessão dele.
+
 ### Abrir uma sessão no computador
 
 Abra o atalho da conta (`conta1.cmd`, `conta2.cmd`…) e informe a pasta do projeto, ou arraste a pasta para cima do atalho. O atalho abre o agente da conta, com a pasta dela e as mesmas regras de segurança. No Claude Code aparece um aviso sobre "development channels": escolha **I am using this for local development**. O aviso aparece toda vez, porque o canal do duckV usa um recurso do Claude Code que ainda está em prévia.

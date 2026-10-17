@@ -167,7 +167,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriuEqu
                     )
                 }
                 if (todas) Text(
-                    "${daEquipe.joinToString(", ") { it.nome }} abrem uma sessão cada, na mesma pasta, e dividem a tarefa entre si.",
+                    "${daEquipe.dropLast(1).joinToString(", ") { it.nome }} e ${daEquipe.last().nome} abrem uma sessão cada, na mesma pasta, e dividem a tarefa entre si.",
                     style = Texto.apoio, color = c.apoio, modifier = Modifier.padding(top = 10.dp),
                 )
                 // qual agente vai abrir: sem duvida antes de tocar em Abrir sessao

@@ -34,6 +34,8 @@ class App : Application() {
         Hub.iniciar(this)
         Sons.iniciar(this)
         Avisos.iniciar(this)
+        // o widget refaz o toque dele a cada vez que o app liga (um "forcar parada" cancela o anterior)
+        WidgetRapido.atualizarTodos(this, 0)
         Hub.aoMudarEstado = { e ->
             Avisos.observar(e)
             Atalhos.estadoMudou(this, e)

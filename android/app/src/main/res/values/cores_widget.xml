@@ -3,9 +3,7 @@
     <!-- widget antes do Android 12: as cores do duckV -->
     <color name="widget_fundo">#F9ECE5</color>
     <color name="widget_texto">#221A15</color>
-    <color name="widget_apoio">#53443B</color>
-    <color name="widget_botao">#FF7A1A</color>
-    <color name="widget_no_botao">#2B1200</color>
+    <color name="widget_apoio">#9A4600</color>
     <color name="pessego">#FFDBC8</color>
     <dimen name="widget_raio">16dp</dimen>
 </resources>

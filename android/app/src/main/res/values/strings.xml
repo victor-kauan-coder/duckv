@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">duckV</string>
     <string name="atalho_curto">Nova sessão</string>
-    <string name="atalho_longo">Nova sessão rápida</string>
+    <string name="atalho_longo">Nova sessão</string>
     <string name="widget_titulo">Nova sessão</string>
     <string name="widget_apoio">Toque para abrir</string>
     <string name="widget_descricao">Nova sessão no duckV</string>
