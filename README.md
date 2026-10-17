@@ -36,6 +36,7 @@ O **duckV** junta num app só os agentes de código que rodam no seu computador,
 - [O que você precisa](#o-que-você-precisa)
 - [Telas](#telas)
 - [Uso no dia a dia](#uso-no-dia-a-dia)
+- [Automações](#automações)
 - [Contas](#contas)
 - [Como funciona](#como-funciona)
 - [Segurança](#segurança)
@@ -59,7 +60,8 @@ O **duckV** junta num app só os agentes de código que rodam no seu computador,
 | **Contexto à vista** | Um anel ao lado da caixa de mensagem mostra quanto da memória da conversa já foi usado, com o detalhe a um toque. |
 | **Permissões no bolso** | Aceite, recuse ou recuse dizendo o que fazer no lugar. Direto na notificação, mesmo com o app fechado. |
 | **Abrir sessões pelo celular** | Escolha conta, pasta, modelo, esforço e modo de permissão; a sessão roda no computador e você comanda pelo app. |
-| **Todas as contas na mesma tarefa** | Uma tarefa, uma sessão por conta na mesma pasta: cada pato recebe o briefing da equipe e eles combinam a divisão num arquivo da pasta. Aparecem juntos num bloco, na mesma pista. |
+| **Todas as contas na mesma tarefa** | Uma tarefa, uma sessão por conta: num repositório git cada pato ganha uma cópia da pasta e um branch só dele, e no fim você vê o que cada um fez e junta o melhor. Aparecem juntos num bloco, na mesma pista. |
+| **Automações agendadas** | Uma hora marcada e uma primeira mensagem: o duckV abre a sessão sozinho. Todo dia, nos dias úteis, uma vez por semana ou por cron. Com o computador desligado na hora, a execução fica como perdida, nunca atrasada. |
 | **Conversas do Claude desktop** | Todas as conversas de cada conta, inclusive as feitas no app Claude desktop, para acompanhar ou continuar. |
 | **Nuvem e Cowork** | As sessões do Claude Code na nuvem (claude.ai/code) e as tarefas do Cowork aparecem junto das outras, para ler, com o que cada uma pede e um atalho para responder no claude.ai. |
 | **Anexos** | Mande arquivos do celular para o agente ler. |
@@ -280,6 +282,21 @@ Na escolha da conta existe também **Todas as contas**: o duckV abre uma sessão
 
 Na barra lateral e na Visão geral essas sessões aparecem juntas num bloco **Equipe**, com o pato de cada conta na mesma pista, o nome da conta e o que ele faz agora embaixo; um clique no pato abre a sessão dele e **Abrir lado a lado** põe a equipe toda em painéis. O duckV mantém no máximo 8 sessões abertas por ele, então a equipe inteira precisa caber nesse limite.
 
+#### Uma cópia por pato
+
+Numa pasta que é um repositório git, o interruptor **Uma cópia por pato** (ligado por padrão, no computador, no celular e na página web) dá a cada conta uma cópia da pasta e um branch só dela: o duckV cria um `git worktree` por pato em `<repositório>/.duckv/worktrees/<equipe>-<conta>`, no branch `duckv/<equipe>-<conta>`, a partir do commit em que o repositório está agora. Cada sessão abre na cópia dela, então dois patos nunca escrevem no mesmo arquivo ao mesmo tempo. A pasta `.duckv/` inteira entra no `.git/info/exclude` do repositório (o seu `.gitignore` não é tocado), e o arquivo da divisão continua um só, na pasta principal: o briefing de cada pato diz o caminho dele e em que branch aquele pato trabalha.
+
+Numa pasta que não é um repositório git, num repositório ainda sem nenhum commit, ou com o interruptor desligado, tudo continua como antes: todas as contas na mesma pasta. A interface diz qual desses casos é.
+
+#### Comparar e juntar
+
+Com as cópias ligadas, o bloco **Equipe** ganha **O que cada pato fez**: por pato, o branch, quantos commits ele está à frente do ponto de partida e as linhas somadas e tiradas ("3 commits, +120 −14"), mais os arquivos ainda sem commit na cópia dele.
+
+- **Juntar este** traz o branch daquele pato para a pasta principal com `git merge --no-ff`. Se a pasta principal tiver mudanças sem commit, o botão fica desligado e o duckV explica por quê; se o merge der conflito, ele desfaz o merge e diz quais arquivos bateram de frente, para você resolver no terminal.
+- **Limpar a equipe** tira as cópias e os branches daquela equipe (pergunta antes). As sessões da equipe precisam estar encerradas, porque as pastas delas vão sair. O que já foi juntado na pasta principal continua lá.
+
+No computador, **O que cada pato fez** abre no mesmo bloco da equipe e relê sozinho quando um pato termina a vez.
+
 ### Abrir uma sessão no computador
 
 Abra o atalho da conta (`conta1.cmd`, `conta2.cmd`…) e informe a pasta do projeto, ou arraste a pasta para cima do atalho. O atalho abre o agente da conta, com a pasta dela e as mesmas regras de segurança. No Claude Code aparece um aviso sobre "development channels": escolha **I am using this for local development**. O aviso aparece toda vez, porque o canal do duckV usa um recurso do Claude Code que ainda está em prévia.
@@ -316,6 +333,27 @@ Para conferir o que a Anthropic deixa o duckV ler em cada conta: `node tools/son
 Aparecem no topo da conta e como notificação, com o comando inteiro e três saídas: **aceitar**, **recusar** ou **recusar dizendo ao agente o que fazer no lugar**. Nas sessões abertas no computador, o pedido aparece também na janela, e vale a primeira resposta.
 
 **Na própria notificação do Android** (app 2.13): os botões **Aceitar** e **Recusar** respondem sem abrir o app, inclusive comandos de várias linhas, desde que o comando caiba inteiro na notificação (até 15 linhas e 900 letras); comando maior só se aceita dentro do app, vendo tudo. As perguntas das sessões (menus numerados do agente) viram até 3 botões na notificação. Responder exige desbloquear o celular. A notificação de fim de tarefa tem **Responder**, para escrever ali mesmo.
+
+## Automações
+
+Uma automação é uma hora marcada mais uma primeira mensagem: na hora, o duckV abre uma sessão sozinho, naquela pasta e naquela conta, e manda a mensagem como se você a tivesse digitado. Serve para o que se repete, como rodar os testes toda manhã ou revisar a semana toda sexta.
+
+A tela **Automações** fica na barra lateral do app do computador, perto de Opções, e no celular (e na página web) em **Opções › Automações**. Cada automação tem:
+
+| Campo | O que é |
+|---|---|
+| Nome | Como ela aparece na lista. |
+| Quando | **Todo dia**, **Dias úteis** ou **Uma vez por semana** com uma hora, ou uma **expressão cron** de 5 campos (minuto, hora, dia do mês, mês, dia da semana) para horários mais finos. A hora é sempre a do computador. |
+| Conta | Uma conta fixa ou **Automática** (a de mais limite livre na hora, a mesma regra da Abertura rápida). |
+| Pasta | A pasta do projeto, pelas mesmas regras de pasta permitida das sessões. |
+| Primeira mensagem | O que a sessão recebe assim que abre. |
+| Ligada ou pausada | Pausada, ela continua na lista sem contar as horas. |
+
+A lista mostra, por automação, quando ela roda, a **próxima execução** ("amanhã às 08:00") e como foi a **última** ("Abriu a sessão hoje às 08:00 em Trabalho"). Cada uma tem **Rodar agora** (abre a sessão na hora, sem mexer na próxima), **Editar**, **Histórico** (as últimas 30 execuções, com a sessão que abriu ou o motivo de não ter aberto) e **Apagar**.
+
+**Nada roda atrasado.** Se o computador estava desligado ou dormindo na hora marcada, a execução entra no histórico como **perdida** e a automação espera a próxima hora: ligar o computador de manhã não dispara de uma vez tudo o que estava marcado para a noite. Uma expressão cron inválida é recusada dizendo em qual dos 5 campos está o erro e o que ele aceita; uma pasta que sumiu entre criar e rodar vira um erro no histórico, não uma sessão na pasta errada.
+
+As automações ficam em `data/automacoes.json` e valem enquanto o duckV estiver ligado (com o modo serviço, isso é o tempo todo). O limite é de 40 automações.
 
 ## Contas
 
@@ -411,6 +449,7 @@ A engrenagem no topo do app abre as Opções:
 | Avisos neste celular | Manter a ligação com o app fechado e liberar da economia de bateria. |
 | Contas | Nome, cor, tipo de pato e como cada conta começa uma sessão (modelo, esforço, modo de permissão e pasta). |
 | Avisos | Quais avisos chegam e a partir de quanto uso o reinício do limite merece aviso. |
+| Automações | A lista das automações agendadas, para criar, editar, pausar, rodar na hora e ver o histórico. |
 | Mensagens rápidas | Até 12 frases que viram botão acima da caixa de mensagem. |
 | Este celular | Desparear. |
 
@@ -479,6 +518,7 @@ Cada conta tem o seu patinho (Clássico, De borracha, Marreco, Pêssego, Chocola
 ```
 duckv/
 ├── hub/            servidor do duckV (HTTP + WebSocket), sessões, histórico, uso das contas
+│                   (worktrees.mjs: a cópia por pato da equipe; automacoes.mjs: as horas marcadas)
 ├── agent/          ganchos, linha de status e canal MCP que ligam cada Claude Code ao duckV
 │                   (hub/agentes.mjs: o adaptador de cada agente)
 ├── android/        app nativo (Kotlin + Jetpack Compose, Material 3)
@@ -512,7 +552,9 @@ Roda todas as baterias, uma depois da outra, e mostra o resumo (`node tests/roda
 | `servidor` | Servidor, canal MCP com um cliente real, permissões e histórico |
 | `pareamento` | Pareamento com os 4 números confirmados no computador |
 | `sessoes` | Sessões abertas pelo celular, com um terminal de mentira no lugar do agente, e argumentos que tentam injetar comandos no `cmd.exe` |
-| `equipe` | "Todas as contas": uma sessão por conta na mesma pasta, o briefing de equipe, o mínimo de duas contas, a conta que falha sozinha e o limite de 8 sessões |
+| `equipe` | "Todas as contas": uma sessão por conta, o briefing de equipe, o mínimo de duas contas, a conta que falha sozinha e o limite de 8 sessões |
+| `worktrees` | Uma cópia por pato: os worktrees e os branches criados, o `.git/info/exclude`, o resultado de cada pato, juntar (e a recusa com mudanças pendentes) e limpar |
+| `automacoes` | Automações agendadas: os presets e o cron, a próxima execução, a validação, a execução que abre a sessão, o histórico e a hora perdida com o computador desligado |
 | `desktop` | App do computador: a chave que só vale no próprio computador, pedidos que só o app pode fazer, terminal de verdade e arquivos de `node_modules` que não podem sair pelo servidor |
 | `seguranca` | Ataques de verdade contra um duckV ligado: DNS rebinding, WebSocket sequestrado por outro site, CSRF, segredo dos agentes, travessia de pastas (inclusive `::$DATA`, `CON` e UNC do Windows), limites de tamanho, vazamento de segredos e força bruta no pareamento |
 
@@ -530,6 +572,8 @@ node tools/simular.mjs
 Liga um duckV separado (porta 8766) com três contas, sessões e pedidos de mentira, para ver o app sem conectar o Claude Code de verdade. No Windows, `demonstracao.cmd`; no Linux e no macOS, `sh demonstracao.sh`.
 
 Na demonstração, **Abrir sessão** e **Todas as contas** também funcionam: qualquer conta abre um terminal de mentira (nenhum agente de verdade é chamado) que finge trabalhar, com a tarefa virando conversa e o estado e a atividade mudando. Serve para ver os patos da equipe andando juntos sem gastar limite.
+
+A tela **Automações** já vem com três automações de mentira (uma que rodou, uma com a hora perdida e uma pausada); **Rodar agora** nelas abre o mesmo terminal de mentira.
 
 </details>
 

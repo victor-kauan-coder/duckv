@@ -221,6 +221,7 @@ fun TelaAutomacao(e: Estado?, id: String?, aoVoltar: () -> Unit, aoAbriuSessao: 
                 ) {
                     Text("Hora", style = Texto.rotulo, color = c.apoio, modifier = Modifier.weight(1f))
                     Text(horaTexto, style = Texto.conta, color = c.texto)
+                    Icon(Icons.Rounded.Schedule, null, Modifier.padding(start = 10.dp).size(20.dp), tint = c.apoio)
                 }
                 if (tipo == "semanal") Column {
                     CabecalhoAjuste("Dia da semana", null)
