@@ -12,7 +12,8 @@ const WebSocket = (await import(pathToFileURL(require.resolve('ws')).href)).defa
 const PORT = '18766';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) process.exitCode = 1; };
-const proj = path.join(os.homedir(), 'duckv-teste-proj'); fs.mkdirSync(proj, { recursive: true });
+// Pasta do projeto temporaria, dentro da pasta pessoal (folderAllowed so aceita de la); apagada no fim.
+const proj = fs.mkdtempSync(path.join(os.homedir(), 'duckv-teste-proj-'));
 fs.writeFileSync(path.join(TMP, 'contas.json'), JSON.stringify([{ id: 'conta1', nome: 'Conta 1', cor: '#ff7a1a', dir: path.join(TMP, 'c1') }]));
 const env = { ...process.env, PAINEL_CODIGO: 'codigo-de-teste-0123456789', PAINEL_PORT: PORT, PAINEL_DATA: TMP, PAINEL_CONTAS: path.join(TMP, 'contas.json'), FAKE_HOOK: path.join(ROOT, 'agent/hook.mjs'), PAINEL_CLAUDE_CMD: JSON.stringify([process.execPath, path.join(AQUI, 'terminal-de-mentira.mjs')]) };
 const hub = spawn(process.execPath, [path.join(ROOT, 'hub/server.mjs'), '--sem-qr'], { env, stdio: ['ignore', 'ignore', 'inherit'] });
@@ -50,7 +51,7 @@ ok((await ask({ t: 'start', account: 'conta1', cwd: proj, mode: 'bypassPermissio
 for (const [campo, valor] of [['effort', 'high & calc'], ['effort', 'high|whoami'], ['mode', 'acceptEdits & calc'], ['model', 'sonnet%PATH%'], ['model', 'claude-x"&calc&"'], ['resume', '..\\x & calc'], ['resume', 'abc123%COMSPEC%']])
   ok((await ask({ t: 'start', account: 'conta1', cwd: proj, model: 'sonnet', [campo]: valor })).t === 'err', `${campo} com metacaracteres do cmd.exe e recusado: ${valor}`);
 const ls = await ask({ t: 'ls', path: os.homedir() });
-ok(ls.t === 'ack' && ls.dirs.includes('duckv-teste-proj'), 'lista de pastas para escolher');
+ok(ls.t === 'ack' && ls.dirs.includes(path.basename(proj)), 'lista de pastas para escolher');
 const st = await ask({ t: 'start', account: 'conta1', cwd: proj, model: 'sonnet', effort: 'high', mode: 'acceptEdits', name: 'Teste & "x"', cols: 52, rows: 24 });
 ok(st.t === 'ack' && st.instance, `sessao aberta pelo celular (${st.instance || st.msg})`);
 const id = st.instance;

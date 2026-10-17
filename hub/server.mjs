@@ -21,7 +21,7 @@ import { agenteDe, ehAgente, catalogo, instalado, sairDaConta } from './agentes.
 import { listarComandos } from './comandos.mjs';
 import { criarAtualizacao } from './atualizacao.mjs';
 import { hostPermitido } from './rede.mjs';
-import { novoIdEquipe, briefingEquipe } from './equipe.mjs';
+import { novoIdEquipe, briefingEquipe, criarArquivoDaEquipe } from './equipe.mjs';
 import { semBlocos } from '../lib/texto.mjs';
 import { textoPerigoso as filtrarTexto } from './filtro.mjs';
 import { terminalLinux } from '../lib/atalhos.mjs';
@@ -1394,13 +1394,23 @@ function abrirEquipe(m) {
           : `Só cabe${cabem === 1 ? '' : 'm'} mais ${cabem} ${cabem === 1 ? 'sessão' : 'sessões'} agora, e esta equipe precisa de ${ids.length}. Encerre algumas sessões ou escolha menos contas.`,
     };
   }
+  // A pasta e conferida aqui, antes de qualquer sessao, porque o arquivo da equipe nasce dentro dela.
+  const cwd = folderAllowed(String(m.cwd || ''), cfg.pastasPermitidas || [], folders);
+  if (!cwd) {
+    return { err: 'Pasta não encontrada ou fora das pastas permitidas. Abra uma sessão nela pelo computador uma vez, ou inclua a pasta em "pastasPermitidas" no arquivo data/config.json.' };
+  }
   const id = novoIdEquipe();
   const nomes = ids.map((x) => (accounts.has(x) ? pubAccount(x).nome : x));
+  // O arquivo onde a divisao e combinada nasce antes das sessoes: nenhum pato comeca sem nada se o
+  // pato 1 nao abrir. Falhar aqui nao impede a equipe, so muda o que o briefing manda fazer.
+  const doc = criarArquivoDaEquipe(cwd, { id, nomes, tarefa });
+  if (doc.erro) console.error(`Nao consegui criar o ${doc.arquivo}:`, doc.erro);
   const instancias = [];
+  const ordens = [];
   const falhas = [];
   for (const [i, conta] of ids.entries()) {
     const r = accounts.has(conta)
-      ? startSession({ account: conta, cwd: m.cwd, model: m.model, effort: m.effort, mode: m.mode, cols: m.cols, rows: m.rows, name: cortar(tarefa, 50), texto: briefingEquipe({ id, ordem: i + 1, nomes, tarefa }) })
+      ? startSession({ account: conta, cwd, model: m.model, effort: m.effort, mode: m.mode, cols: m.cols, rows: m.rows, name: cortar(tarefa, 50) })
       : { err: 'Conta não encontrada.' };
     if (r.err) {
       falhas.push({ conta, erro: r.err });
@@ -1409,8 +1419,14 @@ function abrirEquipe(m) {
     const inst = instances.get(r.id);
     if (inst) inst.equipe = { id, ordem: i + 1, total: ids.length };
     instancias.push(r.id);
+    ordens.push(i + 1);
   }
   if (!instancias.length) return { err: falhas[0]?.erro || 'Não consegui abrir nenhuma sessão da equipe.' };
+  // O briefing vai depois de todas abrirem: assim ele diz quem abriu de verdade e quem propoe a divisao.
+  // Ele e a primeira mensagem de cada sessao, digitada quando a caixa de mensagem do agente aparecer.
+  for (const [k, inst] of instancias.map((x) => instances.get(x)).entries()) {
+    inst?.hosted?.send(briefingEquipe({ id, ordem: ordens[k], nomes, tarefa, abertos: ordens, arquivo: !doc.erro }));
+  }
   dirty();
   return { equipe: id, instances: instancias, falhas: falhas.length ? falhas : null };
 }
