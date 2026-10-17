@@ -300,7 +300,7 @@ Com as cópias ligadas, o bloco **Equipe** ganha **O que cada pato fez**: por pa
 - **Juntar este** traz o branch daquele pato para a pasta principal com `git merge --no-ff`. Se a pasta principal tiver mudanças sem commit, o botão fica desligado e o duckV explica por quê; se o merge der conflito, ele desfaz o merge e diz quais arquivos bateram de frente, para você resolver no terminal.
 - **Limpar a equipe** tira as cópias e os branches daquela equipe (pergunta antes). As sessões da equipe precisam estar encerradas, porque as pastas delas vão sair. O que já foi juntado na pasta principal continua lá.
 
-No computador, **O que cada pato fez** abre no mesmo bloco da equipe e relê sozinho quando um pato termina a vez.
+No computador, **O que cada pato fez** abre no mesmo bloco da equipe e relê sozinho quando um pato termina a vez. Ali também fica **Comparar lado a lado**: uma coluna por pato com os arquivos que ele mexeu e quantas linhas em cada um; o arquivo que mais de um pato mexeu aparece marcado nas duas colunas, que é onde o segundo merge pode dar conflito.
 
 ### Abrir uma sessão no computador
 
