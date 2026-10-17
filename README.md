@@ -249,6 +249,11 @@ No Linux, para o duckV se publicar no Tailscale sem `sudo`, rode uma vez `sudo t
 <td align="center"><img src="docs/imagens/10-opcoes.png" alt="Opções" width="250"><br><b>Opções</b><br><sub>Tema, pato, avisos, contas e mensagens rápidas.</sub></td>
 <td align="center"><img src="docs/imagens/11-inicio-escuro.png" alt="Tema escuro" width="250"><br><b>Tema escuro</b><br><sub>Segue o celular, ou escolha nas Opções.</sub></td>
 </tr>
+<tr>
+<td align="center"><img src="docs/imagens/16-automacoes.png" alt="Automações" width="250"><br><b>Automações</b><br><sub>A hora marcada, a próxima execução e como foi a última.</sub></td>
+<td align="center"><img src="docs/imagens/17-equipe-resultado.png" alt="O que cada pato fez" width="250"><br><b>O que cada pato fez</b><br><sub>Com uma cópia por pato: o branch, os commits e as linhas de cada um, com juntar e limpar.</sub></td>
+<td></td>
+</tr>
 </table>
 
 <sub>Capturas feitas no modo demonstração: contas, sessões e números de mentira.</sub>
