@@ -128,6 +128,8 @@ const savePrefs = () => writeJson(PREFS_FILE, prefs);
 // O celular so escolhe valores das listas fechadas de cada agente.
 const temOpcao = (lista, v) => lista.some(([id]) => id === v);
 const texto = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+// Corte que respeita a palavra: serve ao nome que o duckV tira da primeira mensagem da sessao.
+const cortar = (t, n) => (t.length <= n ? t : t.slice(0, n).replace(/\s+\S*$/, '') || t.slice(0, n));
 
 function setPrefs(m) {
   if (m.op === 'conta') {
@@ -440,7 +442,9 @@ function snapshot() {
       tokens: a.tokens,
       lastReset: a.lastReset,
       agente: a.agente || 'claude',
-      instalado: instalado(agenteDe(a.agente)),
+      // "instalado" quer dizer "da para abrir sessao nesta conta": nos testes e na demonstracao, o
+      // terminal de mentira faz o papel do agente.
+      instalado: contaInstalada(a),
       padrao: !!a.padrao,
     })),
     instances: [...instances.values()].map(pubInst),
@@ -1275,7 +1279,7 @@ function startSession(m) {
     if (proibido) return { err: proibido };
   }
   // Sem nome escolhido, a sessao se chama pela primeira mensagem, como as conversas do computador.
-  if (!name && primeira) name = primeira.replace(/[^\p{L}\p{N} _.-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) || null;
+  if (!name && primeira) name = cortar(primeira.replace(/[^\p{L}\p{N} _.-]/gu, ' ').replace(/\s+/g, ' ').trim(), 40) || null;
   if ([...instances.values()].filter((i) => i.hosted).length >= 8) return { err: 'Já existem 8 sessões abertas pelo celular. Encerre uma antes de abrir outra.' };
 
   const id = `${acc.id}-c${crypto.randomBytes(4).toString('hex')}`;
@@ -1391,7 +1395,7 @@ function abrirEquipe(m) {
   const falhas = [];
   for (const [i, conta] of ids.entries()) {
     const r = accounts.has(conta)
-      ? startSession({ account: conta, cwd: m.cwd, model: m.model, effort: m.effort, mode: m.mode, cols: m.cols, rows: m.rows, name: tarefa, texto: briefingEquipe({ id, ordem: i + 1, nomes, tarefa }) })
+      ? startSession({ account: conta, cwd: m.cwd, model: m.model, effort: m.effort, mode: m.mode, cols: m.cols, rows: m.rows, name: cortar(tarefa, 50), texto: briefingEquipe({ id, ordem: i + 1, nomes, tarefa }) })
       : { err: 'Conta não encontrada.' };
     if (r.err) {
       falhas.push({ conta, erro: r.err });
