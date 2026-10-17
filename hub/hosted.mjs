@@ -213,7 +213,8 @@ export function readFooter(lines) {
 }
 
 // Abre o Claude Code no terminal virtual. `opts`: cwd, env, model, effort, mode,
-// name, cols, rows, command (para testes), onScreen(snapshot), onExit(code).
+// name, cols, rows, command (para testes), onScreen(snapshot), onExit(code),
+// ocupado() (o agente esta no meio de um turno) e onFila(itens) (a fila de mensagens mudou).
 // "claude auth login" numa pasta de conta, sem janela: devolve o link de entrada que ele mostra
 // e depois recebe o codigo que a pagina da Anthropic exibe ao fim do login.
 export function loginConta(dir) {
@@ -361,7 +362,11 @@ export function startHosted(opts) {
 
   // Mensagens do celular esperam a caixa de mensagem do Claude Code aparecer na tela:
   // uma linha que comeca com o marcador de entrada e nao e opcao numerada de menu.
+  // Com o agente no meio de um turno (opts.ocupado), esperam tambem o turno acabar: ate la o app
+  // mostra cada uma como "Na fila", para editar ou tirar.
   const fila = [];
+  let seqFila = 0;
+  const filaMudou = () => opts.onFila?.(fila.map(({ id, texto }) => ({ id, texto })));
   let digitando = false;
   // Mensagem esperando a caixa ha muito tempo: avisa uma vez, com o que a tela mostra, em vez de esperar calada.
   let esperaDesde = 0;
@@ -372,8 +377,16 @@ export function startHosted(opts) {
     const ls = snapshot().lines;
     return ls.some((l) => CAIXA.test(l)) && !readPrompt(ls);
   };
+  let esperando = null;
   function esvaziar() {
     if (digitando || !fila.length || !alive) return;
+    if (opts.ocupado?.()) {
+      // O turno acabar chama soltar(); a volta de tempo e so por garantia.
+      esperaDesde = 0;
+      clearTimeout(esperando);
+      esperando = setTimeout(esvaziar, 1000);
+      return;
+    }
     if (!pronto()) {
       esperaDesde ||= Date.now();
       if (!avisouEspera && Date.now() - esperaDesde > 12000) {
@@ -386,7 +399,8 @@ export function startHosted(opts) {
     esperaDesde = 0;
     avisouEspera = false;
     digitando = true;
-    const t = fila.shift();
+    const t = fila.shift().texto;
+    filaMudou();
     // Limpa a caixa antes: depois de Interromper, o Claude Code devolve a ultima mensagem para ela.
     // Limite: Ctrl+U apaga so a linha atual; sobra de varias linhas ainda grudaria.
     write('\x15');
@@ -503,11 +517,34 @@ export function startHosted(opts) {
     send(text) {
       const t = cleanText(text).trim();
       if (!t) return false;
-      fila.push(t);
+      fila.push({ id: `f${++seqFila}`, texto: t });
+      filaMudou();
       esvaziar();
       return true;
     },
     pendentes: () => fila.length,
+    fila: () => fila.map(({ id, texto }) => ({ id, texto })),
+    // Troca o texto de uma mensagem que ainda espera na fila. Falso se ela ja foi digitada.
+    editarFila(id, texto) {
+      const item = fila.find((x) => x.id === id);
+      const t = cleanText(texto).trim();
+      if (!item || !t) return false;
+      item.texto = t;
+      filaMudou();
+      return true;
+    },
+    tirarDaFila(id) {
+      const i = fila.findIndex((x) => x.id === id);
+      if (i < 0) return false;
+      fila.splice(i, 1);
+      filaMudou();
+      return true;
+    },
+    // O turno acabou: o que esperava na fila segue para a caixa de mensagem.
+    soltar() {
+      clearTimeout(esperando);
+      esvaziar();
+    },
     // A tela de agora como texto, com a posicao do cursor: o ponto de partida de um terminal que acabou de abrir.
     tela() {
       const s = snapshot();
@@ -532,6 +569,7 @@ export function startHosted(opts) {
       fila.length = 0;
       esperaDesde = 0;
       avisouEspera = false;
+      if (n) filaMudou();
       return n;
     },
     kill() {
