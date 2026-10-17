@@ -74,6 +74,9 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Difference
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -126,6 +129,7 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
     val c = cores
     val aviso = LocalAviso.current
     var aba by rememberSaveable(id) { mutableStateOf("conversa") }
+    var buscaAberta by rememberSaveable(id) { mutableStateOf(false) }
     DisposableEffect(id) {
         Hub.abrir(id)
         onDispose { Hub.fechar(id) }
@@ -160,6 +164,8 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                     }
                 }
             }
+            // buscar na conversa: a barra abre em cima das mensagens
+            if (s != null && aba == "conversa") IconButton({ buscaAberta = !buscaAberta }) { Icon(Icons.Rounded.Search, if (buscaAberta) "Fechar a busca" else "Buscar na conversa", tint = c.texto) }
             // previas, arquivos e artefatos desta sessao: o botao so aparece quando ha algo para ver
             var verPrevias by remember { mutableStateOf(false) }
             if (s != null && !s.previas.vazio) {
@@ -179,7 +185,8 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
         if (aba != "terminal") Abas(aba, cor) { aba = it }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (aba) {
-                "conversa" -> Conversa(s, cor, ferramentas)
+                "conversa" -> Conversa(s, cor, ferramentas, buscaAberta) { buscaAberta = false }
+                "mudancas" -> Mudancas(s, cor)
                 "controles" -> Controles(e, s, cor, { aba = "terminal" }, { aoNova(s.conta) })
                 else -> Terminal(s) { aba = "controles" }
             }
@@ -191,7 +198,8 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
                     Pedidos(e, listOf(s)) { aba = "terminal" }
                 }
             }
-            if (aba == "conversa") Escrever(e, s, cor, pato, conta?.pato, patoVivo, aoIrPara)
+            // buscando, a barra de busca toma o lugar da caixa: o teclado nao esconde a conversa
+            if (aba == "conversa" && !buscaAberta) Escrever(e, s, cor, pato, conta?.pato, patoVivo, aoIrPara)
             else Box(Modifier.navigationBarsPadding())
         }
     }
@@ -201,7 +209,7 @@ fun TelaSessao(e: Estado?, id: String, pato: String, ferramentas: Boolean, aoVol
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 private fun Abas(aba: String, cor: Color, aoTrocar: (String) -> Unit) {
     val c = cores
-    val abas = listOf(Triple("conversa", "Conversa", Icons.Rounded.ChatBubbleOutline), Triple("controles", "Controles", Icons.Rounded.Tune))
+    val abas = listOf(Triple("conversa", "Conversa", Icons.Rounded.ChatBubbleOutline), Triple("mudancas", "Mudanças", Icons.Rounded.Difference), Triple("controles", "Controles", Icons.Rounded.Tune))
     androidx.compose.material3.PrimaryTabRow(
         abas.indexOfFirst { it.first == aba }.coerceAtLeast(0), containerColor = c.fundo, contentColor = c.texto,
         indicator = {
@@ -226,13 +234,22 @@ private fun Abas(aba: String, cor: Color, aoTrocar: (String) -> Unit) {
 // ------------------------------------------------------------ conversa
 
 @Composable
-private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
+private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean, buscaAberta: Boolean = false, aoFecharBusca: () -> Unit = {}) {
     val c = cores
     val todas by Hub.conversa.collectAsState()
     val msgs = remember(todas, ferramentas) { agrupar(if (ferramentas) todas else todas.filter { it.papel != "tool" }) }
     val pend by Hub.aCaminho.collectAsState()
     val enviadas = remember(todas) { todas.filter { it.papel == "user" }.map { it.texto.trim() }.toSet() }
-    val acaminho = pend.filter { it.first == s.id && it.second.trim() !in enviadas }.map { it.second }.distinct()
+    // o que ja espera na fila do computador aparece nos cartoes "Na fila", nao aqui
+    val naFila = s.fila.map { it.texto.trim() }.toSet()
+    val acaminho = pend.filter { it.first == s.id && it.second.trim() !in enviadas && it.second.trim() !in naFila }.map { it.second }.distinct()
+    // Busca: cada achado aponta para a mensagem (grupo) onde esta; o atual ganha contorno.
+    var busca by rememberSaveable(s.id) { mutableStateOf("") }
+    var achado by remember(s.id) { androidx.compose.runtime.mutableIntStateOf(0) }
+    val q = if (buscaAberta) busca.trim() else ""
+    val achados = remember(msgs, q) { if (q.isEmpty()) emptyList() else msgs.flatMapIndexed { i, g -> if (g.first().papel == "user" || g.first().papel == "assistant") List(ocorrencias(g.first().texto, q)) { i } else emptyList() } }
+    LaunchedEffect(q) { achado = (achados.size - 1).coerceAtLeast(0) }
+    val grupoAtual = achados.getOrNull(achado)
     // Quando a mensagem aparece de verdade, sai da lista de "a caminho".
     LaunchedEffect(enviadas) { Hub.aCaminho.value = Hub.aCaminho.value.filterNot { it.first == s.id && it.second.trim() in enviadas } }
     // copiar e reenviar: um toque em cada mensagem
@@ -272,11 +289,15 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
     LaunchedEffect(msgs.isNotEmpty()) { if (msgs.isNotEmpty() && base.value == null) base.value = msgs.map { it.first().id }.toSet() }
     LaunchedEffect(noFim, msgs.size) { if (noFim) vistas = msgs.size }
     val escopo = androidx.compose.runtime.rememberCoroutineScope()
+    // o item 0 e o resumo da sessao: a mensagem i fica no item i + 1
+    LaunchedEffect(grupoAtual) { grupoAtual?.let { lista.animateScrollToItem(it + 1) } }
     Box(Modifier.fillMaxSize()) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalBusca provides q) {
     LazyColumn(
         Modifier.fillMaxSize(),
         state = lista,
-        contentPadding = PaddingValues(16.dp),
+        // com a busca aberta, a barra fica por cima do comeco da lista
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp, top = if (buscaAberta) 84.dp else 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { InfoSessao(s, cor) }
@@ -291,7 +312,8 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
         itemsIndexed(msgs, key = { _, g -> g.first().id }) { i, g ->
             val id = g.first().id
             val novo = base.value?.let { id !in it && id !in animadas } ?: false
-            Chegando(novo, { animadas += id }, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
+            val marcado = i == grupoAtual
+            Chegando(novo, { animadas += id }, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).then(if (marcado) Modifier.border(2.dp, c.realce, RoundedCornerShape(16.dp)).padding(6.dp) else Modifier)) {
                 // horario quando a conversa ficou parada um tempo ou mudou de dia
                 val ts = g.first().ts
                 val antes = msgs.getOrNull(i - 1)?.last()?.ts ?: 0L
@@ -307,6 +329,7 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
         }
         // Mensagens aceitas pelo computador que o Claude Code ainda nao registrou: aparecem na hora, esmaecidas.
         items(acaminho, key = { "pend:" + it }) { t -> Chegando(true, {}, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) { MensagemACaminho(t, cor, aoCopiar = copiar, aoTirar = if (s.hospedada) tirarDaFila else null) } }
+    }
     }
     AnimatedVisibility(
         !noFim && msgs.isNotEmpty(),
@@ -324,6 +347,13 @@ private fun Conversa(s: Sessao, cor: Color, ferramentas: Boolean) {
                 if (novas > 0) androidx.compose.material3.Badge(containerColor = cor, contentColor = c.noPrimario) { Text("$novas") }
             }) { Icon(Icons.Rounded.KeyboardArrowDown, if (novas > 0) "Ir para o fim, $novas novas" else "Ir para o fim") }
         }
+    }
+    if (buscaAberta) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(c.fundo)) {
+        BarraBusca(busca, { busca = it }, achado, achados.size,
+            aoAnterior = { if (achados.isNotEmpty()) achado = (achado - 1 + achados.size) % achados.size },
+            aoProximo = { if (achados.isNotEmpty()) achado = (achado + 1) % achados.size },
+            aoFechar = { busca = ""; aoFecharBusca() })
+        Divisoria()
     }
     }
 }
@@ -458,7 +488,9 @@ private fun ContextoDetalhado(s: Sessao, cor: Color, sempreAberto: Boolean = fal
 private val INLINE = Regex("""\*\*([^*]+)\*\*|`([^`]+)`""")
 
 @Composable
-private fun textoRico(t: String, c: Cores): AnnotatedString = buildAnnotatedString {
+private fun textoRico(t: String, c: Cores): AnnotatedString {
+    val q = LocalBusca.current
+    return buildAnnotatedString {
     t.lines().forEachIndexed { i, linhaCrua ->
         if (i > 0) append('\n')
         var linha = linhaCrua
@@ -478,6 +510,16 @@ private fun textoRico(t: String, c: Cores): AnnotatedString = buildAnnotatedStri
         }
         append(linha.substring(fim))
         if (titulo) pop()
+    }
+    // o texto buscado (barra de busca da conversa) fica marcado em laranja
+    if (q.isNotBlank()) {
+        val pronto = toAnnotatedString().text
+        var k = pronto.indexOf(q, ignoreCase = true)
+        while (k >= 0) {
+            addStyle(SpanStyle(background = c.primario.copy(alpha = 0.45f)), k, k + q.length)
+            k = pronto.indexOf(q, k + q.length, ignoreCase = true)
+        }
+    }
     }
 }
 
@@ -1054,6 +1096,13 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, pato: String, tipo: Strin
     }
     var verContexto by remember { mutableStateOf(false) }
     var verModo by remember { mutableStateOf(false) }
+    var verHistorico by remember { mutableStateOf(false) }
+    val todasMsgs by Hub.conversa.collectAsState()
+    val historico = remember(todasMsgs) {
+        todasMsgs.filter { it.papel == "user" }.map { anexosDoTexto(semMarcaVoz(it.texto)).first.trim() }.filter { it.isNotEmpty() }
+            .fold(mutableListOf<String>()) { l, t -> if (l.lastOrNull() != t) l += t; l }.reversed()
+    }
+    if (verHistorico) FolhaHistorico(historico, { t -> verHistorico = false; mudarTexto(t); runCatching { foco.requestFocus() } }) { verHistorico = false }
     if (verContexto) {
         androidx.compose.material3.ModalBottomSheet({ verContexto = false }, containerColor = c.fundo) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1098,6 +1147,7 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, pato: String, tipo: Strin
         if (s.pergunta != null) {
             Text("Responda a pergunta acima. O que você escrever aqui espera ela fechar.", style = Texto.pequeno, color = c.apoio, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
         }
+        CartoesNaFila(s)
         if (anexos.isNotEmpty() || subindo > 0) AnexosAntesDeEnviar(anexos.toList(), subindo, cor) { anexos.remove(it) }
         if (temPrint && anexos.size < 10) {
             androidx.compose.material3.AssistChip(
@@ -1116,6 +1166,27 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, pato: String, tipo: Strin
         if (achados.isNotEmpty()) {
             ListaComandos(achados, s.hospedada, e.agenteDa(s.conta).curto) { cmd ->
                 if (cmd.bloqueado != null) aviso(cmd.bloqueado) else mudarTexto(cmd.nome + " ")
+            }
+        }
+        // Digitou "@": arquivos da pasta da sessao, filtrando pelo que vem depois dele.
+        val citacao = citacaoNoCursor(campo.text, campo.selection.end)
+        var arquivosAchados by remember(s.id) { mutableStateOf<List<String>>(emptyList()) }
+        LaunchedEffect(citacao?.second) {
+            val cq = citacao?.second
+            if (cq == null) {
+                arquivosAchados = emptyList()
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.delay(150)
+            Hub.arquivos(s.id, cq) { arquivosAchados = it.take(20) }
+        }
+        if (citacao != null && arquivosAchados.isNotEmpty() && !ditado.ativo) {
+            ListaArquivos(arquivosAchados) { caminho ->
+                val ini = citacao.first
+                val novo = campo.text.substring(0, ini) + "@" + caminho + " " + campo.text.substring(campo.selection.end.coerceAtMost(campo.text.length))
+                val pos = ini + caminho.length + 2
+                campo = androidx.compose.ui.text.input.TextFieldValue(novo, androidx.compose.ui.text.TextRange(pos))
+                arquivosAchados = emptyList()
             }
         }
         // segurando, o microfone continua no mesmo lugar para nao perder o dedo; a transcricao aparece em cima
@@ -1146,6 +1217,8 @@ private fun Escrever(e: Estado, s: Sessao, cor: Color, pato: String, tipo: Strin
             }
             Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton({ verAnexar = true }) { Icon(Icons.Rounded.AttachFile, "Anexar: câmera, galeria ou arquivo", tint = c.apoio) }
+                // no lugar das setas do teclado: o que voce ja mandou nesta sessao, para usar de novo
+                if (texto.isBlank() && historico.isNotEmpty()) IconButton({ verHistorico = true }) { Icon(Icons.Rounded.History, "Mensagens que você mandou", tint = c.apoio) }
                 // o que a sessao faz agora, ao lado do pato que anda em cima da caixa
                 EstadoDaDoca(s, Modifier.weight(1f).padding(end = 4.dp))
                 // A bolinha do contexto, como no Claude: enche conforme a conversa ocupa a memoria.
