@@ -5,6 +5,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('duckvApp', {
   contagem: (n) => ipcRenderer.send('duckv:contagem', Number(n) || 0),
+  // quantas sessoes abertas pelo duckV estao vivas: sair do app pergunta antes de encerrar
+  sessoesAbertas: (n) => ipcRenderer.send('duckv:sessoes', Number(n) || 0),
   // Janela sem a barra de titulo do sistema: a pagina desenha o topo e passa as cores dos botoes.
   janelaPropria: true,
   plataforma: process.platform,

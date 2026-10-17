@@ -251,6 +251,9 @@ fun Inicio(
                 }
             }
 
+            // sessoes que estavam abertas quando o duckV desligou: retomar continua cada conversa
+            if (e.retomaveis.isNotEmpty()) FaixaRetomar(e, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp))
+
             HorizontalPager(pager, Modifier.fillMaxSize(), key = { contas.getOrNull(it)?.id ?: it }, beyondViewportPageCount = 1) { i ->
                 val conta = contas.getOrNull(i) ?: return@HorizontalPager
                 val rolagem = rememberScrollState()

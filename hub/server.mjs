@@ -118,6 +118,8 @@ for (const a of loadAccounts()) {
     tokCache: new Map(),
   });
 }
+// As que estavam vivas quando o duckV desligou (veja "retomar depois de desligar").
+let retomaveis = (Array.isArray(saved.retomar) ? saved.retomar : []).filter((r) => r && accounts.has(r.account) && /^[\w.-]{6,80}$/.test(String(r.sessionId || ''))).slice(0, 8);
 // Opcoes escolhidas no app: valem para todos os celulares pareados.
 const RAPIDAS_PADRAO = ['Pode continuar.', 'Rode os testes e me diga o resultado.', 'Resuma o que você fez até agora.', 'Faça o commit do que está pronto.', 'Explique essa última mudança.'];
 const prefs = { contas: {}, avisos: { perm: true, fim: true, reset: true, limiar: 80 }, rapidas: RAPIDAS_PADRAO, ...(readJson(PREFS_FILE, {}) || {}) };
@@ -448,6 +450,8 @@ function snapshot() {
       padrao: !!a.padrao,
     })),
     instances: [...instances.values()].map(pubInst),
+    // sessoes que estavam abertas quando o duckV desligou, esperando "Retomar" ou "Descartar"
+    retomaveis: retomaveis.map((r) => ({ sid: r.sessionId, account: r.account, name: r.name, cwd: r.cwd })),
     host: {
       available: hostedAvailable(),
       error: hostedAvailable() ? null : hostedError(),
@@ -488,7 +492,7 @@ function persistSoon() {
       };
     }
     try {
-      writeJson(STATE_FILE, { usage, lastReset, inst, folders });
+      writeJson(STATE_FILE, { usage, lastReset, inst, folders, retomar: listaParaRetomar() });
     } catch (e) {
       console.error('Nao consegui salvar o estado:', e.message);
     }
@@ -862,6 +866,23 @@ async function onPhoneMessage(c, m) {
       else send(c, { t: 'ack', ref: m.ref, equipe: r.equipe, instances: r.instances, falhas: r.falhas || undefined });
       break;
     }
+    // Sessoes que estavam abertas quando o duckV desligou: { t: 'retomar', sids? } (sem sids, todas)
+    // e { t: 'retomarDescartar', sids? }.
+    case 'retomar': {
+      const sids = Array.isArray(m.sids) ? m.sids.map(String) : null;
+      const r = retomarSessoes(sids);
+      if (!r.abertas.length && r.falhas.length) send(c, { t: 'err', ref: m.ref, msg: r.falhas[0].erro });
+      else send(c, { t: 'ack', ref: m.ref, instances: r.abertas, falhas: r.falhas.length ? r.falhas : undefined });
+      break;
+    }
+    case 'retomarDescartar': {
+      const sids = Array.isArray(m.sids) ? m.sids.map(String) : null;
+      retomaveis = retomaveis.filter((r) => sids && !sids.includes(r.sessionId));
+      persistSoon();
+      dirty();
+      send(c, { t: 'ack', ref: m.ref });
+      break;
+    }
     case 'stop': {
       const inst = instances.get(m.instance);
       if (!inst?.hosted) send(c, { t: 'err', ref: m.ref, msg: 'Só dá para encerrar daqui as sessões abertas pelo celular.' });
@@ -991,38 +1012,13 @@ async function onPhoneMessage(c, m) {
         break;
       }
       const item = acc && historicoDa(acc).find((x) => x.sid === m.sid);
-      if (item && (acc.agente || 'claude') !== 'claude') {
-        const viva = [...instances.values()].find((i) => i.sessionId === item.sid && i.status !== 'ended');
-        if (viva) {
-          send(c, { t: 'ack', ref: m.ref, instance: viva.id });
-          break;
-        }
-        const ag = agenteDe(acc.agente);
-        const inst = getInst(`hist-${idCurto(item.sid)}`, acc.id);
-        Object.assign(inst, { historico: true, agente: ag.id, sessionId: item.sid, cwd: item.cwd, name: item.titulo, startedAt: item.mtime, leitor: { file: item.file, mtime: 0 } });
-        lerLeitor(inst, ag, acc);
-        dirty();
-        send(c, { t: 'ack', ref: m.ref, instance: inst.id });
-        break;
-      }
       if (!item) {
         send(c, { t: 'err', ref: m.ref, msg: 'Essa conversa não foi encontrada.' });
         break;
       }
       // Ja aberta (no celular, no computador ou como leitura)? Vai para ela.
       const viva = [...instances.values()].find((i) => i.sessionId === item.sid && i.status !== 'ended');
-      if (viva) {
-        send(c, { t: 'ack', ref: m.ref, instance: viva.id });
-        break;
-      }
-      const inst = getInst(`hist-${idCurto(item.sid)}`, acc.id);
-      inst.historico = true;
-      inst.sessionId = item.sid;
-      inst.configDir = item.origem === 'conta' ? acc.dir : null;
-      inst.cwd = item.cwd;
-      inst.name = item.titulo;
-      inst.startedAt = item.mtime;
-      setTranscript(inst, item.file);
+      const inst = viva || instDoHistorico(acc, item);
       dirty();
       send(c, { t: 'ack', ref: m.ref, instance: inst.id });
       break;
@@ -1251,6 +1247,73 @@ function waitPermission(body, res) {
     });
     addPerm(inst, perm);
   });
+}
+
+// Uma conversa do historico aberta para ler (e continuar dali): "Todas as conversas" e a retomada.
+function instDoHistorico(acc, item) {
+  const inst = getInst(`hist-${idCurto(item.sid)}`, acc.id);
+  Object.assign(inst, { historico: true, sessionId: item.sid, cwd: item.cwd, name: item.titulo, startedAt: item.mtime });
+  if ((acc.agente || 'claude') !== 'claude') {
+    const ag = agenteDe(acc.agente);
+    Object.assign(inst, { agente: ag.id, leitor: { file: item.file, mtime: 0 } });
+    lerLeitor(inst, ag, acc);
+  } else {
+    inst.configDir = item.origem === 'conta' ? acc.dir : null;
+    setTranscript(inst, item.file);
+  }
+  return inst;
+}
+
+// ---------------------------------------------------------------- retomar depois de desligar
+// As sessoes abertas pelo duckV morrem junto com ele (computador reiniciado, app fechado, queda).
+// O estado salvo guarda quais estavam vivas; ao ligar de novo, o duckV oferece retomar cada uma
+// com --resume, na mesma conversa, conta, pasta, modelo, esforco e modo. Encerrar uma sessao (ou o
+// agente sair sozinho) tira ela da lista. Nada abre sem alguem tocar em Retomar.
+const paraRetomar = (i) => ({
+  account: i.account,
+  sessionId: i.sessionId,
+  name: i.name || null,
+  cwd: i.cwd,
+  model: i.model || null,
+  effort: i.effort || null,
+  mode: i.permMode === 'default' ? 'manual' : i.permMode || null,
+  equipe: i.equipe || null,
+});
+const vivaParaRetomar = (i) => !!i.hosted && i.status !== 'ended' && !i.login && /^[\w.-]{6,80}$/.test(String(i.sessionId || ''));
+function listaParaRetomar() {
+  const vistas = new Set();
+  return [...retomaveis, ...[...instances.values()].filter(vivaParaRetomar).map(paraRetomar)].filter((r) => !vistas.has(r.sessionId) && vistas.add(r.sessionId)).slice(0, 8);
+}
+function retomarSessoes(sids) {
+  const escolhidas = retomaveis.filter((r) => !sids || sids.includes(r.sessionId));
+  retomaveis = retomaveis.filter((r) => !escolhidas.includes(r));
+  const abertas = [];
+  const falhas = [];
+  for (const r of escolhidas) {
+    const acc = accounts.get(r.account);
+    const ag = agenteDe(acc?.agente);
+    const viva = [...instances.values()].find((i) => i.sessionId === r.sessionId && i.hosted && i.status !== 'ended');
+    let res = viva ? { id: viva.id } : null;
+    if (!res) {
+      const item = acc && historicoDa(acc).find((x) => x.sid === r.sessionId);
+      if (!item) res = { err: 'A conversa não está mais no histórico da conta.' };
+      else {
+        instDoHistorico(acc, item);
+        // opcoes que o agente nao conhece mais (atualizou) ficam no padrao, em vez de impedir a retomada
+        const vale = (lista, v) => (v && temOpcao(lista, v) ? v : null);
+        res = startSession({ resume: r.sessionId, model: vale(ag.modelos, r.model) || 'default', effort: vale(ag.esforcos, r.effort), mode: vale(ag.modos, r.mode), cols: 110, rows: 34 });
+      }
+    }
+    if (res.err) falhas.push({ sid: r.sessionId, nome: r.name, erro: res.err });
+    else {
+      abertas.push(res.id);
+      const inst = instances.get(res.id);
+      if (inst && r.equipe) inst.equipe = r.equipe;
+    }
+  }
+  persistSoon();
+  dirty();
+  return { abertas, falhas };
 }
 
 function startSession(m) {
@@ -1627,7 +1690,11 @@ function onHook(body) {
   inst.updatedAt = now();
   inst.endedAt = null;
   if (inst.status === 'ended') inst.status = 'idle';
-  if (ev.session_id) inst.sessionId = ev.session_id;
+  if (ev.session_id && inst.sessionId !== ev.session_id) {
+    inst.sessionId = ev.session_id;
+    // com o id da conversa, a sessao aberta pelo duckV entra na lista para retomar depois de desligar
+    if (inst.hosted) persistSoon();
+  }
   if (ev.cwd) {
     inst.cwd = ev.cwd;
     rememberFolder(ev.cwd);
@@ -1724,7 +1791,10 @@ function onStatus(body) {
     inst.status = 'idle';
     inst.endedAt = null;
   }
-  if (d.session_id) inst.sessionId = d.session_id;
+  if (d.session_id && inst.sessionId !== d.session_id) {
+    inst.sessionId = d.session_id;
+    if (inst.hosted) persistSoon();
+  }
   if (d.cwd) inst.cwd = d.cwd;
   if (d.session_name) inst.name = clip(d.session_name, 80);
   if (d.model) inst.model = clip(d.model, 60);

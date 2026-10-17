@@ -141,8 +141,12 @@ process.stdin.on('data', (d) => {
     if (!d) return draw();
   }
   if (!confia) {
-    if (d === '1' || d === '\r') confia = true;
-    else if (d === '2' || d === '\x1b') process.exit(0);
+    if (d === '1' || d === '\r') {
+      confia = true;
+      // Com FAKE_SESSIONSTART=1 avisa o comeco da sessao, com o id da conversa, como o Claude Code faz
+      // (tests/retomar.mjs). O --resume, quando vem, vira o id: a conversa continua a mesma.
+      if (process.env.FAKE_SESSIONSTART === '1') aviso('SessionStart', { session_id: (/--resume (\S+)/.exec(args) || [])[1] || SESSAO });
+    } else if (d === '2' || d === '\x1b') process.exit(0);
     return draw();
   }
   if (d === '\x1b[A') sel = (sel + 2) % 3;

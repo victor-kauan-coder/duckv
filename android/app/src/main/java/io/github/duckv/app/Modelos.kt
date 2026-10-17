@@ -128,6 +128,8 @@ data class Estado(
     val app: VersaoApp? = null,
     /** Login no GitHub do computador (pelo gh), para as sessoes na nuvem. */
     val github: GithubEstado = GithubEstado(),
+    /** Sessoes abertas pelo duckV que estavam vivas quando ele desligou, esperando Retomar ou Descartar. */
+    val retomaveis: List<Retomavel> = emptyList(),
 ) {
     fun conta(id: String) = contas.find { it.id == id }
         ?: Conta(id, id, 0xFFFF7A1A, Padroes(null, null, null, null), null, null, null, null, null)
@@ -137,6 +139,8 @@ data class Estado(
 }
 
 /** Quem esta logado no GitHub do computador e, durante o login, o codigo de dispositivo. */
+data class Retomavel(val sid: String, val conta: String, val nome: String?, val cwd: String)
+
 data class GithubEstado(val instalado: Boolean? = null, val login: String? = null, val codigo: String? = null, val url: String? = null, val ate: Long = 0, val erro: String? = null)
 
 data class Msg(val id: String, val papel: String, val texto: String, val tool: String?, val doCelular: Boolean, val img: String? = null, val via: String? = null, val arq: String? = null, val ts: Long = 0)
@@ -262,6 +266,7 @@ fun lerEstado(m: JSONObject): Estado {
         arquivos = m.optJSONArray("arquivos").mapa {
             Arquivo(it.optString("id"), it.optString("nome"), it.optLong("tamanho"), it.optString("tipo"), it.optLong("em"), it.optString("nota"), it.s("conta"))
         },
+        retomaveis = m.optJSONArray("retomaveis").mapa { Retomavel(it.optString("sid"), it.optString("account"), it.s("name"), it.optString("cwd")) },
         github = m.optJSONObject("github")?.let { g ->
             val ent = g.optJSONObject("entrando")
             GithubEstado(

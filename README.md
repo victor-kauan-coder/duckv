@@ -399,7 +399,26 @@ Basta abrir o atalho **duckV**, ou nada, se você escolheu ligar o duckV junto c
 
 - O **celular continua pareado**: a chave dele fica salva no computador. O código do QR muda, mas ele só serve para parear um aparelho novo.
 - As **contas continuam logadas** e o Tailscale liga sozinho com o sistema.
-- As **sessões abertas não sobrevivem** ao reinício. As conversas ficam salvas: reabra pelo app, em **Todas as conversas**.
+- As **sessões abertas pelo duckV voltam com um toque**. Os processos não sobrevivem ao reinício, mas o duckV anota quais estavam abertas. Ao ligar de novo, aparece no topo da janela e do início do celular: "2 sessões estavam abertas quando o duckV desligou", com **Retomar** e **Descartar**. Retomar continua cada conversa de onde parou (`--resume`), na mesma conta, pasta, modelo, esforço e modo, e quem era de uma equipe volta para ela. Nada abre sozinho. Sessão que você encerrou não aparece. O mesmo vale quando o duckV cai ou é fechado. As conversas de terminais e as mais antigas continuam em **Todas as conversas**.
+- **Sair do app com sessões abertas** pergunta antes: **Esconder na bandeja** (o padrão) deixa tudo trabalhando e o celular funcionando; **Sair mesmo assim** encerra, e dá para retomar depois.
+
+### Sempre ligado (modo serviço)
+
+Para o duckV ficar de pé sem depender do app nem de um terminal aberto (num mini PC, num notebook velho que fica ligado ou numa VPS com o Tailscale), instale como serviço:
+
+```sh
+node tools/servico.mjs instalar   # liga agora, ao entrar no computador e volta sozinho se cair
+node tools/servico.mjs estado     # instalado? rodando?
+node tools/servico.mjs remover    # para de vez
+```
+
+| Sistema | Como fica |
+|---|---|
+| Linux | Unidade do systemd do usuário (`~/.config/systemd/user/duckv.service`), com religamento automático. Numa VPS, rode uma vez `sudo loginctl enable-linger $USER` para ele continuar depois de fechar o SSH (o instalador avisa). |
+| macOS | LaunchAgent (`~/Library/LaunchAgents/io.github.duckv.servico.plist`), que liga ao entrar e volta se cair. |
+| Windows | Valor `duckV` na inicialização do usuário (chave Run, sem precisar de administrador), que abre um vigia escondido: ele liga o duckV sem janela e o religa se cair, esperando cada vez mais entre as quedas. |
+
+O serviço usa o Node.js e a pasta de quando foi instalado; o registro fica em `data/servico.log`. Com o serviço ligado, o app do computador avisa que o duckV já está ligado. Para **parear um celular novo**, que pede os 4 números no terminal: `node tools/servico.mjs remover`, abra o duckV num terminal, pareie e instale de novo. Numa VPS, entre nas contas pelo celular (Opções › Contas › Entrar), que não precisa de navegador no servidor.
 
 ## Opções
 
@@ -514,6 +533,9 @@ Roda todas as baterias, uma depois da outra, e mostra o resumo (`node tests/roda
 | `sessoes` | Sessões abertas pelo celular, com um terminal de mentira no lugar do agente, e argumentos que tentam injetar comandos no `cmd.exe` |
 | `equipe` | "Todas as contas": uma sessão por conta na mesma pasta, o briefing de equipe, o mínimo de duas contas, a conta que falha sozinha e o limite de 8 sessões |
 | `desktop` | App do computador: a chave que só vale no próprio computador, pedidos que só o app pode fazer, terminal de verdade e arquivos de `node_modules` que não podem sair pelo servidor |
+| `rapido` | Abertura rápida (Ctrl+Alt+Espaço): o atalho, a janela isolada e o que o popup pode pedir ao app |
+| `retomar` | Sessões que voltam depois de desligar: o que fica anotado, a oferta ao ligar (sem abrir nada sozinho), a retomada com `--resume` na mesma conta, pasta e modo, descartar e encerrar |
+| `servico` | Modo serviço: a unidade do systemd, o LaunchAgent e o lançador do Windows com caminhos difíceis (aspas, `%`, `&`, acento), o vigia que religa, e sair do app com sessões abertas |
 | `seguranca` | Ataques de verdade contra um duckV ligado: DNS rebinding, WebSocket sequestrado por outro site, CSRF, segredo dos agentes, travessia de pastas (inclusive `::$DATA`, `CON` e UNC do Windows), limites de tamanho, vazamento de segredos e força bruta no pareamento |
 
 A cada envio ao GitHub, a bateria roda no Windows, no Linux e no macOS, com Node.js 22 e 24, junto com a auditoria das dependências (`npm audit`), a busca de segredos no histórico (gitleaks), a análise estática do CodeQL e a compilação do app Android.

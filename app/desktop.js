@@ -482,6 +482,7 @@ function ligar() {
       S.demo = !!m.demo;
       S.arquivos = m.arquivos || [];
       S.desktop = m.desktop || null;
+      S.retomaveis = m.retomaveis || [];
       if (m.prefs) S.prefs = m.prefs;
       if (m.github) {
         const mudouLogin = S.github?.login !== m.github.login;
@@ -1479,7 +1480,14 @@ function notificarMudancas(antes, depois) {
 // No app do computador: o numero de pedidos vai para a bandeja e para o aviso do canto da tela,
 // e o botao Abrir desse aviso traz a sessao para um painel.
 let contagemAnterior = -1;
+let abertasAnterior = -1;
 function contarParaOApp() {
+  // sessoes abertas pelo duckV: o app pergunta antes de sair, porque elas encerram junto
+  const abertas = S.sessoes.filter((s) => s.hosted && s.status !== 'ended' && !s.login).length;
+  if (abertas !== abertasAnterior) {
+    abertasAnterior = abertas;
+    window.duckvApp?.sessoesAbertas?.(abertas);
+  }
   const n = todosOsPedidos().length;
   if (n === contagemAnterior) return;
   contagemAnterior = n;
@@ -3770,7 +3778,8 @@ const vista = (() => {
   const fila = el('button', { class: 'botao quieto pequeno', type: 'button', onclick: () => window.fila.alternar() }, icone('bell', 16), el('span'));
   const topo = el('header', { class: 'area-topo' }, abrirLateral, el('h1', null, titulo, apoio), layouts, fila);
   const corpo = el('div', { class: 'area-corpo' });
-  const raiz = el('main', { class: 'area' }, topo, corpo);
+  const retomar = faixaRetomar();
+  const raiz = el('main', { class: 'area' }, topo, retomar.raiz, corpo);
   const vazio = el(
     'div',
     { class: 'visao' },
@@ -3805,12 +3814,58 @@ const vista = (() => {
       const n = todosOsPedidos().length;
       fila.hidden = !n;
       fila.lastChild.textContent = `${plural(n, 'pedido', 'pedidos')} esperando`;
+      retomar.atualizar();
       telas[obj.atual]?.atualizar();
     },
   };
   return obj;
 })();
 window.fila = fila;
+
+// ------------------------------------------------------------ retomar depois de desligar
+// As sessoes abertas pelo duckV que estavam vivas quando ele desligou: uma faixa no topo da area
+// principal oferece retomar todas (na mesma conversa, com --resume) ou descartar. Nada abre sozinho.
+function faixaRetomar() {
+  const titulo = el('b');
+  const quais = el('span');
+  const retomarTodas = el('button', { class: 'botao principal pequeno', type: 'button' }, icone('arrows-clockwise', 16), 'Retomar');
+  const descartar = el('button', { class: 'botao texto pequeno', type: 'button', text: 'Descartar' });
+  const raiz = el('section', { class: 'aviso-faixa neutra retomar-faixa', 'aria-live': 'polite', hidden: true }, icone('clock-counter-clockwise', 20), el('div', { class: 't' }, titulo, quais), el('div', { class: 'acoes' }, descartar, retomarTodas));
+  let marca = '';
+  const ocupado = (sim) => (retomarTodas.disabled = descartar.disabled = sim);
+  retomarTodas.addEventListener('click', () => {
+    ocupado(true);
+    retomarTodas.lastChild.textContent = 'Retomando…';
+    mandar({ t: 'retomar' }, (erro, r) => {
+      ocupado(false);
+      retomarTodas.lastChild.textContent = 'Retomar';
+      if (erro) return avisar(erro);
+      const falhas = r.falhas || [];
+      avisar(falhas.length ? `${plural(r.instances.length, 'sessão retomada', 'sessões retomadas')}. ${falhas.map((f) => `${f.nome || 'Uma sessão'}: ${f.erro}`).join(' ')}` : plural(r.instances.length, 'sessão retomada', 'sessões retomadas'));
+      (r.instances || []).slice(0, 4).forEach((id, i) => area.abrir(id, { aoLado: i > 0 }));
+    });
+  });
+  descartar.addEventListener('click', () => {
+    ocupado(true);
+    mandar({ t: 'retomarDescartar' }, (erro) => (ocupado(false), erro && avisar(erro)));
+  });
+  return {
+    raiz,
+    atualizar() {
+      const lista = S.retomaveis || [];
+      const nova = JSON.stringify(lista);
+      if (nova === marca) return;
+      const apareceu = !marca || marca === '[]';
+      marca = nova;
+      raiz.hidden = !lista.length;
+      if (!lista.length) return;
+      titulo.textContent = `${lista.length === 1 ? 'Uma sessão estava aberta' : `${lista.length} sessões estavam abertas`} quando o duckV desligou`;
+      const nomes = lista.slice(0, 3).map((r) => `${r.name || pasta(r.cwd) || 'Sessão'} (${contaDe({ account: r.account }).nome})`);
+      quais.textContent = `${nomes.join(', ')}${lista.length > 3 ? ` e mais ${lista.length - 3}` : ''}. Retomar continua cada conversa de onde parou.`;
+      if (apareceu) animarEntrada(raiz);
+    },
+  };
+}
 
 // ------------------------------------------------------------ teclado
 document.addEventListener('keydown', (ev) => {

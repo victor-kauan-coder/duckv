@@ -152,8 +152,8 @@ async function iniciar() {
     const r = dialog.showMessageBoxSync({
       type: 'info',
       title: 'duckV',
-      message: 'O duckV já está aberto num terminal.',
-      detail: 'Ele continua funcionando por lá, com o celular e os atalhos das contas. Para usar esta janela, feche o terminal do duckV (Ctrl+C) e clique em Tentar de novo.',
+      message: 'O duckV já está ligado, num terminal ou como serviço.',
+      detail: 'Ele continua funcionando por lá, com o celular e os atalhos das contas. Para usar esta janela, feche o terminal do duckV (Ctrl+C) ou remova o serviço (node tools/servico.mjs remover) e clique em Tentar de novo.',
       buttons: ['Tentar de novo', 'Sair'],
       defaultId: 0,
     });
@@ -306,7 +306,7 @@ function atualizarBandeja(n) {
       { label: atalhoOk ? 'Abertura rápida (Ctrl+Alt+Espaço)' : 'Abertura rápida', click: abrirRapido },
       { label: n ? `${n} ${n === 1 ? 'pedido esperando' : 'pedidos esperando'}` : 'Nada esperando você', enabled: false },
       { type: 'separator' },
-      { label: 'Sair do duckV', click: sair },
+      { label: 'Sair do duckV', click: pedirParaSair },
     ]),
   );
 }
@@ -521,6 +521,29 @@ ipcMain.on('duckv:rapido', (ev, acao, valor) => {
     });
   }
 });
+
+// Sair com sessoes abertas pelo duckV: elas encerram junto com ele. Pergunta antes; esconder na bandeja
+// mantem tudo rodando (e o celular continua funcionando), e as encerradas podem ser retomadas depois.
+let sessoesAbertas = 0;
+ipcMain.on('duckv:sessoes', (ev, n) => {
+  if (!janela || ev.sender !== janela.webContents || !ehDoDuckV(ev.senderFrame?.url || '')) return;
+  sessoesAbertas = Math.max(0, Math.min(99, Math.floor(Number(n) || 0)));
+});
+function pedirParaSair() {
+  if (!sessoesAbertas || process.env.DUCKV_FOTO || process.env.DUCKV_FOTO_RAPIDO) return sair();
+  const r = dialog.showMessageBoxSync(janela?.isVisible() ? janela : null, {
+    type: 'question',
+    title: 'duckV',
+    message: sessoesAbertas === 1 ? 'Uma sessão aberta pelo duckV vai ser encerrada.' : `${sessoesAbertas} sessões abertas pelo duckV vão ser encerradas.`,
+    detail: 'Escondido na bandeja, o duckV continua ligado: as sessões seguem trabalhando e o celular continua funcionando. Se sair, dá para retomar cada conversa quando abrir o duckV de novo.',
+    buttons: ['Esconder na bandeja', 'Sair mesmo assim', 'Cancelar'],
+    defaultId: 0,
+    cancelId: 2,
+    noLink: true,
+  });
+  if (r === 0) janela?.hide();
+  else if (r === 1) sair();
+}
 
 function sair() {
   saindo = true;

@@ -189,6 +189,9 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action
 }
 .faixa-aviso b { display: block; }
 .faixa-aviso.neutra { border-color: var(--texto); }
+/* sessoes para retomar depois que o duckV desligou */
+.faixa-aviso.retomar span { display: block; margin-top: 2px; font-size: 14px; color: var(--apoio); }
+.faixa-aviso.retomar .botoes { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 
 /* ------------------------------------------------------------ pedido de permissao */
 .pedidos { display: grid; gap: 10px; padding: 0 var(--margem); }

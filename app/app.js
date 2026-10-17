@@ -348,6 +348,7 @@ function ligar() {
       S.sessoes = m.instances;
       S.host = m.host || S.host;
       S.demo = !!m.demo;
+      S.retomaveis = m.retomaveis || [];
       if (m.prefs) S.prefs = m.prefs;
       S.desvio = Date.now() - m.now;
       desenhar();
@@ -806,6 +807,26 @@ function criarInicio() {
     'Confira se ele está ligado, com o duckV aberto, e se o Tailscale está ativo neste celular. O app continua tentando.',
   );
   const demo = el('div', { class: 'faixa-aviso neutra', hidden: true }, el('b', { text: 'Modo demonstração' }), 'As contas, as sessões e os números desta tela são de mentira.');
+  // Sessoes que estavam abertas quando o duckV desligou: Retomar continua cada conversa; nada abre sozinho.
+  const retomarTitulo = el('b');
+  const retomarQuais = el('span');
+  const retomarSim = el('button', { class: 'botao principal', type: 'button', text: 'Retomar' });
+  const retomarNao = el('button', { class: 'botao quieto', type: 'button', text: 'Descartar' });
+  const retomar = el('div', { class: 'faixa-aviso neutra retomar', 'aria-live': 'polite', hidden: true }, retomarTitulo, retomarQuais, el('div', { class: 'botoes' }, retomarNao, retomarSim));
+  const retomarOcupado = (sim) => (retomarSim.disabled = retomarNao.disabled = sim);
+  retomarSim.addEventListener('click', () => {
+    retomarOcupado(true);
+    mandar({ t: 'retomar' }, (erro, r) => {
+      retomarOcupado(false);
+      if (erro) return avisar(erro);
+      const falhas = r.falhas?.length || 0;
+      avisar(`${plural(r.instances.length, 'sessão retomada', 'sessões retomadas')}${falhas ? `. ${falhas === 1 ? 'Uma não pôde' : `${falhas} não puderam`} voltar: a conversa não está mais no histórico.` : ''}`);
+    });
+  });
+  retomarNao.addEventListener('click', () => {
+    retomarOcupado(true);
+    mandar({ t: 'retomarDescartar' }, (erro) => (retomarOcupado(false), erro && avisar(erro)));
+  });
   const pedidos = el('div', { class: 'pedidos' });
   const equipes = el('div', { class: 'equipes' });
   const blocosEquipe = new Map();
@@ -817,7 +838,7 @@ function criarInicio() {
   const semTerminal = el('p', { hidden: true });
   const rodape = el('footer', { class: 'rodape' }, ligacao, botaoAvisos, notaAvisos, semTerminal);
   const opcoes = el('button', { class: 'so-icone', type: 'button', 'aria-label': 'Opções', onclick: () => (location.hash = '#/opcoes') }, icone('gear-six', 24));
-  const raiz = el('div', null, el('header', { class: 'barra' }, el('h1', { text: 'duckV' }), el('div', { class: 'barra-acoes' }, abrir, opcoes)), semLigacao, demo, pedidos, equipes, esqueleto, contas, rodape);
+  const raiz = el('div', null, el('header', { class: 'barra' }, el('h1', { text: 'duckV' }), el('div', { class: 'barra-acoes' }, abrir, opcoes)), semLigacao, demo, retomar, pedidos, equipes, esqueleto, contas, rodape);
 
   function avisos() {
     const pode = 'serviceWorker' in navigator && 'PushManager' in window && window.isSecureContext;
@@ -846,6 +867,12 @@ function criarInicio() {
     ligacao.dataset.ok = S.ligado ? 'sim' : S.ligado === false ? 'nao' : '';
     semLigacao.hidden = S.ligado !== false;
     demo.hidden = !S.demo;
+    const rs = S.retomaveis || [];
+    retomar.hidden = !rs.length;
+    if (rs.length) {
+      retomarTitulo.textContent = `${rs.length === 1 ? 'Uma sessão estava aberta' : `${rs.length} sessões estavam abertas`} quando o duckV desligou`;
+      retomarQuais.textContent = `${rs.slice(0, 3).map((r) => `${r.name || pasta(r.cwd) || 'Sessão'} (${contaDe({ account: r.account }).nome})`).join(', ')}${rs.length > 3 ? ` e mais ${rs.length - 3}` : ''}. Retomar continua cada conversa de onde parou.`;
+    }
     esqueleto.hidden = S.pronto;
     abrir.hidden = !S.pronto || !S.host.available;
     rodape.hidden = !S.pronto;

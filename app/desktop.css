@@ -1098,6 +1098,13 @@ dialog.historico .dialogo { width: min(640px, calc(100vw - 48px)); }
 .aviso-faixa { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 16px; background: var(--erro-c); color: var(--no-erro-c); }
 .aviso-faixa.neutra { background: var(--pessego); color: var(--no-pessego); }
 .aviso-faixa b { display: block; font-weight: 500; }
+/* sessoes para retomar depois que o duckV desligou: faixa no topo da area principal */
+.retomar-faixa { margin: 12px 40px 0; align-items: center; }
+.retomar-faixa > .icone { color: var(--no-pessego); }
+.retomar-faixa .t { flex: 1; min-width: 0; }
+.retomar-faixa .t span { display: block; font-size: 13px; line-height: 18px; color: var(--pessego-apoio); }
+.retomar-faixa .acoes { display: flex; gap: 8px; flex: none; }
+.retomar-faixa .botao.texto { color: var(--no-pessego); }
 
 /* aviso no canto da tela (janela propria do app, sem moldura e com fundo transparente) */
 body.corpo-aviso { background: transparent; overflow: hidden; padding: 0; user-select: none; }
