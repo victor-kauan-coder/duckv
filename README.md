@@ -180,7 +180,7 @@ Com o app ligado (mesmo escondido na bandeja), **Ctrl+Alt+Espaço** abre um popu
 3. **Pasta**: a pasta padrão da conta e as recentes.
 4. **Enter** abre a sessão na janela do duckV. Embaixo ficam as sessões já abertas daquela conta: **↓** e **Enter** pulam para uma delas.
 
-**Ctrl+1** a **Ctrl+9** trocam a conta, **Esc** ou um clique fora fecha, e **Mais opções** abre a Nova sessão completa (modelo, esforço, permissões, nuvem). O mesmo popup abre pelo menu da bandeja e pelo comando `abrir-app.cmd --rapido` (no Linux, `./abrir-app.sh --rapido` ou `duckv --rapido` no app instalado): com o duckV desligado, ele liga escondido e mostra só o popup. Se outro programa já usar Ctrl+Alt+Espaço, ou no Linux sem o portal de atalhos do sistema, crie um atalho de teclado do sistema para esse comando.
+**Ctrl+1** a **Ctrl+9** trocam a conta, **Esc** ou um clique fora fecha, e **Mais opções** abre a Nova sessão completa já com a conta (ou **Todas as contas**), a pasta e o texto escrito: é só ajustar modelo, esforço, permissões ou nuvem e abrir. O texto vira a **Primeira mensagem** (ou a tarefa da nuvem, ou a das contas, conforme a escolha ali). O mesmo popup abre pelo menu da bandeja e pelo comando `abrir-app.cmd --rapido` (no Linux, `./abrir-app.sh --rapido` ou `duckv --rapido` no app instalado): com o duckV desligado, ele liga escondido e mostra só o popup. Se outro programa já usar Ctrl+Alt+Espaço, ou no Linux sem o portal de atalhos do sistema, crie um atalho de teclado do sistema para esse comando.
 
 <div align="center">
 <img src="docs/imagens/15-abertura-rapida.png" alt="Abertura rápida: campo da primeira mensagem, contas com o pato e o uso, pastas recentes e as sessões abertas" width="640">
@@ -263,7 +263,7 @@ Toque em **Abrir sessão**, escolha a conta (o selo mostra qual agente vai abrir
 
 Se você já escrever a tarefa na hora de abrir, ela é mandada sozinha assim que o agente mostrar a caixa de mensagem, e dá nome à sessão.
 
-**Sessão rápida, de qualquer lugar do celular** (app 2.21). Uma folha abre por cima do app que estiver na tela, já com o teclado: escreva o que a sessão deve fazer (opcional, vira a primeira mensagem), escolha a conta (**Automática** pega a de mais limite livre, a mesma regra do computador) e a pasta, e toque em **Abrir sessão**. Embaixo ficam as sessões vivas da conta escolhida, as que pedem você primeiro, e **Mais opções** leva à tela completa. A folha lembra a última conta. Três caminhos até ela:
+**Sessão rápida, de qualquer lugar do celular** (app 2.21). Uma folha abre por cima do app que estiver na tela, já com o teclado: escreva o que a sessão deve fazer (opcional, vira a primeira mensagem), escolha a conta (**Automática** pega a de mais limite livre, a mesma regra do computador) e a pasta, e toque em **Abrir sessão**. Embaixo ficam as sessões vivas da conta escolhida, as que pedem você primeiro, e **Mais opções** leva à tela completa já com a conta, a pasta e o texto, para só ajustar modelo, esforço, permissões ou nuvem. Lá, em **Neste computador**, o texto fica no campo **Primeira mensagem** (opcional); em **Na nuvem** ou **Todas as contas**, vira a tarefa. A folha lembra a última conta. Três caminhos até ela:
 
 - **Configurações rápidas:** edite os blocos da barra de notificações e arraste o bloco **duckV**. Ele mostra quantas sessões pedem você.
 - **Atalho do ícone:** toque longo no ícone do duckV, **Nova sessão**.
