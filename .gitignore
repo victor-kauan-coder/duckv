@@ -9,3 +9,7 @@ DESIGN.md
 PRODUCT.md
 desktop/node_modules/
 desktop/dist/
+# skills de design (impeccable, taste-skill): copiadas para as contas, ficam so neste computador
+.claude/skills/
+# copias de trabalho de cada conta (git worktree)
+.worktrees/

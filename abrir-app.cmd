@@ -5,4 +5,5 @@ if not exist "desktop\node_modules\electron\dist\electron.exe" (
   echo Instalando o app do duckV pela primeira vez, isso leva um minuto...
   call npm install --prefix desktop --no-fund --no-audit || (echo Nao consegui instalar o app. & pause & exit /b 1)
 )
-start "" "desktop\node_modules\electron\dist\electron.exe" "%~dp0desktop"
+rem abrir-app.cmd --rapido abre so o popup de abertura rapida (o mesmo do Ctrl+Alt+Espaco)
+start "" "desktop\node_modules\electron\dist\electron.exe" "%~dp0desktop" %*

@@ -13,6 +13,14 @@ contextBridge.exposeInMainWorld('duckvApp', {
   avisoVazio: () => ipcRenderer.send('duckv:aviso', 'vazio'),
   avisoEsconder: () => ipcRenderer.send('duckv:aviso', 'esconder'),
   avisoAbrir: (sessao) => ipcRenderer.send('duckv:aviso', 'abrir', String(sessao || '').slice(0, 120)),
-  // A janela principal recebe o pedido de abrir uma sessao vindo do aviso.
-  aoAbrirSessao: (f) => ipcRenderer.on('duckv:abrirSessao', (_ev, id) => f(String(id))),
+  // A janela principal recebe o pedido de abrir uma sessao vindo do aviso ou do popup rapido.
+  aoAbrirSessao: (f) => ipcRenderer.on('duckv:abrirSessao', (_ev, id, aoLado) => f(String(id), !!aoLado)),
+  aoAbrirNova: (f) => ipcRenderer.on('duckv:abrirNova', (_ev, o) => f({ conta: o?.conta || null, cwd: String(o?.cwd || '') })),
+  // Popup rapido (Ctrl+Alt+Espaco)
+  rapidoTamanho: (altura) => ipcRenderer.send('duckv:rapido', 'tamanho', Number(altura) || 0),
+  rapidoFechar: () => ipcRenderer.send('duckv:rapido', 'fechar'),
+  rapidoAbrir: (sessao) => ipcRenderer.send('duckv:rapido', 'abrir', String(sessao || '').slice(0, 120)),
+  rapidoAbrirTodas: (ids) => ipcRenderer.send('duckv:rapido', 'abrirTodas', (Array.isArray(ids) ? ids : []).slice(0, 4).map((x) => String(x).slice(0, 120))),
+  rapidoNova: (conta, cwd) => ipcRenderer.send('duckv:rapido', 'nova', { conta: String(conta || ''), cwd: String(cwd || '').slice(0, 1000) }),
+  aoMostrarRapido: (f) => ipcRenderer.on('duckv:rapidoMostrou', () => f()),
 });

@@ -9,7 +9,7 @@
 //  - a janela roda isolada (contextIsolation, sandbox, sem Node), so navega no duckV e so abre
 //    links https fora dele, no navegador do sistema;
 //  - so a permissao de avisos e a de area de transferencia sao concedidas, e so para o duckV.
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog, Notification, nativeTheme, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog, Notification, nativeTheme, screen, globalShortcut } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -21,6 +21,12 @@ const WIN = process.platform === 'win32';
 app.setAppUserModelId('io.github.duckv.desktop');
 // A demonstracao tem pasta de dados propria: abre ao lado do duckV de verdade, sem misturar nada.
 if (process.env.DUCKV_DEMO === '1') app.setPath('userData', path.join(app.getPath('appData'), 'duckV-demonstracao'));
+// No Linux com Wayland, o atalho global so funciona pelo portal do sistema (GNOME, KDE).
+if (process.platform === 'linux') app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal');
+// `duckv --rapido` (ou abrir-app --rapido) abre so o popup rapido: com o duckV ja ligado, a instancia
+// que esta rodando recebe o pedido; desligado, ele liga escondido e mostra o popup.
+const pediuRapido = (argv) => argv.includes('--rapido');
+const ATALHO_RAPIDO = 'Control+Alt+Space';
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
@@ -228,16 +234,31 @@ async function abrirJanela(pasta, chave) {
         new Notification({ title: 'O duckV continua ligado', body: 'Ele fica na bandeja, perto do relógio. Para desligar, use Sair no menu dele.', icon: icone }).show();
       }
     });
-    janela.once('ready-to-show', () => janela.show());
+    janela.once('ready-to-show', () => (pediuRapido(process.argv) ? abrirRapido() : janela.show()));
     // Com a janela em foco, o aviso do canto some; saindo dela, volta se ainda ha pedido.
     janela.on('focus', revisarAviso);
     janela.on('blur', () => setTimeout(revisarAviso, 300));
     janela.on('hide', revisarAviso);
     criarBandeja(icone);
+    registrarAtalho();
   }
   // A chave vai como cookie so desta sessao (sem data de validade: nao fica gravada) e so para o duckV.
   await janela.webContents.session.cookies.set({ url: base, name: 'painel', value: chave, httpOnly: true, sameSite: 'strict' });
   await janela.loadURL(`${base}/desktop.html`);
+  // Foto do popup rapido (desenvolvimento): DUCKV_FOTO_RAPIDO=arquivo.png, com DUCKV_ROTEIRO_RAPIDO
+  // (JS rodado no popup antes da foto).
+  if (process.env.DUCKV_FOTO_RAPIDO && !app.isPackaged) {
+    setTimeout(() => {
+      abrirRapido();
+      setTimeout(async () => {
+        if (process.env.DUCKV_ROTEIRO_RAPIDO) await rapido.webContents.executeJavaScript(process.env.DUCKV_ROTEIRO_RAPIDO).catch((e) => console.error(e));
+        setTimeout(async () => {
+          fs.writeFileSync(process.env.DUCKV_FOTO_RAPIDO, (await rapido.webContents.capturePage()).toPNG());
+          sair();
+        }, Number(process.env.DUCKV_FOTO_ESPERA) || 1500);
+      }, 2500);
+    }, 3000);
+  }
   // So para conferir as telas durante o desenvolvimento: DUCKV_FOTO=arquivo.png tira uma foto e fecha.
   if (process.env.DUCKV_FOTO && !app.isPackaged) {
     const roteiro = process.env.DUCKV_ROTEIRO || '';
@@ -280,6 +301,7 @@ function atualizarBandeja(n) {
   bandeja.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Abrir o duckV', click: mostrar },
+      { label: atalhoOk ? 'Abertura rápida (Ctrl+Alt+Espaço)' : 'Abertura rápida', click: abrirRapido },
       { label: n ? `${n} ${n === 1 ? 'pedido esperando' : 'pedidos esperando'}` : 'Nada esperando você', enabled: false },
       { type: 'separator' },
       { label: 'Sair do duckV', click: sair },
@@ -392,6 +414,108 @@ ipcMain.on('duckv:aviso', (ev, acao, valor) => {
   }
 });
 
+// ------------------------------------------------------------ popup rapido (Ctrl+Alt+Espaco)
+// Uma janela pequena, sem moldura, por cima de tudo: escolher a conta, a pasta e abrir uma sessao (ou
+// pular para uma que ja esta aberta) sem passar pela janela grande. Some ao perder o foco ou com Esc.
+let rapido = null;
+let alturaRapido = 0;
+let atalhoOk = false;
+const LARGURA_RAPIDO = 680;
+
+function registrarAtalho() {
+  try {
+    atalhoOk = globalShortcut.register(ATALHO_RAPIDO, alternarRapido);
+  } catch {
+    atalhoOk = false;
+  }
+  // Outro programa ja usa a combinacao (ou o sistema nao deixa): o menu da bandeja e o `--rapido` continuam.
+  passo('atalho rapido', atalhoOk ? 'registrado' : 'indisponivel');
+  atualizarBandeja(pedidos);
+}
+function janelaRapido() {
+  if (rapido && !rapido.isDestroyed()) return rapido;
+  rapido = new BrowserWindow({
+    width: LARGURA_RAPIDO,
+    height: 460,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    title: 'duckV: abertura rápida',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      webviewTag: false,
+      spellcheck: false,
+      partition: 'persist:duckv',
+      devTools: !app.isPackaged,
+    },
+  });
+  rapido.setAlwaysOnTop(true, 'pop-up-menu');
+  rapido.setVisibleOnAllWorkspaces?.(true);
+  rapido.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  rapido.webContents.on('will-navigate', (ev) => ev.preventDefault());
+  // Clicou fora: o popup some, como um menu. (Nas fotos de conferencia ele fica.)
+  rapido.on('blur', () => !process.env.DUCKV_FOTO_RAPIDO && rapido?.hide());
+  rapido.on('closed', () => (rapido = null));
+  alturaRapido = 0;
+  rapido.loadURL(`${base}/desktop-rapido.html`);
+  return rapido;
+}
+function posicionarRapido() {
+  if (!rapido || rapido.isDestroyed()) return;
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const largura = Math.min(LARGURA_RAPIDO, area.width - 32);
+  const altura = Math.max(200, Math.min(area.height - 64, alturaRapido || 460));
+  rapido.setBounds({ x: Math.round(area.x + (area.width - largura) / 2), y: Math.round(area.y + area.height * 0.18), width: largura, height: altura });
+}
+function abrirRapido() {
+  if (!base) return;
+  const r = janelaRapido();
+  const mostrarJa = () => {
+    passo('popup rapido aberto');
+    posicionarRapido();
+    r.show();
+    r.focus();
+    r.webContents.send('duckv:rapidoMostrou');
+  };
+  if (r.webContents.isLoading()) r.webContents.once('did-finish-load', () => setTimeout(mostrarJa, 60));
+  else mostrarJa();
+}
+function alternarRapido() {
+  if (rapido && !rapido.isDestroyed() && rapido.isVisible() && rapido.isFocused()) rapido.hide();
+  else abrirRapido();
+}
+ipcMain.on('duckv:rapido', (ev, acao, valor) => {
+  if (!rapido || rapido.isDestroyed() || ev.sender !== rapido.webContents || !ehDoDuckV(ev.senderFrame?.url || '')) return;
+  if (acao !== 'tamanho') passo('popup rapido:', acao, JSON.stringify(valor ?? null));
+  if (acao === 'tamanho') {
+    alturaRapido = Math.floor(Number(valor) || 0);
+    if (rapido.isVisible()) posicionarRapido();
+  } else if (acao === 'fechar') {
+    rapido.hide();
+  } else if (acao === 'abrir' || acao === 'abrirTodas') {
+    // a sessao (ou as sessoes de uma equipe, lado a lado) abre na janela grande
+    const ids = (acao === 'abrir' ? [valor] : Array.isArray(valor) ? valor : []).map(String).filter((id) => /^[\w.:-]{1,120}$/.test(id)).slice(0, 4);
+    if (!ids.length) return;
+    rapido.hide();
+    mostrar();
+    ids.forEach((id, i) => janela?.webContents.send('duckv:abrirSessao', id, i > 0));
+  } else if (acao === 'nova') {
+    rapido.hide();
+    mostrar();
+    const o = valor && typeof valor === 'object' ? valor : {};
+    janela?.webContents.send('duckv:abrirNova', { conta: /^[\w.-]{1,60}$/.test(String(o.conta)) ? String(o.conta) : null, cwd: typeof o.cwd === 'string' ? o.cwd.slice(0, 1000) : '' });
+  }
+});
+
 function sair() {
   saindo = true;
   if (servidor) {
@@ -409,7 +533,8 @@ function sair() {
 app.on('web-contents-created', (_ev, wc) => {
   wc.on('will-attach-webview', (ev) => ev.preventDefault());
 });
-app.on('second-instance', mostrar);
+app.on('second-instance', (_ev, argv) => (pediuRapido(argv) ? abrirRapido() : mostrar()));
+app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => !bandeja && sair());
 app.on('before-quit', () => {
   saindo = true;

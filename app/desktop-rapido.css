@@ -1,0 +1,115 @@
+/* Abertura rapida (Ctrl+Alt+Espaco): uma folha flutuante por cima de tudo. Uma pergunta em destaque
+   (o que a sessao deve fazer), as duas escolhas que mudam o resultado (conta e pasta) e, por ultimo, as
+   sessoes que ja estao abertas. Usa os tokens e componentes de desktop.css. */
+body.corpo-rapido { background: transparent; overflow: hidden; padding: 0; }
+.corpo-rapido #rapido { padding: 12px 20px 28px; }
+
+.r-cartao {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: 24px;
+  box-shadow: 0 0 0 1px var(--contorno-v), var(--sombra-alta);
+  overflow: hidden;
+}
+.r-cartao.entra { animation: r-entra 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes r-entra {
+  from { opacity: 0; transform: translateY(-8px) scale(0.985); }
+}
+
+/* a pergunta */
+.r-topo { display: flex; align-items: center; gap: 14px; padding: 18px 20px 16px; }
+.r-pato { flex: none; display: grid; place-items: center; width: 52px; height: 44px; }
+.r-pato .mini-pato { width: 52px; height: 44px; }
+.r-pato .mini-pato .bicho { width: 46px; }
+.r-pato.varios { width: auto; min-width: 52px; }
+.r-entrada { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.r-rotulo { font: 500 12px/16px var(--ui); letter-spacing: 0.4px; color: var(--tinta-v); }
+.r-entrada textarea {
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 0;
+  font: 400 19px/26px var(--ui);
+  letter-spacing: 0;
+  color: var(--tinta);
+  caret-color: var(--laranja);
+  min-height: 26px;
+  max-height: 140px;
+}
+.r-entrada textarea::placeholder { color: var(--tinta-v); opacity: 0.85; }
+.r-erro { margin: -6px 20px 12px 86px; font-size: 13px; color: var(--erro); }
+
+/* conta e pasta */
+.r-escolhas { display: grid; gap: 10px; padding: 14px 20px 16px; border-top: 1px solid var(--contorno-v); }
+.r-linha { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 14px; }
+.r-linha:first-child { align-items: start; }
+.r-linha:first-child .r-lado { padding-top: 14px; }
+.r-lado { font: 500 13px/20px var(--ui); color: var(--tinta-v); }
+.r-contas { display: flex; flex-wrap: wrap; gap: 8px; }
+.r-pastas { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
+.r-contas::-webkit-scrollbar, .r-pastas::-webkit-scrollbar { display: none; }
+.r-conta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 4px 14px 4px 8px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--contorno-v);
+  text-align: left;
+  position: relative;
+  transition: background var(--rapido), box-shadow var(--rapido);
+}
+.r-conta:hover:not(:disabled) { background: color-mix(in srgb, var(--tinta) 5%, transparent); }
+.r-conta:disabled { opacity: 0.55; cursor: default; }
+.r-conta[aria-checked='true'] { background: var(--pessego); color: var(--no-pessego); box-shadow: none; }
+.r-conta .t { display: grid; }
+.r-conta .t b { font: 500 13px/18px var(--ui); white-space: nowrap; }
+.r-conta .t span { font: 400 12px/16px var(--ui); color: var(--tinta-v); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.r-conta[aria-checked='true'] .t span { color: var(--pessego-apoio); }
+.r-conta.cheia .t span { color: var(--erro); font-weight: 500; }
+.r-conta .mini-pato { width: 34px; height: 30px; }
+.r-ic { display: grid; place-items: center; width: 34px; height: 30px; color: var(--laranja-texto); }
+.r-conta[aria-checked='true'] .r-ic { color: var(--no-pessego); }
+.r-trio { display: inline-flex; align-items: center; }
+.r-trio .mini-pato { width: 30px; height: 28px; }
+.r-trio .mini-pato + .mini-pato { margin-left: -12px; }
+.r-trio.grande .mini-pato { width: 34px; height: 30px; }
+.r-pato .r-trio .mini-pato { width: 40px; height: 36px; }
+.r-pato .r-trio .mini-pato .bicho { width: 36px; }
+.r-pato .r-trio .mini-pato + .mini-pato { margin-left: -14px; }
+.r-pastas .chip { flex: none; max-width: 220px; }
+.r-pasta-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-nada { color: var(--tinta-v); font-size: 13px; }
+
+/* avisos (sem conexao, sem contas, carregando) */
+.r-estado { display: flex; align-items: center; gap: 10px; margin: 0 20px 14px; padding: 10px 14px; border-radius: 12px; background: var(--c-high); color: var(--tinta-v); font-size: 13px; }
+.r-estado .icone { color: var(--laranja-texto); }
+
+/* sessoes abertas */
+.r-bloco-sessoes { border-top: 1px solid var(--contorno-v); padding: 12px 12px 8px; }
+.r-secao { font: 500 13px/20px var(--ui); color: var(--tinta-v); padding: 0 8px 6px; }
+.r-sessoes { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 312px; overflow-y: auto; }
+.r-sessoes li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 48px; padding: 6px 10px 6px 8px; border-radius: 14px; cursor: pointer; outline: 0; }
+.r-sessoes li:hover, .r-sessoes li:focus-visible { background: var(--c-high); }
+.r-sessoes li:focus-visible { box-shadow: inset 0 0 0 2px var(--laranja-texto); }
+.r-sessoes li .mini-pato { width: 34px; height: 30px; }
+.r-sessoes .t { display: grid; min-width: 0; }
+.r-sessoes .t b { font: 500 14px/20px var(--ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-sessoes .t > span { font: 400 12px/16px var(--ui); color: var(--tinta-v); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-sessoes li.pede .r-faz { color: var(--laranja-texto); font-weight: 500; }
+.r-acao { font: 500 13px/20px var(--ui); color: var(--laranja-texto); opacity: 0; transition: opacity var(--rapido); }
+.r-sessoes li:hover .r-acao, .r-sessoes li:focus-visible .r-acao { opacity: 1; }
+
+/* pe: atalhos e acoes */
+.r-pe { display: flex; align-items: center; gap: 8px; padding: 10px 14px 10px 20px; border-top: 1px solid var(--contorno-v); background: var(--c-low); }
+.r-pe .espaco { flex: 1; }
+.r-dicas { display: flex; gap: 14px; color: var(--tinta-v); font-size: 12px; white-space: nowrap; overflow: hidden; }
+.r-dicas span { display: inline-flex; align-items: center; gap: 6px; }
+.r-enter { color: inherit; border-color: color-mix(in srgb, currentColor 35%, transparent); margin-left: 2px; }
+@media (max-width: 600px) { .r-dicas { display: none; } }

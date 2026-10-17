@@ -1452,7 +1452,9 @@ function contarParaOApp() {
   contagemAnterior = n;
   window.duckvApp?.contagem?.(n);
 }
-window.duckvApp?.aoAbrirSessao?.((id) => S.pronto && area.abrir(id));
+window.duckvApp?.aoAbrirSessao?.((id, aoLado) => S.pronto && area.abrir(id, { aoLado }));
+// "Mais opcoes" no popup rapido: o dialogo completo de nova sessao, ja com a conta escolhida.
+window.duckvApp?.aoAbrirNova?.((o) => S.pronto && abrirNova({ conta: o.conta || undefined }));
 
 // ------------------------------------------------------------ painel de uma sessao
 // Um painel mostra uma sessao: a conversa (com os pedidos e a caixa de mensagem) ou o terminal de verdade.

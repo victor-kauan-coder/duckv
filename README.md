@@ -164,9 +164,25 @@ O que o app faz:
 - **Controles próprios, no tema do duckV**: menus suspensos, interruptores, confirmações e dicas ao parar o mouse são desenhados pelo app (nada do visual cinza padrão do navegador), com o mesmo teclado dos controles do sistema: setas, Enter, Esc e digitar o começo de uma opção para pular até ela.
 - **Movimento na troca de telas**: a tela nova surge com um leve deslize, painéis entram crescendo e saem encolhendo, diálogos sobem e descem. Com "reduzir movimento" ligado no sistema, a troca é direta.
 - **Barra lateral recolhível**: o botão no topo dela (ou **Ctrl+B**) recolhe; com ela recolhida, o mesmo botão aparece no topo da área principal para trazer de volta.
+- **Abertura rápida** (**Ctrl+Alt+Espaço**, de qualquer programa): veja abaixo.
 
 <div align="center">
 <img src="docs/imagens/14-aviso-computador.png" alt="Aviso no canto da tela com Aceitar, Recusar e Abrir" width="400">
+</div>
+
+### Abertura rápida (Ctrl+Alt+Espaço)
+
+Com o app ligado (mesmo escondido na bandeja), **Ctrl+Alt+Espaço** abre um popup no meio da tela, por cima de qualquer programa:
+
+1. **O que a sessão deve fazer?** Escreva a primeira mensagem (opcional) ou deixe em branco.
+2. **Conta**: Automática (a de mais limite livre), uma das contas (com o pato e o uso de 5 horas) ou **Todas**, em que cada conta abre uma sessão na mesma pasta e elas dividem a tarefa.
+3. **Pasta**: a pasta padrão da conta e as recentes.
+4. **Enter** abre a sessão na janela do duckV. Embaixo ficam as sessões já abertas daquela conta: **↓** e **Enter** pulam para uma delas.
+
+**Ctrl+1** a **Ctrl+9** trocam a conta, **Esc** ou um clique fora fecha, e **Mais opções** abre a Nova sessão completa (modelo, esforço, permissões, nuvem). O mesmo popup abre pelo menu da bandeja e pelo comando `abrir-app.cmd --rapido` (no Linux, `./abrir-app.sh --rapido` ou `duckv --rapido` no app instalado): com o duckV desligado, ele liga escondido e mostra só o popup. Se outro programa já usar Ctrl+Alt+Espaço, ou no Linux sem o portal de atalhos do sistema, crie um atalho de teclado do sistema para esse comando.
+
+<div align="center">
+<img src="docs/imagens/15-abertura-rapida.png" alt="Abertura rápida: campo da primeira mensagem, contas com o pato e o uso, pastas recentes e as sessões abertas" width="640">
 </div>
 
 > [!NOTE]
