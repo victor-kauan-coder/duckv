@@ -1291,6 +1291,8 @@ function startSession(m) {
   if (ag.id !== 'claude') {
     // Os outros agentes: pasta da conta, argumentos de listas fechadas e a conversa lida do que ele grava.
     env = ag.env(acc.dir, acc.padrao);
+    // Na demonstracao, o terminal de mentira faz o papel de qualquer agente e avisa o duckV como um de verdade.
+    if (process.env.PAINEL_DEMO === '1') Object.assign(env, { PAINEL_ACCOUNT: acc.id, PAINEL_INSTANCE: id, PAINEL_PORT: String(PORT), FAKE_AGENTE: ag.id });
     const sessao = desk ? null : ag.novaSessao?.() || null;
     args = ag.args({ model, effort, mode, name, resume: desk?.sessionId, sessao });
     inst.busca = { desde: now() - 3000, cwd, sessao: desk ? desk.sessionId : sessao, resume: !!desk };
@@ -1337,7 +1339,7 @@ function startSession(m) {
       caixa: ag.caixa,
       cols: Number(m.cols) || 60,
       rows: Number(m.rows) || 32,
-      command: ag.id === 'claude' ? testCommand : null,
+      command: ag.id === 'claude' || process.env.PAINEL_DEMO === '1' ? testCommand : null,
       onScreen: (snap) => telaDe(inst, snap),
       onRaw: (d) => cruDe(inst, d),
       onEspera: (n, tela) => {
@@ -1366,7 +1368,7 @@ function startSession(m) {
 
 // Conta pronta para abrir sessao: o agente dela esta instalado neste computador (nos testes e na
 // demonstracao, o terminal de mentira faz o papel do Claude Code).
-const contaInstalada = (a) => (!!testCommand && (a.agente || 'claude') === 'claude') || instalado(agenteDe(a.agente));
+const contaInstalada = (a) => (!!testCommand && (process.env.PAINEL_DEMO === '1' || (a.agente || 'claude') === 'claude')) || instalado(agenteDe(a.agente));
 
 // "Todas as contas": uma sessao por conta, todas na mesma pasta, cada uma comecando pelo briefing de
 // equipe (hub/equipe.mjs) com a tarefa no fim. As sessoes nao se falam: a divisao do trabalho e

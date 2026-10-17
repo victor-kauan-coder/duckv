@@ -21,11 +21,15 @@ const contas = [
 ];
 fs.writeFileSync(path.join(DEMO, 'contas.json'), JSON.stringify(contas, null, 2));
 
-// Na demonstracao, "Abrir sessao" abre um terminal de mentira em vez do Claude Code.
+// Na demonstracao, "Abrir sessao" (de qualquer conta) e "Todas as contas" abrem o terminal de mentira
+// em vez do agente de verdade. Com FAKE_TRABALHA=1 ele ainda finge trabalhar: a tarefa escrita ao abrir
+// (ou o briefing de equipe) vira conversa e o estado e a atividade da sessao vao mudando, entao da para
+// ver os patos da equipe andando juntos sem nenhuma conta de verdade.
 const MENTIRA = path.join(ROOT, 'tests', 'terminal-de-mentira.mjs');
 const env = {
   PAINEL_CLAUDE_CMD: JSON.stringify([process.execPath, MENTIRA]),
   FAKE_HOOK: path.join(ROOT, 'agent', 'hook.mjs'),
+  FAKE_TRABALHA: '1',
   ...process.env,
   PAINEL_DEMO: '1',
   PAINEL_DATA: DEMO,   PAINEL_CONTAS: path.join(DEMO, 'contas.json'),
