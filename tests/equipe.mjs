@@ -88,6 +88,13 @@ ok(/MOTIVO_SEM_COPIA/.test(paginaJs) && /'nao-git'/.test(paginaJs), 'sem copias,
 ok(/confirmarNoCelular\(\{[\s\S]{0,80}Limpar a equipe/.test(paginaJs), 'limpar a equipe pergunta antes no celular');
 ok(paginaCss.includes('.equipe-patos li + li') && !/\.equipe-patos li \{[^}]*background:/.test(paginaCss), 'os patos do resultado sao linhas com um fio, nao cartao dentro de cartao');
 
+// A tela de comparacao lado a lado, no app do computador: uma coluna por pato com os arquivos dele.
+const janelaJs2 = fs.readFileSync(path.join(ROOT, 'app/desktop.js'), 'utf8');
+const janelaCss = fs.readFileSync(path.join(ROOT, 'app/desktop.css'), 'utf8');
+ok(/function compararPatos/.test(janelaJs2) && /Comparar lado a lado/.test(janelaJs2), 'o computador tem a tela de comparacao lado a lado');
+ok(/p\.arquivos/.test(janelaJs2) && janelaCss.includes('.comparar-arquivos'), 'a comparacao lista os arquivos de cada pato');
+ok(/mexid[ao]s por mais de um pato|quantos\.get\(a\.caminho\) > 1/.test(janelaJs2), 'arquivo mexido por mais de um pato vem marcado');
+
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'oi' })).t === 'err', 'tarefa curta demais e recusada');
 ok((await ask({ t: 'equipe', cwd: proj, texto: 'x'.repeat(8001) })).t === 'err', 'tarefa longa demais e recusada');
 ok((await ask({ t: 'equipe', cwd: '/etc', texto: 'Divida a tarefa entre voces' })).t === 'err', 'pasta fora das permitidas e recusada');

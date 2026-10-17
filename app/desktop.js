@@ -2527,12 +2527,13 @@ function resultadoDaEquipe() {
     const limpar = duasVezes(el('button', { class: 'botao perigo pequeno', type: 'button' }, icone('trash', 16), el('span', { text: 'Limpar a equipe' })), 'Limpar a equipe', () =>
       mandar({ t: 'equipeLimpar', equipe }, (erro) => (erro ? avisar(erro) : (avisar('Cópias e branches da equipe removidos'), ler()))),
     );
+    const comparar = el('button', { class: 'botao quieto pequeno', type: 'button', onclick: () => compararPatos(r) }, icone('square-split-horizontal', 16), el('span', { text: 'Comparar lado a lado' }));
     // replaceChildren escreveria "null" no lugar do aviso ausente
     corpo.replaceChildren(
       ...[
         r.principalLimpa ? null : el('p', { class: 'equipe-aviso' }, icone('warning-circle', 16), el('span', { text: 'A pasta principal tem mudanças sem commit. Faça um commit (ou guarde as mudanças) antes de juntar um pato.' })),
         el('ul', { class: 'equipe-patos' }, ...linhas),
-        el('div', { class: 'equipe-resultado-pe' }, el('span', { class: 'p-nota', text: 'Juntar traz o branch do pato para a pasta principal com um merge. Limpar apaga as cópias e os branches, depois que as sessões terminam.' }), limpar),
+        el('div', { class: 'equipe-resultado-pe' }, el('span', { class: 'p-nota', text: 'Juntar traz o branch do pato para a pasta principal com um merge. Limpar apaga as cópias e os branches, depois que as sessões terminam.' }), comparar, limpar),
       ].filter(Boolean),
     );
   }
@@ -2740,6 +2741,51 @@ function historicoDaAutomacao(a) {
         : [el('li', { class: 'p-nota', text: 'Ainda não rodou nenhuma vez.' })]),
     );
   });
+  d.showModal();
+}
+
+// Comparar lado a lado: uma coluna por pato com os arquivos que ele mexeu, do que mudou mais para o que
+// mudou menos. Arquivo que mais de um pato mexeu vem marcado: e ali que o merge do segundo pode brigar.
+function compararPatos(r) {
+  const patos = r.patos.filter((p) => !p.erro);
+  const { d, corpo, pe } = dialogo('O que cada pato mexeu', 'Os arquivos de cada branch, lado a lado. O que aparece em mais de uma coluna é onde eles se encontram.');
+  d.classList.add('largo');
+  const quantos = new Map();
+  for (const p of patos) for (const a of p.arquivos || []) quantos.set(a.caminho, (quantos.get(a.caminho) || 0) + 1);
+  const colunas = patos.map((p) => {
+    const c = S.contas.find((x) => x.id === p.conta) || { nome: p.nome || p.conta, cor: '#ff7a1a' };
+    const arquivos = p.arquivos || [];
+    const col = el(
+      'div',
+      { class: 'comparar-coluna' },
+      el('div', { class: 'comparar-cabeca' }, el('i', { class: 'ponto-conta' }), el('b', { text: c.nome }), el('span', { class: 'p-nota', text: p.commits ? `${plural(p.commits, 'commit', 'commits')}, ${plural(arquivos.length, 'arquivo', 'arquivos')}` : 'Ainda não commitou nada' })),
+      el('code', { class: 'comparar-branch', text: p.branch }),
+      arquivos.length
+        ? el(
+            'ul',
+            { class: 'comparar-arquivos' },
+            ...arquivos.map((a) =>
+              el(
+                'li',
+                { class: quantos.get(a.caminho) > 1 ? 'junto' : '', title: a.caminho },
+                el('span', { class: 'comparar-nome', text: a.caminho }),
+                el('span', { class: 'comparar-linhas', text: a.binario ? 'binário' : `+${a.mais} −${a.menos}` }),
+              ),
+            ),
+          )
+        : el('p', { class: 'p-nota', text: 'Nenhum arquivo commitado neste branch.' }),
+    );
+    col.style.setProperty('--cor', c.cor);
+    return col;
+  });
+  const juntos = [...quantos.entries()].filter(([, n]) => n > 1).map(([caminho]) => caminho);
+  corpo.append(
+    el('div', { class: 'comparar' }, ...colunas),
+    juntos.length
+      ? el('p', { class: 'equipe-aviso' }, icone('warning-circle', 16), el('span', { text: `${plural(juntos.length, 'arquivo foi mexido', 'arquivos foram mexidos')} por mais de um pato: ${juntos.slice(0, 6).join(', ')}${juntos.length > 6 ? '…' : ''}. Junte um de cada vez e resolva o que o git apontar.` }))
+      : el('p', { class: 'p-nota', text: 'Nenhum arquivo foi mexido por mais de um pato: os branches não se encostam.' }),
+  );
+  pe.append(el('button', { class: 'botao texto', type: 'button', text: 'Fechar', onclick: () => d.close() }));
   d.showModal();
 }
 
