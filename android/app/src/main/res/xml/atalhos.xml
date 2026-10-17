@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Toque longo no icone: "Nova sessao rapida" abre a folha rapida. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/atalho_rapido"
+        android:shortcutId="rapida"
+        android:shortcutLongLabel="@string/atalho_longo"
+        android:shortcutShortLabel="@string/atalho_curto">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="io.github.duckv.app.RapidoActivity"
+            android:targetPackage="io.github.duckv.app" />
+    </shortcut>
+</shortcuts>
