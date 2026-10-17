@@ -21,6 +21,57 @@ const contas = [
 ];
 fs.writeFileSync(path.join(DEMO, 'contas.json'), JSON.stringify(contas, null, 2));
 
+// Tres automacoes de mentira, para a tela "Automacoes" ter o que mostrar: uma que ja rodou, uma com a
+// hora perdida (o computador estava desligado) e uma pausada. A pasta e a do proprio duckV, que existe e
+// esta dentro da pasta do usuario: "Rodar agora" na demonstracao abre o terminal de mentira, como o resto.
+// "proxima" fica em branco de proposito: o servidor marca a proxima hora ao ligar, sempre no futuro.
+const HORA = 3600_000;
+fs.writeFileSync(
+  path.join(DEMO, 'automacoes.json'),
+  JSON.stringify(
+    [
+      {
+        id: 'aud3m01',
+        nome: 'Testes da manhã',
+        quando: { tipo: 'dias-uteis', hora: '08:00' },
+        conta: 'conta1',
+        pasta: ROOT,
+        texto: 'Rode a suíte de testes e corrija o que estiver falhando. No fim, resuma o que mudou.',
+        ativa: true,
+        criada: Date.now() - 12 * 24 * HORA,
+        historico: [
+          { em: Date.now() - 26 * HORA, instancia: 'demo-antiga-1', conta: 'conta1' },
+          { em: Date.now() - 2 * HORA, instancia: 'demo-antiga-2', conta: 'conta1' },
+        ],
+      },
+      {
+        id: 'aud3m02',
+        nome: 'Revisão da semana',
+        quando: { tipo: 'semanal', hora: '17:30', dia: 5 },
+        conta: null,
+        pasta: ROOT,
+        texto: 'Revise o que mudou nesta semana e escreva um resumo curto para a equipe.',
+        ativa: true,
+        criada: Date.now() - 40 * 24 * HORA,
+        historico: [{ em: Date.now() - 6 * 24 * HORA, perdida: true, marcada: Date.now() - 6 * 24 * HORA }],
+      },
+      {
+        id: 'aud3m03',
+        nome: 'Varredura de segurança',
+        quando: { tipo: 'cron', cron: '0 3 * * 1' },
+        conta: 'conta2',
+        pasta: ROOT,
+        texto: 'Procure dependências desatualizadas e problemas de segurança conhecidos. Abra um relatório.',
+        ativa: false,
+        criada: Date.now() - 3 * 24 * HORA,
+        historico: [],
+      },
+    ],
+    null,
+    2,
+  ),
+);
+
 // Na demonstracao, "Abrir sessao" (de qualquer conta) e "Todas as contas" abrem o terminal de mentira
 // em vez do agente de verdade. Com FAKE_TRABALHA=1 ele ainda finge trabalhar: a tarefa escrita ao abrir
 // (ou o briefing de equipe) vira conversa e o estado e a atividade da sessao vao mudando, entao da para
