@@ -72,7 +72,7 @@ private data class Listagem(val caminho: String, val pai: String?, val pastas: L
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriuEquipe: (String) -> Unit = {}, aoAbriu: (String) -> Unit) {
+fun TelaNova(e: Estado?, contaInicial: String?, pastaInicial: String, tarefaInicial: String, aoVoltar: () -> Unit, aoAbriuEquipe: (String) -> Unit = {}, aoAbriu: (String) -> Unit) {
     val c = cores
     if (e == null) {
         Column(Modifier.fillMaxSize().background(c.fundo)) { Topo("Abrir sessão", null, aoVoltar) }
@@ -83,7 +83,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriuEqu
     var conta by rememberSaveable { mutableStateOf(if (contaInicial == TODAS && daEquipe.size >= 2) TODAS else e.contas.find { it.id == contaInicial }?.id ?: e.contas.firstOrNull()?.id) }
     val todas = conta == TODAS
     val aviso = LocalAviso.current
-    var cwd by rememberSaveable { mutableStateOf("") }
+    var cwd by rememberSaveable { mutableStateOf(pastaInicial) }
     var nome by rememberSaveable { mutableStateOf("") }
     var modelo by rememberSaveable { mutableStateOf("default") }
     var esforco by rememberSaveable { mutableStateOf("") }
@@ -94,7 +94,9 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriuEqu
     var ajustar by rememberSaveable { mutableStateOf(false) }
     // Onde roda: neste computador (o de sempre) ou na nuvem da Anthropic (so contas do Claude Code)
     var naNuvem by rememberSaveable { mutableStateOf(false) }
-    var tarefa by rememberSaveable { mutableStateOf("") }
+    // A tarefa: a primeira mensagem neste computador, a tarefa da nuvem ou a da equipe. Um campo so, para o
+    // texto seguir quem troca de conta ou de lugar.
+    var tarefa by rememberSaveable { mutableStateOf(tarefaInicial) }
     // Na nuvem: um repositorio do GitHub (os seus, pelo gh do computador), esteja ele no computador ou nao.
     var repo by rememberSaveable { mutableStateOf<String?>(null) }
     var repos by remember { mutableStateOf<List<RepoGh>?>(null) }
@@ -261,14 +263,26 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriuEqu
                 }
             }
             if (naNuvem || todas) OutlinedTextField(
-                tarefa, { tarefa = it.take(if (todas) 8000 else 4000) }, Modifier.fillMaxWidth(), label = { Text(if (todas) "O que a equipe deve fazer" else "O que a sessão deve fazer") },
+                tarefa, { tarefa = it.take(8000) }, Modifier.fillMaxWidth(), label = { Text(if (todas) "O que a equipe deve fazer" else "O que a sessão deve fazer") },
                 placeholder = { Text("Ex.: corrija o teste que está falhando e abra um pull request", color = c.apoio) },
                 minLines = 3, maxLines = 8, shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
             )
-            else OutlinedTextField(
-                nome, { nome = it.take(50) }, Modifier.fillMaxWidth(), label = { Text("Nome da sessão (opcional)") },
-                singleLine = true, shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
-            )
+            else {
+                Column {
+                    CabecalhoAjuste("Primeira mensagem", null)
+                    OutlinedTextField(
+                        tarefa, { tarefa = it.take(8000) }, Modifier.fillMaxWidth(),
+                        placeholder = { Text("Opcional. Ex.: rode os testes e corrija o que falhar", color = c.apoio) },
+                        supportingText = { Text("Em branco, a sessão abre esperando você.", color = c.apoio) },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences),
+                        minLines = 2, maxLines = 8, shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
+                    )
+                }
+                OutlinedTextField(
+                    nome, { nome = it.take(50) }, Modifier.fillMaxWidth(), label = { Text("Nome da sessão (opcional)") },
+                    singleLine = true, shape = RoundedCornerShape(10.dp), colors = campoCores(), textStyle = Texto.corpo.copy(color = c.texto),
+                )
+            }
           }
           if (!naNuvem) Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             TituloSecao("Como começar", Modifier.padding(bottom = 0.dp))
@@ -350,7 +364,7 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriuEqu
                                 return@Botao
                             }
                             abrindo = true
-                            Hub.mandar(JSONObject().put("t", "nuvemNova").put("account", conta).put("repo", repo).put("texto", tarefa)) { er, r ->
+                            Hub.mandar(JSONObject().put("t", "nuvemNova").put("account", conta).put("repo", repo).put("texto", tarefa.trim().take(4000))) { er, r ->
                                 abrindo = false
                                 if (er != null) erro = er else r?.optString("instance")?.let(aoAbriu)
                             }
@@ -363,7 +377,8 @@ fun TelaNova(e: Estado?, contaInicial: String?, aoVoltar: () -> Unit, aoAbriuEqu
                         abrindo = true
                         Hub.mandar(
                             JSONObject().put("t", "start").put("account", conta).put("cwd", cwd.trim()).put("name", nome.trim())
-                                .put("model", modelo).put("effort", esforco.ifEmpty { JSONObject.NULL }).put("mode", modo).put("cols", 60).put("rows", 32),
+                                .put("model", modelo).put("effort", esforco.ifEmpty { JSONObject.NULL }).put("mode", modo).put("cols", 60).put("rows", 32)
+                                .apply { tarefa.trim().takeIf { it.isNotEmpty() }?.let { put("texto", it) } },
                         ) { er, r ->
                             abrindo = false
                             if (er != null) erro = er else r?.optString("instance")?.let(aoAbriu)

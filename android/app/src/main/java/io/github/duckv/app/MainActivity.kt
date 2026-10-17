@@ -48,7 +48,7 @@ import kotlinx.coroutines.launch
 sealed interface Rota {
     data object Inicio : Rota
     data class Sessao(val id: String) : Rota
-    data class Nova(val conta: String?) : Rota
+    data class Nova(val conta: String?, val cwd: String = "", val texto: String = "") : Rota
     data object Opcoes : Rota
     data class Historico(val conta: String) : Rota
 }
@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
                                         pilha.removeAt(pilha.lastIndex)
                                         pilha.add(Rota.Sessao(id))
                                     }) { pilha.add(Rota.Nova(it)) }
-                                    is Rota.Nova -> TelaNova(e, rota.conta, { voltar() }, aoAbriuEquipe = { id ->
+                                    is Rota.Nova -> TelaNova(e, rota.conta, rota.cwd, rota.texto, { voltar() }, aoAbriuEquipe = { id ->
                                         // a equipe aparece no inicio, no cartao com os patos de todas as contas
                                         pilha.clear()
                                         pilha.add(Rota.Inicio)
@@ -160,10 +160,14 @@ class MainActivity : ComponentActivity() {
             return
         }
         i?.getStringExtra("nova")?.let { conta ->
-            i.removeExtra("nova")
+            // pasta e texto so valem vindos da folha rapida deste app (a senha desta execucao)
+            val daFolha = i.getStringExtra("nova_chave") == Atalhos.chave
+            val cwd = if (daFolha) i.getStringExtra("nova_pasta").orEmpty().take(Atalhos.MAX_PASTA) else ""
+            val texto = if (daFolha) i.getStringExtra("nova_texto").orEmpty().take(Atalhos.MAX_TEXTO) else ""
+            listOf("nova", "nova_pasta", "nova_texto", "nova_chave").forEach(i::removeExtra)
             pilha.clear()
             pilha.add(Rota.Inicio)
-            pilha.add(Rota.Nova(conta.ifEmpty { null }))
+            pilha.add(Rota.Nova(conta.take(60).ifEmpty { null }, cwd, texto))
             return
         }
         val id = i?.getStringExtra("sessao") ?: return

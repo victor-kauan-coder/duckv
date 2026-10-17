@@ -26,6 +26,14 @@ import io.github.duckv.app.ui.TemaClaudeV
 object Atalhos {
     private var pedidosVistos = -1
 
+    /**
+     * Senha desta execucao do app: so a folha rapida a conhece, e a MainActivity (que outros apps podem abrir)
+     * so aceita pasta e texto vindos com ela.
+     */
+    val chave: String = java.util.UUID.randomUUID().toString()
+    const val MAX_PASTA = 1000
+    const val MAX_TEXTO = 8000
+
     fun intent(ctx: Context): Intent = Intent(ctx, RapidoActivity::class.java)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
 
@@ -72,7 +80,8 @@ class RapidoActivity : ComponentActivity() {
         when (d) {
             is Destino.Sessao -> i.putExtra("sessao", d.id)
             is Destino.Equipe -> i.putExtra("equipe", d.id).putExtra("falhas", d.falhas.toTypedArray())
-            is Destino.Nova -> i.putExtra("nova", d.conta ?: "")
+            is Destino.Nova -> i.putExtra("nova", d.conta ?: "").putExtra("nova_pasta", d.cwd.take(Atalhos.MAX_PASTA))
+                .putExtra("nova_texto", d.texto.take(Atalhos.MAX_TEXTO)).putExtra("nova_chave", Atalhos.chave)
             Destino.Inicio -> Unit
         }
         startActivity(i)

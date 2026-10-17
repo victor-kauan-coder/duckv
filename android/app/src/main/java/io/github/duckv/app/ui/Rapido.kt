@@ -69,7 +69,7 @@ import org.json.JSONObject
 sealed interface Destino {
     data class Sessao(val id: String) : Destino
     data class Equipe(val id: String, val falhas: List<String>) : Destino
-    data class Nova(val conta: String?) : Destino
+    data class Nova(val conta: String?, val cwd: String, val texto: String) : Destino
     data object Inicio : Destino
 }
 
@@ -284,8 +284,8 @@ private fun Escolhas(e: Estado, pato: String, ir: (Destino?) -> Unit) {
             }
         }
 
-        // 6. a tela completa de nova sessao
-        TextButton({ ir(Destino.Nova(escolha.takeIf { it != AUTO } ?: conta?.id)) }, Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp)) {
+        // 6. a tela completa de nova sessao, com o que ja foi escolhido e escrito
+        TextButton({ ir(Destino.Nova(escolha.takeIf { it != AUTO } ?: conta?.id, cwd, texto)) }, Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp)) {
             Icon(Icons.Rounded.Tune, null, tint = c.realce, modifier = Modifier.size(18.dp))
             Text("Mais opções", style = Texto.rotulo, color = c.realce, modifier = Modifier.padding(start = 8.dp))
         }
